@@ -7,6 +7,7 @@ import "../src/ui/styles.css";
 const NAV = [
   { href: "/", label: "市場總覽", short: "總覽", icon: "M3 12h4l3-8 4 16 3-8h4" },
   { href: "/history", label: "走勢與均線", short: "走勢", icon: "M3 17l5-5 4 4 8-8M15 8h5v5" },
+  { href: "/outlook", label: "下月展望", short: "展望", icon: "M12 3a9 9 0 1 0 9 9M12 3v9l6-6M12 3a9 9 0 0 1 9 9h-9" },
   { href: "/etfs", label: "ETF 與定投", short: "ETF", icon: "M4 20V10M10 20V4M16 20v-7M22 20H2" },
   { href: "/news", label: "新聞與日曆", short: "新聞", icon: "M4 5h16v14H4zM4 9h16M9 3v4M15 3v4" },
   { href: "/sources", label: "資料來源", short: "資料", icon: "M4 6c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3zM4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6" },
@@ -56,6 +57,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           </nav>
           <div className="whoami">
             <span className="hide-sm">{shared.userEmail}</span>
+            <Link href="/sources" prefetch={PREFETCH} cacheFor={CACHE_FOR} className={`show-sm-inline icon-link ${isActive("/sources", targetPath) ? "active" : ""}`} aria-label="資料來源">
+              資料
+            </Link>
             <button
               className="secondary"
               onClick={async () => {
@@ -73,7 +77,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         個人研究用途，非投資建議。行情來自 Yahoo Finance（主）、Nasdaq 與 Cboe（核對），權重來自 State Street SPY 每日持股；非官方授權資料源，可能延遲或錯誤。
       </footer>
       <nav className="tabbar" aria-label="主要分頁">
-        {NAV.map((n) => (
+        {NAV.filter((n) => n.href !== "/sources").map((n) => (
           <Link key={n.href} href={n.href} prefetch={PREFETCH} cacheFor={CACHE_FOR} className={isActive(n.href, targetPath) ? "active" : ""}>
             <svg viewBox="0 0 24 24" aria-hidden>
               <path d={n.icon} />

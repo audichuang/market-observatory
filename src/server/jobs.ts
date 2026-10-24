@@ -97,8 +97,15 @@ async function jobPrices(db: D1Database): Promise<JobResult> {
   } catch (e) {
     failed[VIX_SYMBOL] = errText(e);
   }
-  const changed = await upsertBars(db, ok);
+  const { changed, rebased } = await upsertBars(db, ok);
   detail.changed = changed;
+  // 分割後 Yahoo 改寫了整段歷史：只重抓一個月會新舊基準混用，偵測到就重抓這幾檔的十年日線。
+  const rebasedSymbols = Object.keys(rebased);
+  if (rebasedSymbols.length) {
+    const full = await fetchYahooBatch(rebasedSymbols.map((s) => [s, YAHOO_SYMBOLS[s]] as [string, string]), "10y", expected);
+    await upsertBars(db, full.ok);
+    detail.rebased = { factors: rebased, refetchFailed: full.failed };
+  }
   const stale = ok.filter((b) => b.symbol !== FX_SYMBOL && b.bars.at(-1)?.date !== expected).map((b) => b.symbol);
   try {
     const checked = await applyCrossChecks(db, [{ symbol: INDEX_SYMBOL, source: CBOE_SOURCE, bars: await fetchCboeDaily("SPX", since) }]);
@@ -112,7 +119,7 @@ async function jobPrices(db: D1Database): Promise<JobResult> {
   const total = entries.length + 1;
   return {
     status: failedNames.length === 0 && stale.length === 0 ? "ok" : failedNames.length > total / 2 ? "failed" : "partial",
-    summary: `更新 ${total - failedNames.length}/${total} 檔；失敗 ${failedNames.join(",") || "無"}；尚無 ${expected} 收盤 ${stale.join(",") || "無"}；新快照 ${snaps.created.join(",") || "無"}`,
+    summary: `更新 ${total - failedNames.length}/${total} 檔；失敗 ${failedNames.join(",") || "無"}；尚無 ${expected} 收盤 ${stale.join(",") || "無"}${rebasedSymbols.length ? `；偵測到分割、已重抓歷史 ${rebasedSymbols.map((s) => `${s}×${rebased[s].toFixed(3)}`).join(",")}` : ""}；新快照 ${snaps.created.join(",") || "無"}`,
     detail,
   };
 }
@@ -163,7 +170,7 @@ async function jobBackfillPrices(db: D1Database, opts: JobOptions): Promise<JobR
   const entries = Object.entries(YAHOO_SYMBOLS);
   if (part === BACKFILL_PRICE_PARTS - 1) {
     const vix = await fetchCboeDaily("VIX", since);
-    const changed = await upsertBars(db, [{ symbol: VIX_SYMBOL, source: CBOE_SOURCE, bars: vix }]);
+    const { changed } = await upsertBars(db, [{ symbol: VIX_SYMBOL, source: CBOE_SOURCE, bars: vix }]);
     const checked = await applyCrossChecks(db, [{ symbol: INDEX_SYMBOL, source: CBOE_SOURCE, bars: await fetchCboeDaily("SPX", since) }]);
     return {
       status: "ok",
@@ -174,7 +181,7 @@ async function jobBackfillPrices(db: D1Database, opts: JobOptions): Promise<JobR
   const slice = entries.slice(part * BACKFILL_CHUNK, (part + 1) * BACKFILL_CHUNK);
   if (!slice.length) return { status: "failed", summary: `沒有第 ${part} 段`, detail: {} };
   const { ok, failed } = await fetchYahooBatch(slice, "10y", latestExpectedClose());
-  const changed = await upsertBars(db, ok);
+  const { changed } = await upsertBars(db, ok);
   const failedNames = Object.keys(failed);
   return {
     status: failedNames.length === 0 ? "ok" : failedNames.length === slice.length ? "failed" : "partial",

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { IChartApi, ISeriesApi, MouseEventParams, Time, DeepPartial, ChartOptions } from "lightweight-charts";
 import { num } from "./format.ts";
 
 export interface ChartLine {
@@ -14,86 +15,157 @@ interface Props {
   height?: number;
   digits?: number;
   suffix?: string;
-  /** 在 y=0 畫一條基準線（報酬率圖用） */
+  /** 在 y=0 畫一條基準線（報酬率圖用），且 y 軸範圍一定含 0 */
   zeroLine?: boolean;
-  /** 伺服器端算圖時的預設寬度；瀏覽器端會改用容器的實際寬度 */
+  /** 舊 SVG 版的伺服器端預設寬度；canvas 版跟容器寬度走，保留只為相容 */
   width?: number;
 }
 
-const PAD = { top: 12, right: 64, bottom: 26, left: 8 };
+type Lib = typeof import("./chartLib.ts");
 
-export default function LineChart({ lines, height: maxHeight = 300, digits = 2, suffix = "", zeroLine = false, width: defaultWidth = 900 }: Props) {
-  const [hover, setHover] = useState<number | null>(null);
-  // 依容器實際寬度畫圖：viewBox 跟顯示寬度一樣，手機上座標文字才會是真的 11px，不會被等比例縮到看不見。
+// 從 CSS 變數取色，深淺色跟著 styles.css 的 prefers-color-scheme 走。
+function themeOptions(el: HTMLElement, lib: Lib): DeepPartial<ChartOptions> {
+  const css = getComputedStyle(el);
+  const v = (name: string, fallback: string) => css.getPropertyValue(name).trim() || fallback;
+  const line = v("--line", "#e3e6ea");
+  return {
+    layout: {
+      background: { type: lib.ColorType.Solid, color: "transparent" },
+      textColor: v("--muted", "#5f6873"),
+      fontSize: 11,
+    },
+    grid: { vertLines: { visible: false }, horzLines: { color: line } },
+    rightPriceScale: { borderColor: line },
+    timeScale: { borderColor: line },
+    crosshair: {
+      vertLine: { color: v("--muted", "#5f6873"), labelBackgroundColor: v("--ink", "#161a1f") },
+      horzLine: { color: v("--muted", "#5f6873"), labelBackgroundColor: v("--ink", "#161a1f") },
+    },
+  };
+}
+
+// 'YYYY-MM-DD' 字串進去，事件回來的 time 可能是字串或 BusinessDay 物件，兩種都轉回字串。
+function timeKey(t: Time | undefined): string | null {
+  if (t === undefined) return null;
+  if (typeof t === "string") return t;
+  if (typeof t === "number") return new Date(t * 1000).toISOString().slice(0, 10);
+  return `${t.year}-${String(t.month).padStart(2, "0")}-${String(t.day).padStart(2, "0")}`;
+}
+
+export default function LineChart({ lines, height: maxHeight = 300, digits = 2, suffix = "", zeroLine = false }: Props) {
   const box = useRef<HTMLDivElement>(null);
-  const [W, setW] = useState(defaultWidth);
-  useEffect(() => {
-    const el = box.current;
-    if (!el) return;
-    const update = () => el.clientWidth > 0 && setW(Math.round(el.clientWidth));
-    update();
-    const ro = new ResizeObserver(update);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-  const height = Math.min(maxHeight, Math.max(200, Math.round(W * 0.62)));
+  const [chart, setChart] = useState<{ api: IChartApi; lib: Lib } | null>(null);
+  const [hoverDate, setHoverDate] = useState<string | null>(null);
+
   const dates = useMemo(() => {
     const set = new Set<string>();
     for (const l of lines) for (const p of l.points) set.add(p.date);
     return [...set].sort();
   }, [lines]);
   const lookup = useMemo(() => lines.map((l) => new Map(l.points.map((p) => [p.date, p.value]))), [lines]);
-  const values = lines.flatMap((l) => l.points.map((p) => p.value)).filter((v): v is number => v !== null && Number.isFinite(v));
-  if (dates.length < 2 || !values.length) return <div ref={box}><p className="sub">資料不足，無法繪圖。</p></div>;
+  const enough = dates.length >= 2 && lookup.some((m) => [...m.values()].some((v) => v !== null && Number.isFinite(v)));
 
-  let min = Math.min(...values, ...(zeroLine ? [0] : []));
-  let max = Math.max(...values, ...(zeroLine ? [0] : []));
-  if (min === max) {
-    min -= 1;
-    max += 1;
-  }
-  const span = max - min;
-  min -= span * 0.05;
-  max += span * 0.05;
-  const innerW = W - PAD.left - PAD.right;
-  const innerH = height - PAD.top - PAD.bottom;
-  const x = (i: number) => PAD.left + (i / (dates.length - 1)) * innerW;
-  const y = (v: number) => PAD.top + (1 - (v - min) / (max - min)) * innerH;
-
-  const ticks = Array.from({ length: 5 }, (_, i) => min + ((max - min) * i) / 4);
-  const xTickEvery = Math.max(1, Math.round(dates.length / (W < 500 ? 4 : 6)));
-  // 不到半年的區間用「月-日」，否則用「年-月」，避免整排標籤都一樣。
-  const shortSpan = Date.parse(dates.at(-1)!) - Date.parse(dates[0]) < 183 * 86400000;
-
-  const paths = lines.map((l, li) => {
-    let d = "";
-    let pen = false;
-    dates.forEach((date, i) => {
-      const v = lookup[li].get(date);
-      if (v === null || v === undefined) {
-        pen = false;
-        return;
-      }
-      d += `${pen ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`;
-      pen = true;
+  // 1) 建圖：只在瀏覽器、只建一次。動態 import 讓 server bundle 與首屏 chunk 都不含這個套件。
+  useEffect(() => {
+    if (!enough) return;
+    let api: IChartApi | null = null;
+    let disposed = false;
+    let mq: MediaQueryList | null = null;
+    let onScheme: (() => void) | null = null;
+    import("./chartLib.ts").then((lib) => {
+      const el = box.current;
+      if (disposed || !el) return;
+      api = lib.createChart(el, {
+        autoSize: true, // 內建 ResizeObserver，容器尺寸由 CSS 決定
+        ...themeOptions(el, lib),
+        localization: { locale: "zh-TW", dateFormat: "yyyy-MM-dd" },
+        // 手機：不攔截拖曳／捏合／滾輪，讓頁面照常上下捲；點一下或長按才出十字線
+        handleScroll: false,
+        handleScale: false,
+        timeScale: { fixLeftEdge: true, fixRightEdge: true, lockVisibleTimeRangeOnResize: true },
+        rightPriceScale: { scaleMargins: { top: 0.08, bottom: 0.08 } },
+        crosshair: { mode: lib.CrosshairMode.Magnet },
+        // 授權要求：保留 TradingView 連結。要關掉就得在頁面別處放 NOTICE 文字＋ tradingview.com 連結。
+        layout: { ...themeOptions(el, lib).layout, attributionLogo: false /* 歸屬文字與連結放在頁尾（layout.tsx） */ },
+      });
+      mq = window.matchMedia("(prefers-color-scheme: dark)");
+      onScheme = () => api?.applyOptions(themeOptions(el, lib));
+      mq.addEventListener("change", onScheme);
+      setChart({ api, lib });
     });
-    return d;
-  });
+    return () => {
+      disposed = true;
+      if (mq && onScheme) mq.removeEventListener("change", onScheme);
+      api?.remove(); // 釋放 canvas、ResizeObserver 與事件監聽
+      setChart(null);
+    };
+  }, [enough]);
 
-  const onMove = (e: React.PointerEvent<SVGSVGElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const px = ((e.clientX - rect.left) / rect.width) * W;
-    const i = Math.round(((px - PAD.left) / innerW) * (dates.length - 1));
-    setHover(Math.max(0, Math.min(dates.length - 1, i)));
-  };
+  // 2) 換資料：拆掉上一批 series 再建新的；圖本身不重建。
+  useEffect(() => {
+    if (!chart) return;
+    const { api, lib } = chart;
+    const fmt = (v: number) => `${num(v, digits)}${suffix}`;
+    const series: ISeriesApi<"Line">[] = lines.map((l, i) => {
+      const s = api.addSeries(lib.LineSeries, {
+        color: l.color,
+        lineWidth: l.dashed ? 1 : 2, // 只接受整數 1~4
+        lineStyle: l.dashed ? lib.LineStyle.Dashed : lib.LineStyle.Solid,
+        priceLineVisible: false,
+        lastValueVisible: !l.dashed,
+        crosshairMarkerRadius: 3,
+        // 內建 'percent' 的 precision 實測不可靠（precision 2 印出 −12.1%），一律用自訂 formatter
+        priceFormat: { type: "custom", formatter: fmt, minMove: 10 ** -digits },
+        // 讓自動縮放一定包含 0，基準線才不會跑出畫面
+        autoscaleInfoProvider:
+          zeroLine && i === 0
+            ? (orig: () => { priceRange: { minValue: number; maxValue: number } | null } | null) => {
+                const r = orig();
+                if (!r?.priceRange) return r;
+                return { ...r, priceRange: { minValue: Math.min(r.priceRange.minValue, 0), maxValue: Math.max(r.priceRange.maxValue, 0) } };
+              }
+            : undefined,
+      });
+      // null／NaN 不能當 value（development build 會 assert、production 會畫壞），轉成 whitespace
+      s.setData(
+        [...l.points]
+          .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+          .filter((p, k, arr) => k === 0 || arr[k - 1].date !== p.date)
+          .map((p) => (p.value === null || !Number.isFinite(p.value) ? { time: p.date } : { time: p.date, value: p.value })),
+      );
+      return s;
+    });
+    if (zeroLine && series[0]) series[0].createPriceLine({ price: 0, color: "rgba(128,128,128,.6)", lineWidth: 1, lineStyle: lib.LineStyle.Solid, axisLabelVisible: false, title: "" });
+    api.timeScale().fitContent();
+    const onMove = (p: MouseEventParams<Time>) => setHoverDate(p.point ? timeKey(p.time) : null);
+    // 手機點一下不會觸發 crosshairMove（要長按才進追蹤模式），用 click 補：更新圖例並畫出十字線。
+    // setCrosshairPosition 不會回頭觸發 crosshairMove，所以不會跟 onMove 打架。
+    const onTap = (p: MouseEventParams<Time>) => {
+      const key = timeKey(p.time);
+      if (!key || p.time === undefined) return;
+      setHoverDate(key);
+      const d = series[0] && p.seriesData.get(series[0]);
+      if (d && "value" in d) api.setCrosshairPosition(d.value, p.time, series[0]);
+    };
+    api.subscribeCrosshairMove(onMove);
+    api.subscribeClick(onTap);
+    return () => {
+      api.unsubscribeCrosshairMove(onMove);
+      api.unsubscribeClick(onTap);
+      for (const s of series) api.removeSeries(s);
+      setHoverDate(null);
+    };
+  }, [chart, lines, digits, suffix, zeroLine]);
 
-  const hi = hover ?? dates.length - 1;
+  if (!enough) return <div ref={box}><p className="sub">資料不足，無法繪圖。</p></div>;
+
+  const hi = hoverDate && dates.includes(hoverDate) ? hoverDate : dates[dates.length - 1];
   return (
-    <div ref={box}>
+    <div>
       <div className="tooltip">
-        <strong>{dates[hi]}</strong>{" "}
+        <strong>{hi}</strong>{" "}
         {lines.map((l, li) => {
-          const v = lookup[li].get(dates[hi]);
+          const v = lookup[li].get(hi);
           return (
             <span key={l.name} style={{ marginLeft: ".7rem", color: l.color }}>
               {l.name} {v === null || v === undefined ? "—" : `${num(v, digits)}${suffix}`}
@@ -101,26 +173,8 @@ export default function LineChart({ lines, height: maxHeight = 300, digits = 2, 
           );
         })}
       </div>
-      <svg className="chart" viewBox={`0 0 ${W} ${height}`} onPointerMove={onMove} onPointerLeave={() => setHover(null)} role="img">
-        {ticks.map((t) => (
-          <g key={t}>
-            <line className="grid-line" x1={PAD.left} x2={W - PAD.right} y1={y(t)} y2={y(t)} />
-            <text x={W - PAD.right + 6} y={y(t) + 4}>{num(t, digits)}{suffix}</text>
-          </g>
-        ))}
-        {zeroLine && <line x1={PAD.left} x2={W - PAD.right} y1={y(0)} y2={y(0)} stroke="currentColor" strokeOpacity={0.35} />}
-        {dates.map((d, i) =>
-          i % xTickEvery === 0 ? (
-            <text key={d} x={x(i)} y={height - 6} textAnchor={i === 0 ? "start" : i >= dates.length - xTickEvery ? "end" : "middle"}>
-              {shortSpan ? d.slice(5) : d.slice(2, 7)}
-            </text>
-          ) : null,
-        )}
-        {paths.map((d, li) => (
-          <path key={lines[li].name} d={d} fill="none" stroke={lines[li].color} strokeWidth={lines[li].dashed ? 1.3 : 1.8} strokeDasharray={lines[li].dashed ? "5 4" : undefined} />
-        ))}
-        {hover !== null && <line x1={x(hover)} x2={x(hover)} y1={PAD.top} y2={height - PAD.bottom} stroke="currentColor" strokeOpacity={0.3} />}
-      </svg>
+      {/* 高度＝寬度 × 0.62，夾在 200px 與 height 之間；SSR 時就佔好位置，hydrate 後不跳版 */}
+      <div ref={box} className="chart" style={{ width: "100%", aspectRatio: "1 / 0.62", minHeight: 200, maxHeight, position: "relative" }} />
       <div className="legend">
         {lines.map((l) => (
           <span key={l.name}>

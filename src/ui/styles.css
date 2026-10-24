@@ -142,4 +142,9 @@ footer.foot { max-width: 1180px; margin: 0 auto; padding: 0 1rem 2rem; color: va
   .kpi .value { font-size: 1.25rem; }
   main { padding-top: .8rem; }
   .hide-sm { display: none; }
+  .topbar-inner { flex-wrap: nowrap; gap: .5rem; }
+  .brand { display: none; }
+  .nav { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .nav a { white-space: nowrap; }
+  th, td { padding: .45rem .4rem; }
 }

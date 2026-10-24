@@ -15,3 +15,12 @@ test("外站或瀏覽器會解讀成外站的寫法一律回首頁", () => {
   assert.equal(safeNext("/\\evil.com"), "/");
   assert.equal(safeNext("/\t/evil.com"), "/");
 });
+
+test("點區段正規化後變成 //host 的寫法不能導去外站", () => {
+  const origin = "https://site.example";
+  for (const tricky of ["/.//evil.example/path", "/a/..//evil.example", "/%2e//evil.example"]) {
+    const out = safeNext(tricky);
+    assert.ok(!out.startsWith("//"), `${tricky} → ${out}`);
+    assert.equal(new URL(out, origin).origin, origin, `${tricky} → ${out}`);
+  }
+});

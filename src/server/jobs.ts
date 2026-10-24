@@ -103,7 +103,9 @@ async function jobPrices(db: D1Database): Promise<JobResult> {
   const rebasedSymbols = Object.keys(rebased);
   if (rebasedSymbols.length) {
     const full = await fetchYahooBatch(rebasedSymbols.map((s) => [s, YAHOO_SYMBOLS[s]] as [string, string]), "10y", expected);
-    await upsertBars(db, full.ok);
+    await upsertBars(db, full.ok, { allowRebase: true });
+    // 重抓失敗的代號這次完全沒寫入，下一輪會再偵測到並重試；狀態記成 partial。
+    for (const [s, err] of Object.entries(full.failed)) failed[s] = `分割後重抓歷史失敗，下次重試：${err}`;
     detail.rebased = { factors: rebased, refetchFailed: full.failed };
   }
   const stale = ok.filter((b) => b.symbol !== FX_SYMBOL && b.bars.at(-1)?.date !== expected).map((b) => b.symbol);
@@ -119,7 +121,7 @@ async function jobPrices(db: D1Database): Promise<JobResult> {
   const total = entries.length + 1;
   return {
     status: failedNames.length === 0 && stale.length === 0 ? "ok" : failedNames.length > total / 2 ? "failed" : "partial",
-    summary: `更新 ${total - failedNames.length}/${total} 檔；失敗 ${failedNames.join(",") || "無"}；尚無 ${expected} 收盤 ${stale.join(",") || "無"}${rebasedSymbols.length ? `；偵測到分割、已重抓歷史 ${rebasedSymbols.map((s) => `${s}×${rebased[s].toFixed(3)}`).join(",")}` : ""}；新快照 ${snaps.created.join(",") || "無"}`,
+    summary: `更新 ${total - failedNames.length}/${total} 檔；失敗 ${failedNames.join(",") || "無"}；尚無 ${expected} 收盤 ${stale.join(",") || "無"}${rebasedSymbols.length ? `；偵測到分割 ${rebasedSymbols.map((s) => `${s}×${rebased[s].toFixed(3)}`).join(",")}` : ""}；新快照 ${snaps.created.join(",") || "無"}`,
     detail,
   };
 }
@@ -181,7 +183,7 @@ async function jobBackfillPrices(db: D1Database, opts: JobOptions): Promise<JobR
   const slice = entries.slice(part * BACKFILL_CHUNK, (part + 1) * BACKFILL_CHUNK);
   if (!slice.length) return { status: "failed", summary: `沒有第 ${part} 段`, detail: {} };
   const { ok, failed } = await fetchYahooBatch(slice, "10y", latestExpectedClose());
-  const { changed } = await upsertBars(db, ok);
+  const { changed } = await upsertBars(db, ok, { allowRebase: true });
   const failedNames = Object.keys(failed);
   return {
     status: failedNames.length === 0 ? "ok" : failedNames.length === slice.length ? "failed" : "partial",

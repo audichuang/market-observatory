@@ -206,7 +206,7 @@ export default function OutlookPage({ outlook, cells, track, recent, consensus, 
                 <div className="kpi"><div className="label">EPS 修正廣度</div><div className="value" style={{ fontSize: "1.2rem" }}><Delta value={consensus.revisionBreadth === null ? null : consensus.revisionBreadth * 100} digits={0} /></div><div className="delta sub">−100～+100</div></div>
               </div>
               <p className="meta" style={{ margin: ".5rem 0" }}>
-                涵蓋 {consensus.symbols} 檔、約占指數 {num(consensus.coveredWeightPct, 0)}% 權重（{consensus.oldest}～{consensus.newest} 更新）。依 SPY 權重加權；目標價為 12 個月共識。
+                涵蓋 {consensus.symbols} 檔、約占指數 {num(consensus.coveredWeightPct, 0)}% 權重（{consensus.oldest}～{consensus.newest} 更新）。依 SPY 權重加權；目標價為 12 個月共識。買進占比是 Nasdaq 收錄的評等按權重平均，和 FactSet 全部評等的口徑不同，數字會有落差。
                 {consensus.coveredWeightPct < 50 && " 涵蓋不到一半權重，數字還不完整。"}
               </p>
               <div className="table-wrap">

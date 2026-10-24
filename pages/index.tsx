@@ -4,7 +4,7 @@ import { CenteredBar, CheckBadge, Delta } from "../src/ui/bits.tsx";
 import { dateWithWeekday, num, pctText, signed, taipeiTime } from "../src/ui/format.ts";
 import type { Props } from "./index.server";
 
-export default function Overview({ snapshot, revisions, dates, expectedClose, news, events, lastPriceRun, viewingLatest }: Props) {
+export default function Overview({ snapshot, revisions, dates, expectedClose, news, events, lastPriceRun, forecast, viewingLatest }: Props) {
   const router = useRouter();
   if (!snapshot) {
     return (
@@ -84,6 +84,22 @@ export default function Overview({ snapshot, revisions, dates, expectedClose, ne
           </div>
         </div>
       </div>
+
+      {forecast && viewingLatest && (
+        <Link href="/outlook" className="panel section outlook-card">
+          <div>
+            <div className="sub">下月展望（約 21 個交易日後收高的機率）</div>
+            <div style={{ fontSize: "1.6rem", fontWeight: 700 }}>{Math.round(forecast.probability * 100)}%</div>
+          </div>
+          <div className="sub" style={{ flex: 1 }}>
+            歷史基準 {Math.round(forecast.base_rate * 100)}% ·{" "}
+            <span className={`badge ${forecast.call === "up" ? "ok" : forecast.call === "down" ? "bad" : "warn"}`}>
+              {forecast.call === "up" ? "偏多" : forecast.call === "down" ? "偏空" : "不確定"}
+            </span>
+          </div>
+          <span aria-hidden>→</span>
+        </Link>
+      )}
 
       <div className="grid kpis section" style={{ alignItems: "start" }}>
         <Mini label="近一週" value={s.index.weekPct} />

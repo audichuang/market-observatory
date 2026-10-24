@@ -60,3 +60,35 @@ export async function fetchYahooDaily(providerSymbol: string, range = "1mo"): Pr
   });
   return parseYahooChart((await res.json()) as ChartJson, providerSymbol);
 }
+
+type ChartResult = NonNullable<NonNullable<ChartJson["chart"]>["result"]>;
+
+interface SparkJson {
+  spark?: { result?: { symbol?: string; response?: ChartResult }[] | null };
+}
+
+/**
+ * 一次請求取多檔的近期日收盤（Yahoo spark，每次最多 20 檔），回傳 代號 → 最後一筆收盤。
+ * 用來替分析師目標價算隱含漲幅，不必逐檔打 chart。
+ */
+export async function fetchYahooLastCloses(symbols: string[]): Promise<Map<string, { date: string; close: number }>> {
+  const out = new Map<string, { date: string; close: number }>();
+  for (let i = 0; i < symbols.length; i += 20) {
+    const chunk = symbols.slice(i, i + 20);
+    const url = `https://query1.finance.yahoo.com/v7/finance/spark?symbols=${chunk.map(encodeURIComponent).join(",")}&range=5d&interval=1d`;
+    const res = await fetchWithTimeout(YAHOO_SOURCE, url, { headers: { Accept: "application/json" } });
+    const json = (await res.json()) as SparkJson;
+    for (const r of json.spark?.result ?? []) {
+      const chart = r.response?.[0];
+      if (!r.symbol || !chart) continue;
+      try {
+        const bars = parseYahooChart({ chart: { result: [chart] } }, r.symbol);
+        const last = bars.at(-1);
+        if (last) out.set(r.symbol, { date: last.date, close: last.close });
+      } catch {
+        // 單檔解析失敗就略過
+      }
+    }
+  }
+  return out;
+}

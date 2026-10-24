@@ -1,16 +1,19 @@
 import { addDays, latestExpectedClose, MACRO_EVENTS } from "../lib/calendar.ts";
 import { type Snapshot, buildSnapshot, snapshotLoadWindow } from "../lib/snapshot.ts";
 import { CBOE_SOURCE, fetchCboeDaily } from "../lib/sources/cboe.ts";
-import { type EarningsDate, NASDAQ_SOURCE, fetchEarningsCalendar, fetchEarningsDate, fetchNasdaqHistorical, fetchNasdaqNews } from "../lib/sources/nasdaq.ts";
+import { type EarningsDate, NASDAQ_SOURCE, fetchAnalystView, fetchEarningsCalendar, fetchEarningsDate, fetchNasdaqHistorical, fetchNasdaqNews } from "../lib/sources/nasdaq.ts";
 import { nextPendingRebase } from "../lib/rebase.ts";
 import { bumpDataVersion } from "./page-cache.ts";
 import { fetchSpyHoldings } from "../lib/sources/ssga.ts";
-import { YAHOO_SOURCE, fetchYahooDaily } from "../lib/sources/yahoo.ts";
+import { type FactsetInsight, fetchInsight, latestInsightUrl } from "../lib/sources/factset.ts";
+import { YAHOO_SOURCE, fetchYahooDaily, fetchYahooLastCloses } from "../lib/sources/yahoo.ts";
+import { buildOutlook } from "../lib/forecast.ts";
+import { easternDate } from "../lib/calendar.ts";
 import { EQUAL_WEIGHT_SYMBOL, FX_SYMBOL, INDEX_SYMBOL, MAG7, MAG7_TICKERS, NASDAQ_CHECK_SYMBOLS, VIX_SYMBOL, YAHOO_SYMBOLS } from "../lib/universe.ts";
 import { type BarBatch, applyCrossChecks, finishRun, insertWeights, loadPrices, getSetting, loadWeightAnchors, nowIso, putSetting, saveSnapshots, startRun, upsertBars, weightsNear } from "./repo.ts";
 
-export type JobName = "prices" | "crosscheck" | "weights" | "news" | "events" | "snapshots" | "backfill-prices" | "backfill-checks";
-export const JOB_NAMES: JobName[] = ["prices", "crosscheck", "weights", "news", "events", "snapshots", "backfill-prices", "backfill-checks"];
+export type JobName = "prices" | "crosscheck" | "weights" | "news" | "events" | "analysts" | "factset" | "forecast" | "snapshots" | "backfill-prices" | "backfill-checks";
+export const JOB_NAMES: JobName[] = ["prices", "crosscheck", "weights", "news", "events", "analysts", "factset", "forecast", "snapshots", "backfill-prices", "backfill-checks"];
 
 export interface JobOptions {
   /** 回補工作的分段序號（從 0 開始） */
@@ -125,6 +128,11 @@ async function jobPrices(db: D1Database): Promise<JobResult> {
   }
   const snaps = await rebuildSnapshots(db, "收盤資料更新");
   detail.snapshots = snaps.created;
+  try {
+    detail.forecast = await recordForecast(db);
+  } catch (e) {
+    detail.forecast = errText(e);
+  }
   const failedNames = Object.keys(failed);
   const total = entries.length + 1;
   return {
@@ -286,12 +294,111 @@ async function jobEvents(db: D1Database): Promise<JobResult> {
   };
 }
 
+/** 用最新收盤計算「約 21 個交易日後是否上漲」並存檔（同一天重算就覆蓋），之後拿實際結果對帳。 */
+export async function recordForecast(db: D1Database) {
+  const loaded = await loadPrices(db, [INDEX_SYMBOL, VIX_SYMBOL], "0000-01-01");
+  const outlook = buildOutlook(loaded.series[INDEX_SYMBOL], loaded.series[VIX_SYMBOL]);
+  if (!outlook) return "資料不足，未產生預測";
+  await db
+    .prepare(
+      `INSERT INTO forecasts (trade_date, probability, base_rate, basis, call, close, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(trade_date) DO UPDATE SET probability = excluded.probability, base_rate = excluded.base_rate, basis = excluded.basis, call = excluded.call, close = excluded.close, created_at = excluded.created_at`,
+    )
+    .bind(outlook.asOf, outlook.pick.p, outlook.pick.base.p, outlook.pick.basis, outlook.call, outlook.close, nowIso())
+    .run();
+  return `${outlook.asOf} 上漲機率 ${(outlook.pick.p * 100).toFixed(1)}%（${outlook.call}）`;
+}
+
+// 目標價抓權重前 200 檔（約占指數 85% 權重），EPS 修正只抓前 100 檔：每次 16 檔約 25 個子請求。
+const ANALYST_UNIVERSE = 200;
+const EPS_REVISION_UNIVERSE = 100;
+const ANALYST_PER_RUN = 16;
+const EMPTY_VIEW = { targetMean: null, targetLow: null, targetHigh: null, buy: 0, hold: 0, sell: 0, fiscalEnd: null, epsForecast: null, epsUp: null, epsDown: null, estimates: null };
+
+/** SPY 權重前 200 檔，每次挑最久沒更新的 16 檔抓分析師共識；股價用 Yahoo spark 一次取得。 */
+async function jobAnalysts(db: D1Database): Promise<JobResult> {
+  const universe = await db
+    .prepare("SELECT ticker, weight_pct FROM weights WHERE as_of = (SELECT MAX(as_of) FROM weights) ORDER BY weight_pct DESC LIMIT ?")
+    .bind(ANALYST_UNIVERSE)
+    .all<{ ticker: string; weight_pct: number }>();
+  if (!universe.results.length) return { status: "failed", summary: "還沒有 SPY 持股權重", detail: {} };
+  const lastFetched = await db
+    .prepare("SELECT symbol, MAX(fetched_at) AS f FROM analyst_views GROUP BY symbol")
+    .all<{ symbol: string; f: string }>();
+  const seen = new Map(lastFetched.results.map((r) => [r.symbol, r.f]));
+  const picks = universe.results
+    .map((u) => u.ticker)
+    .sort((a, b) => (seen.get(a) ?? "").localeCompare(seen.get(b) ?? ""))
+    .slice(0, ANALYST_PER_RUN);
+  let prices = new Map<string, { date: string; close: number }>();
+  let priceError: string | null = null;
+  try {
+    prices = await fetchYahooLastCloses(picks);
+  } catch (e) {
+    priceError = errText(e);
+  }
+  const top = new Set(universe.results.slice(0, EPS_REVISION_UNIVERSE).map((u) => u.ticker));
+  // Nasdaq 對少數成分股（例如 BRK.B）沒有分析師資料，回「No record found」：記成空結果，輪替照常前進。
+  const results = await mapLimit(picks, 4, (s) =>
+    fetchAnalystView(s, top.has(s)).catch((e) => {
+      if (errText(e).includes("No record found")) return { ...EMPTY_VIEW, symbol: s };
+      throw e;
+    }),
+  );
+  const asOf = easternDate();
+  const fetchedAt = nowIso();
+  const stmt = db.prepare(
+    `INSERT INTO analyst_views (symbol, as_of, price, price_date, target_mean, target_low, target_high, buy, hold, sell, fiscal_end, eps_forecast, eps_up, eps_down, estimates, fetched_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(symbol, as_of) DO UPDATE SET price = excluded.price, price_date = excluded.price_date, target_mean = excluded.target_mean, target_low = excluded.target_low,
+       target_high = excluded.target_high, buy = excluded.buy, hold = excluded.hold, sell = excluded.sell, fiscal_end = excluded.fiscal_end, eps_forecast = excluded.eps_forecast,
+       eps_up = excluded.eps_up, eps_down = excluded.eps_down, estimates = excluded.estimates, fetched_at = excluded.fetched_at`,
+  );
+  const stmts: D1PreparedStatement[] = [];
+  const failed: string[] = [];
+  results.forEach((r, i) => {
+    if (r.status === "rejected") return failed.push(`${picks[i]}: ${errText(r.reason)}`);
+    const v = r.value;
+    const p = prices.get(picks[i]);
+    stmts.push(stmt.bind(v.symbol, asOf, p?.close ?? null, p?.date ?? null, v.targetMean, v.targetLow, v.targetHigh, v.buy, v.hold, v.sell, v.fiscalEnd, v.epsForecast, v.epsUp, v.epsDown, v.estimates, fetchedAt));
+  });
+  if (stmts.length) await db.batch(stmts);
+  return {
+    status: failed.length === 0 && !priceError ? "ok" : stmts.length === 0 ? "failed" : "partial",
+    summary: `分析師共識 ${stmts.length}/${picks.length} 檔（${picks.join(",")}）；股價 ${prices.size} 檔${priceError ? `（失敗：${priceError}）` : ""}`,
+    detail: { failed, priceError },
+  };
+}
+
+export const FACTSET_KEY = "factset_insight";
+export const FACTSET_HISTORY_KEY = "factset_history";
+
+/** FactSet 週報：先看轉址到哪一期，跟上次一樣就不下載；新的一期才下載、解析、存檔（保留最近 104 期）。 */
+async function jobFactset(db: D1Database): Promise<JobResult> {
+  const url = await latestInsightUrl();
+  const prev = await getSetting<{ latest: FactsetInsight | null }>(db, FACTSET_KEY, { latest: null });
+  if (prev.latest?.pdfUrl === url) return { status: "ok", summary: `沒有新的一期（${prev.latest.reportDate}）`, detail: {} };
+  const insight = await fetchInsight(url);
+  const history = await getSetting<{ items: FactsetInsight[] }>(db, FACTSET_HISTORY_KEY, { items: [] });
+  const items = [insight, ...history.items.filter((h) => h.pdfUrl !== insight.pdfUrl)].slice(0, 104);
+  await putSetting(db, FACTSET_KEY, { latest: insight });
+  await putSetting(db, FACTSET_HISTORY_KEY, { items });
+  return {
+    status: "ok",
+    summary: `${insight.reportDate} 由下而上目標價 ${insight.bottomUpTarget}（${insight.upsidePct}%）、預估本益比 ${insight.forwardPE ?? "?"}、買進 ${insight.buyPct ?? "?"}%`,
+    detail: { insight },
+  };
+}
+
 const JOBS: Record<JobName, (db: D1Database, opts: JobOptions) => Promise<JobResult>> = {
   prices: jobPrices,
   crosscheck: jobCrosscheck,
   weights: jobWeights,
   news: jobNews,
   events: jobEvents,
+  analysts: jobAnalysts,
+  factset: jobFactset,
+  forecast: async (db) => ({ status: "ok", summary: await recordForecast(db), detail: {} }),
   snapshots: async (db, opts) => {
     const sessions = Math.min(Math.max(opts.sessions ?? 30, 1), 120);
     const r = await rebuildSnapshots(db, opts.upTo ? "歷史重算" : "手動重算", sessions, opts.upTo);

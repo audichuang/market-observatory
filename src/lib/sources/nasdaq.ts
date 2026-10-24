@@ -153,3 +153,65 @@ export async function fetchEarningsCalendar(date: string, symbols: string[]): Pr
   const data = await getJson<{ rows?: CalendarRow[] | null }>(`https://api.nasdaq.com/api/calendar/earnings?date=${date}`);
   return parseEarningsCalendar(date, data.rows ?? [], symbols);
 }
+
+export interface AnalystView {
+  symbol: string;
+  targetMean: number | null;
+  targetLow: number | null;
+  targetHigh: number | null;
+  buy: number;
+  hold: number;
+  sell: number;
+  /** 最近一個會計年度的共識 EPS 與近 4 週上修／下修次數 */
+  fiscalEnd: string | null;
+  epsForecast: number | null;
+  epsUp: number | null;
+  epsDown: number | null;
+  estimates: number | null;
+}
+
+interface TargetPriceData {
+  consensusOverview?: { lowPriceTarget?: unknown; highPriceTarget?: unknown; priceTarget?: unknown; buy?: unknown; hold?: unknown; sell?: unknown } | null;
+}
+interface ForecastRow {
+  fiscalEnd?: string;
+  consensusEPSForecast?: unknown;
+  noOfEstimates?: unknown;
+  up?: unknown;
+  down?: unknown;
+}
+interface EarningsForecastData {
+  yearlyForecast?: { rows?: ForecastRow[] | null } | null;
+}
+
+export function parseAnalystView(symbol: string, target: TargetPriceData, forecast: EarningsForecastData | null): AnalystView {
+  const c = target.consensusOverview ?? {};
+  const row = forecast?.yearlyForecast?.rows?.[0] ?? null;
+  return {
+    symbol,
+    targetMean: parseLooseNumber(c.priceTarget),
+    targetLow: parseLooseNumber(c.lowPriceTarget),
+    targetHigh: parseLooseNumber(c.highPriceTarget),
+    buy: parseLooseNumber(c.buy) ?? 0,
+    hold: parseLooseNumber(c.hold) ?? 0,
+    sell: parseLooseNumber(c.sell) ?? 0,
+    fiscalEnd: row?.fiscalEnd ?? null,
+    epsForecast: parseLooseNumber(row?.consensusEPSForecast),
+    epsUp: parseLooseNumber(row?.up),
+    epsDown: parseLooseNumber(row?.down),
+    estimates: parseLooseNumber(row?.noOfEstimates),
+  };
+}
+
+/** Nasdaq 的代號用點（BRK.B），SSGA／Yahoo 用連字號（BRK-B）。 */
+const nasdaqSymbol = (s: string) => s.replace("-", ".");
+
+/** withEpsRevisions=false 時只抓目標價（1 個請求），用來擴大涵蓋範圍又不超過子請求上限。 */
+export async function fetchAnalystView(symbol: string, withEpsRevisions = true): Promise<AnalystView> {
+  const base = `https://api.nasdaq.com/api/analyst/${encodeURIComponent(nasdaqSymbol(symbol))}`;
+  const [target, forecast] = await Promise.all([
+    getJson<TargetPriceData>(`${base}/targetprice`),
+    withEpsRevisions ? getJson<EarningsForecastData>(`${base}/earnings-forecast`).catch(() => null) : Promise.resolve(null),
+  ]);
+  return parseAnalystView(symbol, target, forecast);
+}

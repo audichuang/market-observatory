@@ -104,3 +104,38 @@ export const settings = sqliteTable("settings", {
   value: text("value").notNull(),
   updatedAt: text("updated_at").notNull().default(sql`(datetime('now'))`),
 });
+
+// 個股分析師共識（Nasdaq）：每檔每天一列，留歷史才看得出隱含漲幅、修正廣度的變化。
+export const analystViews = sqliteTable(
+  "analyst_views",
+  {
+    symbol: text("symbol").notNull(),
+    asOf: text("as_of").notNull(),
+    price: real("price"),
+    priceDate: text("price_date"),
+    targetMean: real("target_mean"),
+    targetLow: real("target_low"),
+    targetHigh: real("target_high"),
+    buy: integer("buy").notNull(),
+    hold: integer("hold").notNull(),
+    sell: integer("sell").notNull(),
+    fiscalEnd: text("fiscal_end"),
+    epsForecast: real("eps_forecast"),
+    epsUp: integer("eps_up"),
+    epsDown: integer("eps_down"),
+    estimates: integer("estimates"),
+    fetchedAt: text("fetched_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.symbol, t.asOf] }), index("analyst_views_asof_idx").on(t.asOf)],
+);
+
+// 每個交易日當下發出的「約 21 個交易日後是否上漲」預測；事後用實際結果對帳，看真實命中率。
+export const forecasts = sqliteTable("forecasts", {
+  tradeDate: text("trade_date").primaryKey(),
+  probability: real("probability").notNull(),
+  baseRate: real("base_rate").notNull(),
+  basis: text("basis").notNull(),
+  call: text("call").notNull(),
+  close: real("close").notNull(),
+  createdAt: text("created_at").notNull(),
+});

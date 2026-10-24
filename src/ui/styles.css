@@ -160,7 +160,22 @@ footer.foot { max-width: 1180px; margin: 0 auto; padding: 0 1rem calc(2rem + env
 .table-wrap th:first-child, .table-wrap td:first-child { position: sticky; left: 0; background: var(--panel); z-index: 1; }
 
 /* 底部分頁列與手機版卡片：只在手機顯示 */
-.tabbar, .show-sm { display: none; }
+.tabbar, .show-sm, .show-sm-inline { display: none; }
+
+/* 下月展望 */
+.outlook-hero { display: grid; grid-template-columns: auto 1fr; gap: .4rem 1.5rem; align-items: center; }
+.outlook-hero .label { color: var(--muted); font-size: .85rem; }
+.outlook-value { font-size: 3rem; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.outlook-call .badge.big { font-size: 1rem; padding: .25rem .8rem; }
+.prob-bar { grid-column: 1 / -1; position: relative; height: 14px; background: var(--line); border-radius: 7px; margin-top: .6rem; }
+.prob-ci { position: absolute; top: 0; bottom: 0; background: color-mix(in srgb, var(--accent) 30%, transparent); border-radius: 7px; }
+.prob-mark { position: absolute; top: -4px; bottom: -4px; width: 3px; border-radius: 2px; transform: translateX(-1.5px); }
+.prob-mark.now { background: var(--accent); }
+.prob-mark.base { background: var(--muted); }
+.prob-mid { position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: var(--ink); opacity: .35; }
+.prob-legend { grid-column: 1 / -1; display: flex; justify-content: space-between; font-size: .72rem; }
+.outlook-card { display: flex; align-items: center; gap: 1rem; color: inherit; }
+.outlook-card:hover { text-decoration: none; border-color: var(--accent); }
 .etf-cards { list-style: none; margin: 0; padding: 0; }
 .etf-cards li { padding: .8rem 0; border-bottom: 1px solid var(--line); }
 .etf-cards li:last-child { border-bottom: 0; }
@@ -202,6 +217,11 @@ footer.foot { max-width: 1180px; margin: 0 auto; padding: 0 1rem calc(2rem + env
   button, .button { min-height: 44px; }
   .chip { min-height: 40px; display: inline-flex; align-items: center; padding: .35rem .85rem; }
   .show-sm { display: block; }
+  .show-sm-inline { display: inline-flex; }
+  .icon-link { align-items: center; min-height: 40px; padding: 0 .7rem; border: 1px solid var(--line); border-radius: 8px; color: var(--accent); }
+  .icon-link.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .outlook-hero { grid-template-columns: 1fr; }
+  .outlook-value { font-size: 2.6rem; }
   /* 表格裡的連結：可點範圍撐到 44px，用負邊距讓列高不變 */
   td a { display: inline-flex; align-items: center; min-height: 44px; margin: -.5rem 0; }
   .etf-card-head a { display: inline-flex; align-items: center; min-height: 44px; }

@@ -11,6 +11,9 @@ const JOB_LABEL: Record<string, string> = {
   weights: "SPY 持股權重",
   news: "新聞",
   events: "財報與 FOMC 日程",
+  analysts: "分析師共識（16 檔）",
+  factset: "FactSet 週報",
+  forecast: "重算下月展望",
   snapshots: "重算近 30 天快照",
   "backfill-prices": "回補十年日線（分段）",
   "backfill-checks": "回補交叉核對（分段）",
@@ -21,8 +24,8 @@ const NO_SECOND_SOURCE = new Set(["USDTWD", "VIX"]);
 const SCHEDULE = [
   ["抓收盤價", "週一至五 UTC 21:40（美東收盤後）；隔日 UTC 01:10 補抓並再核對", "Yahoo chart（主）、Cboe VIX／SPX"],
   ["交叉核對", "週一至五 UTC 22:50", "Nasdaq 歷史行情逐檔比對收盤"],
-  ["持股權重＋日曆", "每天 UTC 11:30", "State Street SPY 持股檔、Nasdaq 財報日期、聯準會 FOMC 日程"],
-  ["新聞", "每 4 小時", "Nasdaq 個股新聞"],
+  ["持股權重＋日曆＋週報", "每天 UTC 11:30", "State Street SPY 持股檔、Nasdaq 財報日期、聯準會 FOMC 日程、FactSet Earnings Insight（有新一期才解析）"],
+  ["新聞＋分析師共識", "每 4 小時", "Nasdaq 個股新聞；SPY 權重前 200 檔輪流抓目標價（前 100 檔加抓 EPS 修正，每次 16 檔）"],
 ];
 
 export default function SourcesPage({ expected, freshness, mismatches, runs, weights, counts, jobs, tolerance, calendar, links }: Props) {

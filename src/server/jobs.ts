@@ -8,6 +8,7 @@ import { fetchSpyHoldings } from "../lib/sources/ssga.ts";
 import { type FactsetInsight, fetchInsight, latestInsightUrl } from "../lib/sources/factset.ts";
 import { YAHOO_SOURCE, fetchYahooDaily, fetchYahooLastCloses } from "../lib/sources/yahoo.ts";
 import { buildOutlook } from "../lib/forecast.ts";
+import { rotationPicks } from "../lib/consensus.ts";
 import { easternDate } from "../lib/calendar.ts";
 import { EQUAL_WEIGHT_SYMBOL, FX_SYMBOL, INDEX_SYMBOL, MAG7, MAG7_TICKERS, NASDAQ_CHECK_SYMBOLS, VIX_SYMBOL, YAHOO_SYMBOLS } from "../lib/universe.ts";
 import { type BarBatch, applyCrossChecks, finishRun, insertWeights, loadPrices, getSetting, loadWeightAnchors, nowIso, putSetting, saveSnapshots, startRun, upsertBars, weightsNear } from "./repo.ts";
@@ -326,10 +327,8 @@ async function jobAnalysts(db: D1Database): Promise<JobResult> {
     .prepare("SELECT symbol, MAX(fetched_at) AS f FROM analyst_views GROUP BY symbol")
     .all<{ symbol: string; f: string }>();
   const seen = new Map(lastFetched.results.map((r) => [r.symbol, r.f]));
-  const picks = universe.results
-    .map((u) => u.ticker)
-    .sort((a, b) => (seen.get(a) ?? "").localeCompare(seen.get(b) ?? ""))
-    .slice(0, ANALYST_PER_RUN);
+  const failures = await getSetting<Record<string, string>>(db, ANALYST_FAILURES_KEY, {});
+  const picks = rotationPicks(universe.results.map((u) => u.ticker), seen, failures, ANALYST_PER_RUN);
   let prices = new Map<string, { date: string; close: number }>();
   let priceError: string | null = null;
   try {
@@ -363,6 +362,15 @@ async function jobAnalysts(db: D1Database): Promise<JobResult> {
     stmts.push(stmt.bind(v.symbol, asOf, p?.close ?? null, p?.date ?? null, v.targetMean, v.targetLow, v.targetHigh, v.buy, v.hold, v.sell, v.fiscalEnd, v.epsForecast, v.epsUp, v.epsDown, v.estimates, fetchedAt));
   });
   if (stmts.length) await db.batch(stmts);
+  // 失敗的代號記下時間，下一輪排到後面；只保留還在名單裡的。
+  const inUniverse = new Set(universe.results.map((u) => u.ticker));
+  const nextFailures: Record<string, string> = {};
+  for (const [s, t] of Object.entries(failures)) if (inUniverse.has(s)) nextFailures[s] = t;
+  results.forEach((r, i) => {
+    if (r.status === "rejected") nextFailures[picks[i]] = fetchedAt;
+    else delete nextFailures[picks[i]];
+  });
+  await putSetting(db, ANALYST_FAILURES_KEY, nextFailures);
   return {
     status: failed.length === 0 && !priceError ? "ok" : stmts.length === 0 ? "failed" : "partial",
     summary: `分析師共識 ${stmts.length}/${picks.length} 檔（${picks.join(",")}）；股價 ${prices.size} 檔${priceError ? `（失敗：${priceError}）` : ""}`,
@@ -371,6 +379,7 @@ async function jobAnalysts(db: D1Database): Promise<JobResult> {
 }
 
 export const FACTSET_KEY = "factset_insight";
+const ANALYST_FAILURES_KEY = "analyst_failures";
 export const FACTSET_HISTORY_KEY = "factset_history";
 
 /** FactSet 週報：先看轉址到哪一期，跟上次一樣就不下載；新的一期才下載、解析、存檔（保留最近 104 期）。 */

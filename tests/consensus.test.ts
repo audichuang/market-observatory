@@ -54,3 +54,22 @@ test("FactSet 週報：數字中間夾空白也抽得出來；句型不符就回
   assert.equal(below.upsidePct, -3);
   assert.equal(parseInsightText("totally different layout", "x").bottomUpTarget, null);
 });
+
+test("PDF 內容流用間接長度（/Length 12 0 R）時，不會把 12 截成 1", async () => {
+  const { deflateSync } = await import("node:zlib");
+  const { extractPdfText } = await import("../src/lib/sources/factset.ts");
+  const body = deflateSync(Buffer.from("BT (hello world) Tj ET"));
+  const pdf = Buffer.concat([Buffer.from("%PDF-1.4\n1 0 obj\n<< /Length 12 0 R /Filter /FlateDecode >>\nstream\n"), body, Buffer.from("endstream\nendobj\n")]);
+  assert.match(await extractPdfText(new Uint8Array(pdf)), /hello world/);
+});
+
+test("分析師輪替：一直失敗的代號排到後面，不會每輪佔名額", async () => {
+  const { rotationPicks } = await import("../src/lib/consensus.ts");
+  const fetched = new Map([["A", "2026-10-20T00:00:00Z"], ["B", "2026-10-21T00:00:00Z"]]);
+  // C 從沒成功過，但剛失敗過 → 排在 A、B 之後
+  assert.deepEqual(rotationPicks(["C", "A", "B"], fetched, { C: "2026-10-24T00:00:00Z" }, 2), ["A", "B"]);
+  // 沒失敗紀錄、也沒抓過的新代號照樣最先抓
+  assert.deepEqual(rotationPicks(["A", "D"], fetched, {}, 1), ["D"]);
+  // 成功比失敗新：以成功時間為準
+  assert.deepEqual(rotationPicks(["A", "B"], fetched, { A: "2026-10-01T00:00:00Z" }, 1), ["A"]);
+});

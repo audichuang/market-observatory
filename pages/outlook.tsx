@@ -43,7 +43,13 @@ export default function OutlookPage({ outlook, cells, track, recent, consensus, 
           <div className="label">上漲機率</div>
           <div className="outlook-value">{pct(pick.p)}</div>
           <div className="sub">
-            95% 區間 {pct(pick.conditional?.low ?? pick.base.low)}～{pct(pick.conditional?.high ?? pick.base.high)} · 依據：{BASIS[pick.basis]}
+            {pick.distinct || !pick.conditional ? (
+              <>95% 區間 {pct(pick.conditional?.low ?? pick.base.low)}～{pct(pick.conditional?.high ?? pick.base.high)} · 依據：{BASIS[pick.basis]}</>
+            ) : (
+              <>
+                採歷史基準率（95% 區間 {pct(pick.base.low)}～{pct(pick.base.high)}）；「{BASIS[pick.basis]}」條件下為 {pct(pick.conditional.p)}，區間 {pct(pick.conditional.low)}～{pct(pick.conditional.high)} 包含基準率，看不出差別
+              </>
+            )}
           </div>
         </div>
         <div className="outlook-call">

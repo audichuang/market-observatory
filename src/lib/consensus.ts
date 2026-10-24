@@ -75,3 +75,16 @@ export function aggregateConsensus(rows: ViewRow[], weights: Map<string, number>
     newest,
   };
 }
+
+/**
+ * 分析師輪替：挑「最久沒嘗試過」的 n 檔。成功看 fetched_at，失敗看上次失敗時間，兩者取較新的；
+ * 否則一直失敗的代號永遠排最前面，把每次的名額吃掉。
+ */
+export function rotationPicks(tickers: string[], lastFetched: Map<string, string>, lastFailed: Record<string, string>, n: number): string[] {
+  const tried = (t: string) => {
+    const a = lastFetched.get(t) ?? "";
+    const b = lastFailed[t] ?? "";
+    return a > b ? a : b;
+  };
+  return [...tickers].sort((a, b) => tried(a).localeCompare(tried(b))).slice(0, n);
+}

@@ -5,11 +5,14 @@ import type { DailyBar } from "../lib/sources/http.ts";
 
 // 直接用 D1 prepared statement：批次寫入比 ORM 快，也不會撞到單一查詢參數上限。
 
+/** D1 主庫或讀取 session（withSession）都可以：這裡只用得到 prepare 與 batch。 */
+export type Db = Pick<D1Database, "prepare" | "batch">;
+
 export const nowIso = () => new Date().toISOString();
 
 const CHUNK = 200;
 
-async function batchRun(db: D1Database, stmts: D1PreparedStatement[]) {
+async function batchRun(db: Db, stmts: D1PreparedStatement[]) {
   for (let i = 0; i < stmts.length; i += CHUNK) await db.batch(stmts.slice(i, i + CHUNK));
 }
 
@@ -28,7 +31,7 @@ export interface BarBatch {
  * 呼叫端重抓完整歷史後，用 allowRebase 整段寫入。
  */
 export async function upsertBars(
-  db: D1Database,
+  db: Db,
   items: BarBatch[],
   opts: { allowRebase?: boolean; fetchedAt?: string } = {},
 ): Promise<{ changed: Record<string, number>; rebased: Record<string, number> }> {
@@ -93,7 +96,7 @@ export interface CheckResult {
 }
 
 /** 把第二來源的收盤寫進 check_* 欄，回傳每一天的比對結果（主來源沒有的日期略過）。 */
-export async function applyCrossChecks(db: D1Database, items: BarBatch[], checkedAt = nowIso()): Promise<CheckResult[]> {
+export async function applyCrossChecks(db: Db, items: BarBatch[], checkedAt = nowIso()): Promise<CheckResult[]> {
   const withBars = items.filter((i) => i.bars.length);
   if (!withBars.length) return [];
   const minDate = withBars.reduce((m, i) => (i.bars[0].date < m ? i.bars[0].date : m), "9999-12-31");
@@ -124,7 +127,7 @@ export interface LoadedPrices {
   checks: Record<string, Map<string, PriceCheck>>;
 }
 
-export async function loadPrices(db: D1Database, symbols: string[], fromDate: string, toDate = "9999-12-31"): Promise<LoadedPrices> {
+export async function loadPrices(db: Db, symbols: string[], fromDate: string, toDate = "9999-12-31"): Promise<LoadedPrices> {
   const placeholders = symbols.map(() => "?").join(",");
   const rows = await db
     .prepare(`SELECT symbol, date, close, check_status, check_source, check_close FROM prices WHERE symbol IN (${placeholders}) AND date >= ? AND date <= ? ORDER BY date`)
@@ -143,7 +146,7 @@ export async function loadPrices(db: D1Database, symbols: string[], fromDate: st
   return { series: Object.fromEntries(Object.entries(pts).map(([s, p]) => [s, new Series(p)])), checks };
 }
 
-export async function insertWeights(db: D1Database, asOf: string, holdings: { ticker: string; name: string; weightPct: number; shares: number | null }[], fetchedAt = nowIso()) {
+export async function insertWeights(db: Db, asOf: string, holdings: { ticker: string; name: string; weightPct: number; shares: number | null }[], fetchedAt = nowIso()) {
   const stmt = db.prepare(
     "INSERT INTO weights (as_of, ticker, name, weight_pct, shares, fetched_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(as_of, ticker) DO UPDATE SET weight_pct = excluded.weight_pct, shares = excluded.shares, name = excluded.name",
   );
@@ -157,7 +160,7 @@ export interface WeightAnchors {
 }
 
 /** 一次載入所有持股檔中指定代號的權重，再在記憶體裡挑最近的一份。 */
-export async function loadWeightAnchors(db: D1Database, tickers: string[]): Promise<WeightAnchors> {
+export async function loadWeightAnchors(db: Db, tickers: string[]): Promise<WeightAnchors> {
   const rows = await db
     .prepare(`SELECT as_of, ticker, weight_pct FROM weights WHERE ticker IN (${tickers.map(() => "?").join(",")}) ORDER BY as_of`)
     .bind(...tickers)
@@ -188,7 +191,7 @@ export async function digestOf(data: unknown): Promise<string> {
  * 版本號與「內容是否改變」都在同一條 INSERT…SELECT 裡決定：排程與手動重算同時跑時，
  * D1 逐條執行，不會兩邊讀到同一個最新版本、搶同一個號碼。
  */
-export async function saveSnapshots(db: D1Database, snaps: Snapshot[], reason: string): Promise<string[]> {
+export async function saveSnapshots(db: Db, snaps: Snapshot[], reason: string): Promise<string[]> {
   if (!snaps.length) return [];
   const stmt = db.prepare(
     `INSERT INTO snapshots (trade_date, revision, digest, reason, data, created_at)
@@ -215,7 +218,7 @@ export interface SnapshotRow {
   data: Snapshot;
 }
 
-export async function getSnapshot(db: D1Database, tradeDate?: string, revision?: number): Promise<SnapshotRow | null> {
+export async function getSnapshot(db: Db, tradeDate?: string, revision?: number): Promise<SnapshotRow | null> {
   let row: { trade_date: string; revision: number; reason: string; created_at: string; data: string } | null;
   if (tradeDate && revision) {
     row = await db.prepare("SELECT * FROM snapshots WHERE trade_date = ? AND revision = ?").bind(tradeDate, revision).first();
@@ -228,7 +231,7 @@ export async function getSnapshot(db: D1Database, tradeDate?: string, revision?:
   return { tradeDate: row.trade_date, revision: row.revision, reason: row.reason, createdAt: row.created_at, data: JSON.parse(row.data) as Snapshot };
 }
 
-export async function listRevisions(db: D1Database, tradeDate: string) {
+export async function listRevisions(db: Db, tradeDate: string) {
   const rows = await db
     .prepare("SELECT revision, reason, created_at, digest FROM snapshots WHERE trade_date = ? ORDER BY revision DESC")
     .bind(tradeDate)
@@ -236,7 +239,7 @@ export async function listRevisions(db: D1Database, tradeDate: string) {
   return rows.results.map((r) => ({ revision: r.revision, reason: r.reason, createdAt: r.created_at, digest: r.digest }));
 }
 
-export async function listSnapshotDates(db: D1Database, limit = 400) {
+export async function listSnapshotDates(db: Db, limit = 400) {
   const rows = await db
     .prepare("SELECT trade_date, MAX(revision) AS revision FROM snapshots GROUP BY trade_date ORDER BY trade_date DESC LIMIT ?")
     .bind(limit)
@@ -244,7 +247,7 @@ export async function listSnapshotDates(db: D1Database, limit = 400) {
   return rows.results.map((r) => ({ tradeDate: r.trade_date, revision: r.revision }));
 }
 
-export async function startRun(db: D1Database, job: string, trigger: string) {
+export async function startRun(db: Db, job: string, trigger: string) {
   const row = await db
     .prepare("INSERT INTO runs (job, trigger, status, started_at) VALUES (?, ?, 'running', ?) RETURNING id")
     .bind(job, trigger, nowIso())
@@ -252,14 +255,14 @@ export async function startRun(db: D1Database, job: string, trigger: string) {
   return row!.id;
 }
 
-export async function finishRun(db: D1Database, id: number, status: "ok" | "partial" | "failed", summary: string, detail: unknown) {
+export async function finishRun(db: Db, id: number, status: "ok" | "partial" | "failed", summary: string, detail: unknown) {
   await db
     .prepare("UPDATE runs SET status = ?, finished_at = ?, summary = ?, detail = ? WHERE id = ?")
     .bind(status, nowIso(), summary, JSON.stringify(detail), id)
     .run();
 }
 
-export async function getSetting<T>(db: D1Database, key: string, fallback: T): Promise<T> {
+export async function getSetting<T>(db: Db, key: string, fallback: T): Promise<T> {
   const row = await db.prepare("SELECT value FROM settings WHERE key = ?").bind(key).first<{ value: string }>();
   if (!row) return fallback;
   try {
@@ -269,7 +272,7 @@ export async function getSetting<T>(db: D1Database, key: string, fallback: T): P
   }
 }
 
-export async function putSetting(db: D1Database, key: string, value: unknown) {
+export async function putSetting(db: Db, key: string, value: unknown) {
   await db
     .prepare("INSERT INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now')) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at")
     .bind(key, JSON.stringify(value))

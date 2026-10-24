@@ -3,6 +3,7 @@ import { type Snapshot, buildSnapshot, snapshotLoadWindow } from "../lib/snapsho
 import { CBOE_SOURCE, fetchCboeDaily } from "../lib/sources/cboe.ts";
 import { type EarningsDate, NASDAQ_SOURCE, fetchEarningsCalendar, fetchEarningsDate, fetchNasdaqHistorical, fetchNasdaqNews } from "../lib/sources/nasdaq.ts";
 import { nextPendingRebase } from "../lib/rebase.ts";
+import { bumpDataVersion } from "./page-cache.ts";
 import { fetchSpyHoldings } from "../lib/sources/ssga.ts";
 import { YAHOO_SOURCE, fetchYahooDaily } from "../lib/sources/yahoo.ts";
 import { EQUAL_WEIGHT_SYMBOL, FX_SYMBOL, INDEX_SYMBOL, MAG7, MAG7_TICKERS, NASDAQ_CHECK_SYMBOLS, VIX_SYMBOL, YAHOO_SYMBOLS } from "../lib/universe.ts";
@@ -310,10 +311,12 @@ export async function runJob(db: D1Database, job: JobName, trigger: string, opts
   try {
     const r = await JOBS[job](db, opts);
     await finishRun(db, id, r.status, r.summary, r.detail);
+    await bumpDataVersion(db);
     return { id, ...r };
   } catch (e) {
     const summary = errText(e);
     await finishRun(db, id, "failed", summary, { stack: e instanceof Error ? e.stack : null });
+    await bumpDataVersion(db);
     return { id, status: "failed" as const, summary, detail: {} };
   }
 }

@@ -1,3 +1,4 @@
+import { bumpDataVersion, cachedPage, readDb } from "../src/server/page-cache.ts";
 import { defineHandler, defineHead, type InferProps } from "void";
 import { z } from "zod";
 import { Series, leverageDrift, periodReturn, simulateDca } from "../src/lib/analytics.ts";
@@ -28,42 +29,45 @@ const PERIODS = [
 ] as const;
 
 export const loader = defineHandler(async (c) => {
-  const db = c.env.DB;
-  const plan = await getSetting<Plan>(db, "plan", DEFAULT_PLAN);
-  const etf = ETFS.some((e) => e.ticker === c.req.query("etf")) ? (c.req.query("etf") as string) : plan.etf;
-  const years = [1, 2, 3, 5].includes(Number(c.req.query("years"))) ? Number(c.req.query("years")) : plan.years;
-  const monthlyTwd = Number(c.req.query("monthly")) > 0 ? Math.min(Number(c.req.query("monthly")), 10_000_000) : plan.monthlyTwd;
+  const db = readDb(c.env);
+  // 頁面資料依資料版本快取，見 src/server/page-cache.ts。
+  return cachedPage(c, db, `etfs?${new URL(c.req.url).search}`, async () => {
+    const plan = await getSetting<Plan>(db, "plan", DEFAULT_PLAN);
+    const etf = ETFS.some((e) => e.ticker === c.req.query("etf")) ? (c.req.query("etf") as string) : plan.etf;
+    const years = [1, 2, 3, 5].includes(Number(c.req.query("years"))) ? Number(c.req.query("years")) : plan.years;
+    const monthlyTwd = Number(c.req.query("monthly")) > 0 ? Math.min(Number(c.req.query("monthly")), 10_000_000) : plan.monthlyTwd;
 
-  const last = await db.prepare("SELECT MAX(date) AS d FROM prices WHERE symbol = ?").bind(INDEX_SYMBOL).first<{ d: string | null }>();
-  const end = last?.d ?? new Date().toISOString().slice(0, 10);
-  const loaded = await loadPrices(db, [INDEX_SYMBOL, FX_SYMBOL, ...ETFS.map((e) => e.ticker)], addDays(end, -1900), end);
-  const spx = loaded.series[INDEX_SYMBOL];
-  const ytdStart = `${Number(end.slice(0, 4)) - 1}-12-31`;
+    const last = await db.prepare("SELECT MAX(date) AS d FROM prices WHERE symbol = ?").bind(INDEX_SYMBOL).first<{ d: string | null }>();
+    const end = last?.d ?? new Date().toISOString().slice(0, 10);
+    const loaded = await loadPrices(db, [INDEX_SYMBOL, FX_SYMBOL, ...ETFS.map((e) => e.ticker)], addDays(end, -1900), end);
+    const spx = loaded.series[INDEX_SYMBOL];
+    const ytdStart = `${Number(end.slice(0, 4)) - 1}-12-31`;
 
-  const rows = ETFS.map((e) => {
-    const s = loaded.series[e.ticker];
-    const lastPt = s.last();
-    const returns = Object.fromEntries(PERIODS.map(([k, d]) => [k, s.length && s.points[0].date <= addDays(end, -d) ? periodReturn(s, addDays(end, -d), end) : null]));
-    const drift1y = e.multiple === 1 ? null : leverageDrift(s, spx, e.multiple, addDays(end, -365), end);
-    return { ...e, close: lastPt?.close ?? null, lastDate: lastPt?.date ?? null, ytd: periodReturn(s, ytdStart, end), returns, drift1y };
+    const rows = ETFS.map((e) => {
+      const s = loaded.series[e.ticker];
+      const lastPt = s.last();
+      const returns = Object.fromEntries(PERIODS.map(([k, d]) => [k, s.length && s.points[0].date <= addDays(end, -d) ? periodReturn(s, addDays(end, -d), end) : null]));
+      const drift1y = e.multiple === 1 ? null : leverageDrift(s, spx, e.multiple, addDays(end, -365), end);
+      return { ...e, close: lastPt?.close ?? null, lastDate: lastPt?.date ?? null, ytd: periodReturn(s, ytdStart, end), returns, drift1y };
+    });
+
+    // 定投試算：價格換成台幣計價（每天用當天或之前最近的 USD/TWD），每月第一個交易日投入固定台幣。
+    const fx = loaded.series[FX_SYMBOL];
+    const price = loaded.series[etf];
+    const twdPoints = price.points
+      .map((p) => {
+        const rate = fx.onOrBefore(p.date)?.close;
+        return rate ? { date: p.date, close: p.close * rate } : null;
+      })
+      .filter((p): p is { date: string; close: number } => p !== null);
+    const startDate = addDays(end, -Math.round(years * 365.25));
+    const dcaRaw = price.points[0] && price.points[0].date <= addDays(startDate, 7) ? simulateDca(new Series(twdPoints), startDate, monthlyTwd) : null;
+    const step = dcaRaw ? Math.max(1, Math.floor(dcaRaw.path.length / 300)) : 1;
+    const dca = dcaRaw ? { ...dcaRaw, path: dcaRaw.path.filter((_, i) => i % step === 0 || i === dcaRaw.path.length - 1) } : null;
+    const fxLast = fx.last();
+
+    return { asOf: end, catalogAsOf: ETF_CATALOG_AS_OF, rows, periods: PERIODS.map(([k]) => k), plan, sim: { etf, years, monthlyTwd, startDate }, dca, fxLast };
   });
-
-  // 定投試算：價格換成台幣計價（每天用當天或之前最近的 USD/TWD），每月第一個交易日投入固定台幣。
-  const fx = loaded.series[FX_SYMBOL];
-  const price = loaded.series[etf];
-  const twdPoints = price.points
-    .map((p) => {
-      const rate = fx.onOrBefore(p.date)?.close;
-      return rate ? { date: p.date, close: p.close * rate } : null;
-    })
-    .filter((p): p is { date: string; close: number } => p !== null);
-  const startDate = addDays(end, -Math.round(years * 365.25));
-  const dcaRaw = price.points[0] && price.points[0].date <= addDays(startDate, 7) ? simulateDca(new Series(twdPoints), startDate, monthlyTwd) : null;
-  const step = dcaRaw ? Math.max(1, Math.floor(dcaRaw.path.length / 300)) : 1;
-  const dca = dcaRaw ? { ...dcaRaw, path: dcaRaw.path.filter((_, i) => i % step === 0 || i === dcaRaw.path.length - 1) } : null;
-  const fxLast = fx.last();
-
-  return { asOf: end, catalogAsOf: ETF_CATALOG_AS_OF, rows, periods: PERIODS.map(([k]) => k), plan, sim: { etf, years, monthlyTwd, startDate }, dca, fxLast };
 });
 
 const PlanSchema = z.object({
@@ -78,6 +82,7 @@ const PlanSchema = z.object({
 
 export const action = defineHandler.withValidator({ body: PlanSchema })(async (c, { body }) => {
   await putSetting(c.env.DB, "plan", body);
+  await bumpDataVersion(c.env.DB);
 });
 
 export const head = defineHead(() => ({ title: "ETF 與定投" }));

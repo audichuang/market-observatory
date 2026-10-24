@@ -240,3 +240,14 @@ export function buildSnapshot(input: SnapshotInput): Snapshot | null {
     quality: { ...quality, missing: [...new Set(quality.missing)], mismatches: [...new Set(quality.mismatches)], pendingChecks: [...new Set(quality.pendingChecks)] },
   };
 }
+
+/**
+ * 重算一批快照要載入的價格區間。
+ * 開頭往前 430 天（52 週高低與 200 日均線）；結尾至少要涵蓋最早一份持股檔的日期：
+ * 目標日早於所有持股檔時，權重要從那份檔「往回推」，需要持股日當天的價格。
+ */
+export function snapshotLoadWindow(targets: string[], weightAnchorDates: string[]): { from: string; to: string } {
+  const last = targets.at(-1)!;
+  const earliestAnchor = weightAnchorDates[0];
+  return { from: addDays(targets[0], -430), to: earliestAnchor && earliestAnchor > last ? earliestAnchor : last };
+}

@@ -43,4 +43,4 @@ export const loader = defineHandler(async (c) => {
   };
 });
 
-export const head = defineHead(() => ({ title: "資料來源｜市場觀測室" }));
+export const head = defineHead(() => ({ title: "資料來源" }));

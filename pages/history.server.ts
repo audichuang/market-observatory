@@ -80,5 +80,5 @@ function annualVol(closes: number[]): number | null {
   return Math.sqrt(variance * 252) * 100;
 }
 
-export const head = defineHead<Props>((_c, p) => ({ title: `${SYMBOL_LABELS[p.symbol]} 走勢｜市場觀測室` }));
+export const head = defineHead<Props>((_c, p) => ({ title: `${SYMBOL_LABELS[p.symbol]} 走勢` }));
 

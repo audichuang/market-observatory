@@ -1,6 +1,10 @@
 {
   "version": 1,
-  "source": {},
+  "source": {
+    "workers_dev": true,
+    "preview_urls": true,
+    "routes": []
+  },
   "resolved": {
     "account_id": "c93cf77df286c86caea5807e9051840b",
     "compatibility_date": "2026-02-24",
@@ -12,7 +16,10 @@
         "migrations_dir": "./db/migrations"
       }
     ],
-    "name": "market-observatory"
+    "name": "market-observatory",
+    "workers_dev": true,
+    "preview_urls": true,
+    "routes": []
   },
-  "text": "{\n  \"account_id\": \"c93cf77df286c86caea5807e9051840b\",\n  \"compatibility_date\": \"2026-02-24\",\n  \"d1_databases\": [\n    {\n      \"binding\": \"DB\",\n      \"database_name\": \"market-observatory-db\",\n      \"database_id\": \"654cf800-0e13-4d74-b50d-b56c797dd512\",\n      \"migrations_dir\": \"./db/migrations\"\n    }\n  ],\n  \"name\": \"market-observatory\"\n}\n"
+  "text": "{\n  \"account_id\": \"c93cf77df286c86caea5807e9051840b\",\n  \"compatibility_date\": \"2026-02-24\",\n  \"d1_databases\": [\n    {\n      \"binding\": \"DB\",\n      \"database_name\": \"market-observatory-db\",\n      \"database_id\": \"654cf800-0e13-4d74-b50d-b56c797dd512\",\n      \"migrations_dir\": \"./db/migrations\"\n    }\n  ],\n  \"name\": \"market-observatory\",\n  \"workers_dev\": true,\n  \"preview_urls\": true,\n  \"routes\": []\n}\n"
 }

@@ -4,5 +4,20 @@ import { defineConfig } from 'void/config';
 export default defineConfig({
   "worker": {
     "compatibility_date": "2026-02-24"
+  },
+  // 明寫目前的對外設定，Void 才肯重新發布（否則會當成後台手動管理而拒絕部署）。
+  "cloudflare": {
+    "workers_dev": true,
+    "preview_urls": true,
+    "routes": []
+  },
+  "head": {
+    "titleTemplate": "%s｜市場觀測室",
+    "htmlAttrs": { "lang": "zh-Hant-TW" },
+    "meta": [
+      { "charset": "utf-8" },
+      { "name": "viewport", "content": "width=device-width, initial-scale=1" },
+      { "name": "robots", "content": "noindex, nofollow" }
+    ]
   }
 });

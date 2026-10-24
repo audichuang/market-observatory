@@ -1,4 +1,5 @@
 import { defineHandler, defineHead, type InferProps } from "void";
+import { safeNext } from "../src/lib/safe-next.ts";
 
 export type Props = InferProps<typeof loader>;
 
@@ -8,8 +9,4 @@ export const loader = defineHandler(async (c) => {
   return { next: safeNext(c.req.query("next")), hasUser: (row?.n ?? 0) > 0 };
 });
 
-export const head = defineHead(() => ({ title: "登入｜市場觀測室" }));
-
-function safeNext(next: string | undefined): string {
-  return next && next.startsWith("/") && !next.startsWith("//") ? next : "/";
-}
+export const head = defineHead(() => ({ title: "登入" }));

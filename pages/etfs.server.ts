@@ -36,7 +36,7 @@ export const loader = defineHandler(async (c) => {
 
   const last = await db.prepare("SELECT MAX(date) AS d FROM prices WHERE symbol = ?").bind(INDEX_SYMBOL).first<{ d: string | null }>();
   const end = last?.d ?? new Date().toISOString().slice(0, 10);
-  const loaded = await loadPrices(db, [INDEX_SYMBOL, FX_SYMBOL, ...ETFS.map((e) => e.ticker)], addDays(end, -1830), end);
+  const loaded = await loadPrices(db, [INDEX_SYMBOL, FX_SYMBOL, ...ETFS.map((e) => e.ticker)], addDays(end, -1900), end);
   const spx = loaded.series[INDEX_SYMBOL];
   const ytdStart = `${Number(end.slice(0, 4)) - 1}-12-31`;
 
@@ -80,4 +80,4 @@ export const action = defineHandler.withValidator({ body: PlanSchema })(async (c
   await putSetting(c.env.DB, "plan", body);
 });
 
-export const head = defineHead(() => ({ title: "ETF 與定投｜市場觀測室" }));
+export const head = defineHead(() => ({ title: "ETF 與定投" }));

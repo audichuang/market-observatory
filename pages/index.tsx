@@ -1,7 +1,7 @@
 import { Link, useRouter } from "@void/react";
 import type { Mag7Row } from "../src/lib/snapshot.ts";
 import { CenteredBar, CheckBadge, Delta } from "../src/ui/bits.tsx";
-import { dateWithWeekday, num, pctText, taipeiTime } from "../src/ui/format.ts";
+import { dateWithWeekday, num, pctText, signed, taipeiTime } from "../src/ui/format.ts";
 import type { Props } from "./index.server";
 
 export default function Overview({ snapshot, revisions, dates, expectedClose, news, events, lastPriceRun, viewingLatest }: Props) {
@@ -85,7 +85,7 @@ export default function Overview({ snapshot, revisions, dates, expectedClose, ne
         </div>
       </div>
 
-      <div className="grid kpis section">
+      <div className="grid kpis section" style={{ alignItems: "start" }}>
         <Mini label="近一週" value={s.index.weekPct} />
         <Mini label="近一月" value={s.index.monthPct} />
         <Mini label="今年以來" value={s.index.ytdPct} />
@@ -224,7 +224,7 @@ function Mag7Line({ r, max }: { r: Mag7Row; max: number }) {
       <td className="num">{r.weightPct === null ? "—" : `${num(r.weightPct)}%`}</td>
       <td className="num"><Delta value={r.contributionPts} /></td>
       <td><CenteredBar value={r.contributionPts} max={max} /></td>
-      <td className="num hide-sm">{r.shareOfMovePct === null ? "—" : `${num(r.shareOfMovePct, 0)}%`}</td>
+      <td className="num hide-sm">{r.shareOfMovePct === null ? "—" : `${signed(r.shareOfMovePct, 0).replace("+", "")}%`}</td>
       <td className="hide-sm"><CheckBadge status={r.check} /></td>
     </tr>
   );

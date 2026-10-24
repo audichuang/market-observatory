@@ -16,12 +16,13 @@ interface Props {
   suffix?: string;
   /** 在 y=0 畫一條基準線（報酬率圖用） */
   zeroLine?: boolean;
+  /** viewBox 寬度；放在窄欄位時調小，字才不會縮到看不清 */
+  width?: number;
 }
 
-const W = 900;
 const PAD = { top: 12, right: 64, bottom: 26, left: 8 };
 
-export default function LineChart({ lines, height = 300, digits = 2, suffix = "", zeroLine = false }: Props) {
+export default function LineChart({ lines, height = 300, digits = 2, suffix = "", zeroLine = false, width: W = 900 }: Props) {
   const [hover, setHover] = useState<number | null>(null);
   const dates = useMemo(() => {
     const set = new Set<string>();
@@ -48,6 +49,8 @@ export default function LineChart({ lines, height = 300, digits = 2, suffix = ""
 
   const ticks = Array.from({ length: 5 }, (_, i) => min + ((max - min) * i) / 4);
   const xTickEvery = Math.max(1, Math.round(dates.length / 6));
+  // 不到半年的區間用「月-日」，否則用「年-月」，避免整排標籤都一樣。
+  const shortSpan = Date.parse(dates.at(-1)!) - Date.parse(dates[0]) < 183 * 86400000;
 
   const paths = lines.map((l, li) => {
     let d = "";
@@ -95,7 +98,9 @@ export default function LineChart({ lines, height = 300, digits = 2, suffix = ""
         {zeroLine && <line x1={PAD.left} x2={W - PAD.right} y1={y(0)} y2={y(0)} stroke="currentColor" strokeOpacity={0.35} />}
         {dates.map((d, i) =>
           i % xTickEvery === 0 ? (
-            <text key={d} x={x(i)} y={height - 6} textAnchor="middle">{d.slice(2, 7)}</text>
+            <text key={d} x={x(i)} y={height - 6} textAnchor={i === 0 ? "start" : i >= dates.length - xTickEvery ? "end" : "middle"}>
+              {shortSpan ? d.slice(5) : d.slice(2, 7)}
+            </text>
           ) : null,
         )}
         {paths.map((d, li) => (

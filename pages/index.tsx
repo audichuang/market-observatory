@@ -4,7 +4,7 @@ import { CenteredBar, CheckBadge, Delta } from "../src/ui/bits.tsx";
 import { dateWithWeekday, num, pctText, signed, taipeiTime } from "../src/ui/format.ts";
 import type { Props } from "./index.server";
 
-export default function Overview({ snapshot, revisions, dates, expectedClose, news, events, lastPriceRun, forecast, viewingLatest }: Props) {
+export default function Overview({ snapshot, revisions, dates, expectedClose, news, events, lastPriceRun, forecast, restCount, viewingLatest }: Props) {
   const router = useRouter();
   if (!snapshot) {
     return (
@@ -143,7 +143,7 @@ export default function Overview({ snapshot, revisions, dates, expectedClose, ne
             <tbody>
               {s.mag7.map((r) => <Mag7Line key={r.key} r={r} max={maxContribution} />)}
               <tr>
-                <td>其餘 ~496 檔 <span className="meta">（推算）</span></td>
+                <td>其餘{restCount ? ` ${restCount} 檔` : "成分股"} <span className="meta">（推算）</span></td>
                 <td className="num hide-sm">—</td>
                 <td className="num"><Delta value={s.rest.impliedReturnPct} percent /></td>
                 <td className="num">{s.mag7Total.weightPct === null ? "—" : `${num(100 - s.mag7Total.weightPct, 1)}%`}</td>

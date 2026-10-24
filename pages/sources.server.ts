@@ -1,0 +1,46 @@
+import { defineHandler, defineHead, type InferProps } from "void";
+import { NYSE_CALENDAR, addDays, latestExpectedClose } from "../src/lib/calendar.ts";
+import { CBOE_URLS } from "../src/lib/sources/cboe.ts";
+import { SSGA_DISPLAY_URL } from "../src/lib/sources/ssga.ts";
+import { YAHOO_SYMBOLS, VIX_SYMBOL } from "../src/lib/universe.ts";
+import { yahooDisplayUrl } from "../src/lib/sources/yahoo.ts";
+import { JOB_NAMES } from "../src/server/jobs.ts";
+import { CHECK_ABS_TOLERANCE, CHECK_REL_TOLERANCE } from "../src/server/repo.ts";
+
+export type Props = InferProps<typeof loader>;
+
+export const loader = defineHandler(async (c) => {
+  const db = c.env.DB;
+  const expected = latestExpectedClose();
+  const [freshness, mismatches, runs, weights, counts] = await Promise.all([
+    db
+      .prepare(
+        `SELECT p.symbol, p.date, p.close, p.source, p.fetched_at, p.check_status, p.check_source, p.check_close
+         FROM prices p JOIN (SELECT symbol, MAX(date) AS d FROM prices GROUP BY symbol) m ON p.symbol = m.symbol AND p.date = m.d ORDER BY p.symbol`,
+      )
+      .all<{ symbol: string; date: string; close: number; source: string; fetched_at: string; check_status: string | null; check_source: string | null; check_close: number | null }>(),
+    db
+      .prepare("SELECT symbol, date, close, check_close, check_source FROM prices WHERE check_status = 'mismatch' AND date >= ? ORDER BY date DESC LIMIT 50")
+      .bind(addDays(expected, -60))
+      .all<{ symbol: string; date: string; close: number; check_close: number; check_source: string }>(),
+    db.prepare("SELECT * FROM runs ORDER BY id DESC LIMIT 60").all<{ id: number; job: string; trigger: string; status: string; started_at: string; finished_at: string | null; summary: string | null }>(),
+    db.prepare("SELECT as_of, COUNT(*) AS n, ROUND(SUM(weight_pct), 2) AS total, MAX(fetched_at) AS fetched_at FROM weights GROUP BY as_of ORDER BY as_of DESC LIMIT 10").all<{ as_of: string; n: number; total: number; fetched_at: string }>(),
+    db.prepare("SELECT (SELECT COUNT(*) FROM prices) AS prices, (SELECT COUNT(*) FROM snapshots) AS snapshots, (SELECT COUNT(DISTINCT trade_date) FROM snapshots) AS days, (SELECT COUNT(*) FROM news) AS news, (SELECT COUNT(*) FROM events) AS events").first<Record<string, number>>(),
+  ]);
+  const sourceLinks: Record<string, string> = Object.fromEntries(Object.entries(YAHOO_SYMBOLS).map(([s, p]) => [s, yahooDisplayUrl(p)]));
+  sourceLinks[VIX_SYMBOL] = CBOE_URLS.VIX;
+  return {
+    expected,
+    freshness: freshness.results.map((f) => ({ ...f, link: sourceLinks[f.symbol] ?? null })),
+    mismatches: mismatches.results,
+    runs: runs.results,
+    weights: weights.results,
+    counts,
+    jobs: JOB_NAMES,
+    tolerance: { abs: CHECK_ABS_TOLERANCE, rel: CHECK_REL_TOLERANCE },
+    calendar: NYSE_CALENDAR,
+    links: { ssga: SSGA_DISPLAY_URL, cboeSpx: CBOE_URLS.SPX },
+  };
+});
+
+export const head = defineHead(() => ({ title: "資料來源｜市場觀測室" }));

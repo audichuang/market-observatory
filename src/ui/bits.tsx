@@ -1,0 +1,37 @@
+import type { CheckStatus } from "../lib/snapshot.ts";
+import { pctText, signed, tone } from "./format.ts";
+
+export function Delta({ value, digits = 2, percent = false }: { value: number | null | undefined; digits?: number; percent?: boolean }) {
+  return <span className={tone(value)}>{percent ? pctText(value, digits) : signed(value, digits)}</span>;
+}
+
+const CHECK_LABEL: Record<CheckStatus, [string, string]> = {
+  match: ["ok", "兩源一致"],
+  mismatch: ["bad", "來源不一致"],
+  pending: ["warn", "待核對"],
+  unavailable: ["", "無第二來源"],
+};
+
+export function CheckBadge({ status }: { status: CheckStatus }) {
+  const [cls, text] = CHECK_LABEL[status] ?? CHECK_LABEL.pending;
+  return <span className={`badge ${cls}`}>{text}</span>;
+}
+
+/** 以 0 為中心的水平條；max 是兩側的滿格值。 */
+export function CenteredBar({ value, max }: { value: number | null; max: number }) {
+  if (value === null || !max) return <div className="bar-track"><div className="bar-zero" /></div>;
+  const w = Math.min(50, (Math.abs(value) / max) * 50);
+  const style = value >= 0 ? { left: "50%", width: `${w}%` } : { left: `${50 - w}%`, width: `${w}%` };
+  return (
+    <div className="bar-track">
+      <div className="bar-zero" />
+      <div className="bar-fill" style={{ ...style, background: value >= 0 ? "var(--up)" : "var(--down)" }} />
+    </div>
+  );
+}
+
+export function RunStatusBadge({ status }: { status: string }) {
+  const cls = status === "ok" ? "ok" : status === "partial" || status === "running" ? "warn" : "bad";
+  const text = { ok: "成功", partial: "部分成功", failed: "失敗", running: "執行中" }[status] ?? status;
+  return <span className={`badge ${cls}`}>{text}</span>;
+}

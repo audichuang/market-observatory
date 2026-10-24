@@ -23,3 +23,18 @@ export function detectRebase(existing: Map<string, number>, fresh: DailyBar[]): 
   if (Math.abs(mean - 1) <= MIN_SHIFT) return null;
   return ratios.every((r) => Math.abs(r / mean - 1) <= AGREEMENT) ? mean : null;
 }
+
+/**
+ * 分割待修清單的下一個狀態：新偵測到的加入、這次成功重抓的移除。
+ * 只要還在清單上，每日抓價就不寫這檔的一個月資料，並且每次都重抓完整歷史，
+ * 不依賴「重疊天數夠不夠再偵測一次」。
+ */
+export function nextPendingRebase(
+  pending: Record<string, number>,
+  detected: Record<string, number>,
+  recovered: string[],
+): Record<string, number> {
+  const next = { ...pending, ...detected };
+  for (const s of recovered) delete next[s];
+  return next;
+}

@@ -51,11 +51,12 @@ p { margin: .3rem 0; }
 
 .topbar {
   position: sticky; top: 0; z-index: 10;
+  padding-top: env(safe-area-inset-top);
   background: color-mix(in srgb, var(--panel) 92%, transparent);
   backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--line);
 }
-.topbar-inner { max-width: 1180px; margin: 0 auto; padding: .6rem 1rem; display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; }
+.topbar-inner { max-width: 1180px; margin: 0 auto; padding: .6rem max(1rem, env(safe-area-inset-right)) .6rem max(1rem, env(safe-area-inset-left)); display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; }
 .brand { font-weight: 700; color: var(--ink); margin-right: .5rem; }
 .nav { display: flex; gap: .25rem; flex-wrap: wrap; flex: 1; }
 .nav a { padding: .3rem .65rem; border-radius: 999px; color: var(--muted); }
@@ -136,15 +137,73 @@ button:disabled { opacity: .55; cursor: default; }
 
 .login-card { max-width: 380px; margin: 4rem auto; }
 .error { color: var(--up); font-size: .85rem; }
-footer.foot { max-width: 1180px; margin: 0 auto; padding: 0 1rem 2rem; color: var(--muted); font-size: .78rem; }
+footer.foot { max-width: 1180px; margin: 0 auto; padding: 0 1rem calc(2rem + env(safe-area-inset-bottom)); color: var(--muted); font-size: .78rem; }
+/* 安裝成 App 時：避免點選時的灰色閃爍、長按選取導覽文字 */
+@media (display-mode: standalone) {
+  body { -webkit-tap-highlight-color: transparent; overscroll-behavior-y: none; }
+  .nav a, .brand, button { -webkit-user-select: none; user-select: none; }
+}
+
+
+/* 換頁進度條：導覽一開始就出現，讓人知道已經在切換 */
+.progress { position: fixed; top: 0; left: 0; right: 0; height: 3px; z-index: 50; pointer-events: none; opacity: 0; transition: opacity .2s; }
+.progress.on { opacity: 1; background: linear-gradient(90deg, transparent, var(--accent), transparent); background-size: 50% 100%; background-repeat: no-repeat; animation: progress-slide 1s linear infinite; }
+@keyframes progress-slide { from { background-position: -50% 0; } to { background-position: 150% 0; } }
+
+/* 骨架 */
+.sk { background: linear-gradient(90deg, var(--line) 25%, color-mix(in srgb, var(--line) 55%, var(--panel)) 50%, var(--line) 75%); background-size: 200% 100%; animation: sk-shimmer 1.2s ease-in-out infinite; border-radius: 6px; flex-shrink: 0; }
+@keyframes sk-shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+@media (prefers-reduced-motion: reduce) { .sk, .progress.on { animation: none; } }
+
+/* 寬表格在小螢幕橫向捲動時，第一欄固定，才知道每列是哪一檔 */
+.table-wrap { -webkit-overflow-scrolling: touch; }
+.table-wrap th:first-child, .table-wrap td:first-child { position: sticky; left: 0; background: var(--panel); z-index: 1; }
+
+/* 底部分頁列與手機版卡片：只在手機顯示 */
+.tabbar, .show-sm { display: none; }
+.etf-cards { list-style: none; margin: 0; padding: 0; }
+.etf-cards li { padding: .8rem 0; border-bottom: 1px solid var(--line); }
+.etf-cards li:last-child { border-bottom: 0; }
+.etf-card-head { display: flex; align-items: center; gap: .5rem; font-size: 1.05rem; }
+.etf-card-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: .35rem .5rem; margin: .5rem 0 .2rem; }
+.etf-card-grid div { background: var(--bg); border-radius: 6px; padding: .3rem .4rem; }
+.etf-card-grid dt { color: var(--muted); font-size: .72rem; }
+.etf-card-grid dd { margin: 0; font-variant-numeric: tabular-nums; font-size: .9rem; }
 
 @media (max-width: 640px) {
   .kpi .value { font-size: 1.25rem; }
-  main { padding-top: .8rem; }
+  main { padding: .8rem .8rem calc(5rem + env(safe-area-inset-bottom)); }
   .hide-sm { display: none; }
-  .topbar-inner { flex-wrap: nowrap; gap: .5rem; }
-  .brand { display: none; }
-  .nav { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
-  .nav a { white-space: nowrap; }
-  th, td { padding: .45rem .4rem; }
+  th, td { padding: .5rem .45rem; }
+
+  .topbar-inner { padding-top: .45rem; padding-bottom: .45rem; }
+  .topbar .nav { display: none; }
+  .brand { display: inline-flex; align-items: center; min-height: 44px; font-size: 1.05rem; flex: 1; }
+  .whoami button { min-height: 40px; padding: .4rem .8rem; }
+
+  .tabbar {
+    display: grid; grid-template-columns: repeat(5, 1fr);
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
+    background: color-mix(in srgb, var(--panel) 94%, transparent); backdrop-filter: blur(10px);
+    border-top: 1px solid var(--line);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .tabbar a {
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+    min-height: 56px; color: var(--muted); font-size: .72rem; text-decoration: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .tabbar a.active { color: var(--accent); font-weight: 600; }
+  .tabbar svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  footer.foot { padding-bottom: calc(5.5rem + env(safe-area-inset-bottom)); }
+
+  /* 觸控尺寸至少 44px；輸入框 16px，iPhone 才不會在點選時把整頁放大 */
+  input, select, textarea { font-size: 16px; min-height: 44px; }
+  button, .button { min-height: 44px; }
+  .chip { min-height: 40px; display: inline-flex; align-items: center; padding: .35rem .85rem; }
+  .show-sm { display: block; }
+  /* 表格裡的連結：可點範圍撐到 44px，用負邊距讓列高不變 */
+  td a { display: inline-flex; align-items: center; min-height: 44px; margin: -.5rem 0; }
+  .etf-card-head a { display: inline-flex; align-items: center; min-height: 44px; }
+  .list li a { display: block; padding: .15rem 0; }
 }

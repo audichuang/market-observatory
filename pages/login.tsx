@@ -2,10 +2,11 @@ import { useState } from "react";
 import { auth } from "void/client";
 import type { Props } from "./login.server";
 
-export default function LoginPage({ next, hasUser }: Props) {
+export default function LoginPage({ next, hasUser, needsCode }: Props) {
   const [mode, setMode] = useState<"signin" | "signup">(hasUser ? "signin" : "signup");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [code, setCode] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
@@ -16,7 +17,7 @@ export default function LoginPage({ next, hasUser }: Props) {
     const res =
       mode === "signin"
         ? await auth.signIn.email({ email, password })
-        : await auth.signUp.email({ email, password, name: email.split("@")[0] });
+        : await auth.signUp.email({ email, password, name: email.split("@")[0] }, { headers: { "x-signup-code": code } });
     setPending(false);
     if (res.error) {
       setError(res.error.message || "登入失敗");
@@ -39,6 +40,12 @@ export default function LoginPage({ next, hasUser }: Props) {
             密碼
             <input type="password" autoComplete={mode === "signin" ? "current-password" : "new-password"} minLength={8} required value={password} onChange={(e) => setPassword(e.target.value)} />
           </label>
+          {mode === "signup" && needsCode && (
+            <label className="field">
+              註冊碼
+              <input autoComplete="one-time-code" required value={code} onChange={(e) => setCode(e.target.value)} />
+            </label>
+          )}
           {error && <p className="error">{error}</p>}
           <button disabled={pending}>{pending ? "處理中…" : mode === "signin" ? "登入" : "建立帳號"}</button>
           {!hasUser && (

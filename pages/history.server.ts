@@ -1,7 +1,6 @@
 import { defineHandler, defineHead, type InferProps } from "void";
 import { maxDrawdown, periodReturn, smaSeries } from "../src/lib/analytics.ts";
 import { addDays } from "../src/lib/calendar.ts";
-import type { Snapshot } from "../src/lib/snapshot.ts";
 import { ETFS, EQUAL_WEIGHT_SYMBOL, INDEX_SYMBOL, MAG7, VIX_SYMBOL } from "../src/lib/universe.ts";
 import { loadPrices } from "../src/server/repo.ts";
 
@@ -58,15 +57,17 @@ export const loader = defineHandler(async (c) => {
   // 近 40 個交易日七巨頭貢獻（取每天最新版快照）。
   const contrib = await db
     .prepare(
-      `SELECT s.trade_date, s.data FROM snapshots s
+      `SELECT s.trade_date AS date,
+              json_extract(s.data, '$.index.changePts') AS idx,
+              json_extract(s.data, '$.mag7Total.contributionPts') AS mag7,
+              json_extract(s.data, '$.rest.contributionPts') AS rest
+       FROM snapshots s
        JOIN (SELECT trade_date, MAX(revision) AS r FROM snapshots GROUP BY trade_date ORDER BY trade_date DESC LIMIT 40) m
        ON s.trade_date = m.trade_date AND s.revision = m.r ORDER BY s.trade_date`,
     )
-    .all<{ trade_date: string; data: string }>();
-  const contribution = contrib.results.map((r) => {
-    const d = JSON.parse(r.data) as Snapshot;
-    return { date: r.trade_date, index: d.index.changePts, mag7: d.mag7Total.contributionPts, rest: d.rest.contributionPts };
-  });
+    .all<{ date: string; idx: number | null; mag7: number | null; rest: number | null }>();
+  // 只在 SQL 取需要的三個數字，不把 40 份完整快照 JSON 拉回 Worker 解析。
+  const contribution = contrib.results.map((r) => ({ date: r.date, index: r.idx, mag7: r.mag7, rest: r.rest }));
 
   const mainStats = { ret: periodReturn(main, start, end), mdd: maxDrawdown(main.points.filter((p) => p.date >= start)), points: visible.length, first: visible[0]?.date ?? null, last: visible.at(-1)?.date ?? null };
   return { symbol, months, ranges: RANGES, symbols: Object.entries(SYMBOL_LABELS), priceLine, mainStats, rebased, stats, contribution };

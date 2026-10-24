@@ -7,7 +7,8 @@ declare module "void" {
 }
 
 // 未登入只能看登入頁與登入 API；其餘頁面導去 /login，API 回 401。
-const PUBLIC_PREFIXES = ["/login", "/api/auth/", "/__", "/assets/", "/favicon"];
+// PWA 的 manifest、圖示、service worker 與離線頁也要公開：瀏覽器抓 manifest 時不一定帶 cookie。
+const PUBLIC_PREFIXES = ["/login", "/api/auth/", "/__", "/assets/", "/favicon", "/icons/", "/manifest.webmanifest", "/sw.js", "/offline.html"];
 
 export default defineMiddleware(async (c, next) => {
   const path = c.req.path;

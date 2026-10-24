@@ -1,0 +1,23 @@
+{
+  "id": "/",
+  "name": "市場觀測室",
+  "short_name": "觀測室",
+  "description": "S&P 500、七巨頭歸因、ETF 與定投試算",
+  "lang": "zh-Hant-TW",
+  "start_url": "/?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f6f7f9",
+  "theme_color": "#122456",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "走勢與均線", "url": "/history", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "ETF 與定投", "url": "/etfs", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "資料來源", "url": "/sources", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] }
+  ]
+}

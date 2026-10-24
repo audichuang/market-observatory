@@ -2,10 +2,11 @@ import { addDays, latestExpectedClose, MACRO_EVENTS } from "../lib/calendar.ts";
 import { type Snapshot, buildSnapshot, snapshotLoadWindow } from "../lib/snapshot.ts";
 import { CBOE_SOURCE, fetchCboeDaily } from "../lib/sources/cboe.ts";
 import { type EarningsDate, NASDAQ_SOURCE, fetchEarningsCalendar, fetchEarningsDate, fetchNasdaqHistorical, fetchNasdaqNews } from "../lib/sources/nasdaq.ts";
+import { nextPendingRebase } from "../lib/rebase.ts";
 import { fetchSpyHoldings } from "../lib/sources/ssga.ts";
 import { YAHOO_SOURCE, fetchYahooDaily } from "../lib/sources/yahoo.ts";
 import { EQUAL_WEIGHT_SYMBOL, FX_SYMBOL, INDEX_SYMBOL, MAG7, MAG7_TICKERS, NASDAQ_CHECK_SYMBOLS, VIX_SYMBOL, YAHOO_SYMBOLS } from "../lib/universe.ts";
-import { type BarBatch, applyCrossChecks, finishRun, insertWeights, loadPrices, loadWeightAnchors, nowIso, saveSnapshots, startRun, upsertBars, weightsNear } from "./repo.ts";
+import { type BarBatch, applyCrossChecks, finishRun, insertWeights, loadPrices, getSetting, loadWeightAnchors, nowIso, putSetting, saveSnapshots, startRun, upsertBars, weightsNear } from "./repo.ts";
 
 export type JobName = "prices" | "crosscheck" | "weights" | "news" | "events" | "snapshots" | "backfill-prices" | "backfill-checks";
 export const JOB_NAMES: JobName[] = ["prices", "crosscheck", "weights", "news", "events", "snapshots", "backfill-prices", "backfill-checks"];
@@ -24,6 +25,9 @@ interface JobResult {
   summary: string;
   detail: Record<string, unknown>;
 }
+
+/** settings 表裡的分割待修清單（代號 → 偵測到的比值） */
+export const PENDING_REBASE_KEY = "pending_rebase";
 
 const SNAPSHOT_SYMBOLS = [INDEX_SYMBOL, VIX_SYMBOL, EQUAL_WEIGHT_SYMBOL, ...MAG7_TICKERS];
 
@@ -97,16 +101,19 @@ async function jobPrices(db: D1Database): Promise<JobResult> {
   } catch (e) {
     failed[VIX_SYMBOL] = errText(e);
   }
-  const { changed, rebased } = await upsertBars(db, ok);
+  // 待修清單上的代號（之前偵測到分割、但完整歷史還沒重抓成功）不寫一個月資料，避免新舊基準混用。
+  const pending = await getSetting<Record<string, number>>(db, PENDING_REBASE_KEY, {});
+  const { changed, rebased } = await upsertBars(db, ok.filter((b) => !(b.symbol in pending)));
   detail.changed = changed;
-  // 分割後 Yahoo 改寫了整段歷史：只重抓一個月會新舊基準混用，偵測到就重抓這幾檔的十年日線。
-  const rebasedSymbols = Object.keys(rebased);
+  // 分割後 Yahoo 改寫了整段歷史：偵測到（或還在待修清單上）就重抓這幾檔的十年日線。
+  const rebasedSymbols = Object.keys({ ...pending, ...rebased });
   if (rebasedSymbols.length) {
     const full = await fetchYahooBatch(rebasedSymbols.map((s) => [s, YAHOO_SYMBOLS[s]] as [string, string]), "10y", expected);
     await upsertBars(db, full.ok, { allowRebase: true });
-    // 重抓失敗的代號這次完全沒寫入，下一輪會再偵測到並重試；狀態記成 partial。
-    for (const [s, err] of Object.entries(full.failed)) failed[s] = `分割後重抓歷史失敗，下次重試：${err}`;
-    detail.rebased = { factors: rebased, refetchFailed: full.failed };
+    const stillPending = nextPendingRebase(pending, rebased, full.ok.map((b) => b.symbol));
+    await putSetting(db, PENDING_REBASE_KEY, stillPending);
+    for (const [s, err] of Object.entries(full.failed)) failed[s] = `分割後重抓歷史失敗，已列入待修、下次重試：${err}`;
+    detail.rebased = { factors: { ...pending, ...rebased }, refetchFailed: full.failed, pending: stillPending };
   }
   const stale = ok.filter((b) => b.symbol !== FX_SYMBOL && b.bars.at(-1)?.date !== expected).map((b) => b.symbol);
   try {

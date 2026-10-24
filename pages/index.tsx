@@ -115,11 +115,11 @@ export default function Overview({ snapshot, revisions, dates, expectedClose, ne
             <thead>
               <tr>
                 <th>公司</th>
-                <th className="num">收盤</th>
+                <th className="num hide-sm">收盤</th>
                 <th className="num">漲跌</th>
                 <th className="num">權重</th>
                 <th className="num">貢獻（點）</th>
-                <th style={{ minWidth: 120 }}></th>
+                <th className="hide-sm" style={{ minWidth: 120 }}></th>
                 <th className="num hide-sm">占漲跌</th>
                 <th className="hide-sm">核對</th>
               </tr>
@@ -128,11 +128,11 @@ export default function Overview({ snapshot, revisions, dates, expectedClose, ne
               {s.mag7.map((r) => <Mag7Line key={r.key} r={r} max={maxContribution} />)}
               <tr>
                 <td>其餘 ~496 檔 <span className="meta">（推算）</span></td>
-                <td className="num">—</td>
+                <td className="num hide-sm">—</td>
                 <td className="num"><Delta value={s.rest.impliedReturnPct} percent /></td>
                 <td className="num">{s.mag7Total.weightPct === null ? "—" : `${num(100 - s.mag7Total.weightPct, 1)}%`}</td>
                 <td className="num"><Delta value={s.rest.contributionPts} /></td>
-                <td><CenteredBar value={s.rest.contributionPts} max={maxContribution} /></td>
+                <td className="hide-sm"><CenteredBar value={s.rest.contributionPts} max={maxContribution} /></td>
                 <td className="num hide-sm">{s.mag7Total.shareOfMovePct === null ? "—" : `${num(100 - s.mag7Total.shareOfMovePct, 0)}%`}</td>
                 <td className="hide-sm"></td>
               </tr>
@@ -140,11 +140,11 @@ export default function Overview({ snapshot, revisions, dates, expectedClose, ne
             <tfoot>
               <tr>
                 <td>S&amp;P 500</td>
-                <td className="num">{num(s.index.close)}</td>
+                <td className="num hide-sm">{num(s.index.close)}</td>
                 <td className="num"><Delta value={s.index.returnPct} percent /></td>
                 <td className="num">100%</td>
                 <td className="num"><Delta value={s.index.changePts} /></td>
-                <td></td>
+                <td className="hide-sm"></td>
                 <td className="num hide-sm">100%</td>
                 <td className="hide-sm"></td>
               </tr>
@@ -219,11 +219,11 @@ function Mag7Line({ r, max }: { r: Mag7Row; max: number }) {
       <td>
         <Link href={`/history?symbol=${r.key}`}>{r.company}</Link> <span className="meta mono">{r.tickers.join("+")}</span>
       </td>
-      <td className="num">{num(r.close)}</td>
+      <td className="num hide-sm">{num(r.close)}</td>
       <td className="num"><Delta value={r.returnPct} percent /></td>
       <td className="num">{r.weightPct === null ? "—" : `${num(r.weightPct)}%`}</td>
       <td className="num"><Delta value={r.contributionPts} /></td>
-      <td><CenteredBar value={r.contributionPts} max={max} /></td>
+      <td className="hide-sm"><CenteredBar value={r.contributionPts} max={max} /></td>
       <td className="num hide-sm">{r.shareOfMovePct === null ? "—" : `${signed(r.shareOfMovePct, 0).replace("+", "")}%`}</td>
       <td className="hide-sm"><CheckBadge status={r.check} /></td>
     </tr>

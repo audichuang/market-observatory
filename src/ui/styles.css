@@ -240,7 +240,9 @@ footer.foot { max-width: 1180px; margin: 0 auto; padding: 0 1rem calc(2rem + env
   /* 表格裡的連結：可點範圍撐到 44px，用負邊距讓列高不變 */
   td a { display: inline-flex; align-items: center; min-height: 44px; margin: -.5rem 0; }
   .etf-card-head a { display: inline-flex; align-items: center; min-height: 44px; }
-  .list li a { display: block; padding: .15rem 0; }
+  /* 清單裡的連結：句中的（代號、來源、券商名）點擊範圍撐到 44px、用負邊距不撐高列；獨立一行的新聞標題整行可點 */
+  .list li a { display: inline-flex; align-items: center; min-height: 44px; margin: -.55rem 0; }
+  .list li > a { display: flex; margin: -.35rem 0 0; padding: .1rem 0; }
 }
 
 /* ── Liquid Glass ──────────────────────────────────────────────

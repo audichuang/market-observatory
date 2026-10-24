@@ -1,10 +1,12 @@
 import { getSetting, putSetting, type Db } from "./repo.ts";
 
-// 頁面資料快取：資料只在排程／手動工作或儲存規劃時改變，所以用「資料版本號」當快取鍵的一部分。
+// 頁面資料快取：資料只在排程／手動工作或儲存規劃時改變，所以用「資料版本號」加「建置編號」當快取鍵的一部分。
 // 版本一變，舊快取自然不再被命中；沒變時重複開同一頁不必再從 D1 讀上萬筆日線重算。
 
 const VERSION_KEY = "data_version";
 const CACHE_ORIGIN = "https://page-cache.market-observatory.internal";
+declare const __BUILD_ID__: string | undefined;
+const BUILD_ID = typeof __BUILD_ID__ === "string" ? __BUILD_ID__ : "dev";
 
 /** 頁面讀取走 D1 讀取副本（離使用者較近）；寫入與排程仍用主庫。 */
 export function readDb(env: { DB: D1Database }): Db {
@@ -31,7 +33,7 @@ interface Ctx {
 export async function cachedPage<T>(c: Ctx, db: Db, key: string, compute: () => Promise<T>): Promise<T> {
   const cache = (globalThis as { caches?: { default?: Cache } }).caches?.default;
   if (!cache) return compute();
-  const url = `${CACHE_ORIGIN}/${encodeURIComponent(await dataVersion(db))}/${key}`;
+  const url = `${CACHE_ORIGIN}/${BUILD_ID}/${encodeURIComponent(await dataVersion(db))}/${key}`;
   try {
     const hit = await cache.match(url);
     if (hit) return (await hit.json()) as T;

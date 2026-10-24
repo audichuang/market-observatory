@@ -1,0 +1,106 @@
+// NYSE 休市日與 FOMC 日程。兩者都是官方公布的靜態資料，超出覆蓋範圍就不判斷「應該開市」。
+
+export const NYSE_CALENDAR = {
+  sourceUrl: "https://www.nyse.com/markets/hours-calendars",
+  verifiedOn: "2026-10-25",
+  coverageStart: "2025-01-01",
+  coverageEnd: "2027-12-31",
+};
+
+const NYSE_CLOSED = new Set([
+  // 2025（含 1/9 卡特總統國喪日休市）
+  "2025-01-01", "2025-01-09", "2025-01-20", "2025-02-17", "2025-04-18", "2025-05-26",
+  "2025-06-19", "2025-07-04", "2025-09-01", "2025-11-27", "2025-12-25",
+  // 2026
+  "2026-01-01", "2026-01-19", "2026-02-16", "2026-04-03", "2026-05-25", "2026-06-19",
+  "2026-07-03", "2026-09-07", "2026-11-26", "2026-12-25",
+  // 2027
+  "2027-01-01", "2027-01-18", "2027-02-15", "2027-03-26", "2027-05-31", "2027-06-18",
+  "2027-07-05", "2027-09-06", "2027-11-25", "2027-12-24",
+]);
+
+export const NYSE_EARLY_CLOSE = new Set(["2025-07-03", "2025-11-28", "2025-12-24", "2026-11-27", "2026-12-24", "2027-11-26"]);
+
+export function inCalendarCoverage(date: string): boolean {
+  return date >= NYSE_CALENDAR.coverageStart && date <= NYSE_CALENDAR.coverageEnd;
+}
+
+/** 覆蓋範圍內回 true/false；範圍外回 null（不知道）。 */
+export function isNyseSession(date: string): boolean | null {
+  if (!inCalendarCoverage(date)) return null;
+  const day = new Date(`${date}T12:00:00Z`).getUTCDay();
+  return day !== 0 && day !== 6 && !NYSE_CLOSED.has(date);
+}
+
+export function addDays(date: string, n: number): string {
+  const d = new Date(`${date}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+/** from、to 皆含；任一端超出覆蓋範圍就丟錯，呼叫端要自己處理。 */
+export function expectedSessions(from: string, to: string): string[] {
+  if (!inCalendarCoverage(from) || !inCalendarCoverage(to)) {
+    throw new Error(`NYSE 日曆只覆蓋 ${NYSE_CALENDAR.coverageStart}～${NYSE_CALENDAR.coverageEnd}`);
+  }
+  const out: string[] = [];
+  for (let d = from; d <= to; d = addDays(d, 1)) if (isNyseSession(d)) out.push(d);
+  return out;
+}
+
+/** 美東當地日期（處理夏令時間）。 */
+export function easternDate(at: Date = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(at);
+}
+
+/** 美東時間的小時（0–23）。 */
+export function easternHour(at: Date = new Date()): number {
+  return Number(new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", hourCycle: "h23" }).format(at));
+}
+
+/**
+ * 「現在應該已經有收盤價」的最近交易日：美東 16:30 以後算當天，否則往前找。
+ * 超出日曆覆蓋時退回週一到週五的判斷。
+ */
+export function latestExpectedClose(at: Date = new Date()): string {
+  let d = easternDate(at);
+  if (easternHour(at) < 17) d = addDays(d, -1);
+  for (let i = 0; i < 10; i++) {
+    const s = isNyseSession(d);
+    const weekday = new Date(`${d}T12:00:00Z`).getUTCDay();
+    if (s === true || (s === null && weekday !== 0 && weekday !== 6)) return d;
+    d = addDays(d, -1);
+  }
+  return d;
+}
+
+export interface MacroEvent {
+  id: string;
+  date: string;
+  title: string;
+  detail: string;
+  sourceUrl: string;
+  status: "scheduled" | "tentative";
+}
+
+const FOMC_URL = "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm";
+// [決議日, 是否附 SEP 經濟預測, 是否暫定]；聯準會頁面 2026-10-25 查核。
+const FOMC: [string, string, boolean, boolean][] = [
+  ["2026-01-28", "1/27–28", false, false], ["2026-03-18", "3/17–18", true, false],
+  ["2026-04-29", "4/28–29", false, false], ["2026-06-17", "6/16–17", true, false],
+  ["2026-07-29", "7/28–29", false, false], ["2026-09-16", "9/15–16", true, false],
+  ["2026-10-28", "10/27–28", false, false], ["2026-12-09", "12/8–9", true, false],
+  ["2027-01-27", "1/26–27", false, true], ["2027-03-17", "3/16–17", true, true],
+  ["2027-04-28", "4/27–28", false, true], ["2027-06-09", "6/8–9", true, true],
+  ["2027-07-28", "7/27–28", false, true], ["2027-09-15", "9/14–15", true, true],
+  ["2027-10-27", "10/26–27", false, true], ["2027-12-08", "12/7–8", true, true],
+];
+
+export const MACRO_EVENTS: MacroEvent[] = FOMC.map(([date, span, sep, tentative]) => ({
+  id: `fomc-${date}`,
+  date,
+  title: `FOMC 利率決議（${span}）`,
+  detail: `${sep ? "附經濟預測摘要（SEP）與點陣圖；" : ""}美東 14:00 公布聲明，14:30 主席記者會${tentative ? "；聯準會標示為暫定日程" : ""}`,
+  sourceUrl: FOMC_URL,
+  status: tentative ? "tentative" : "scheduled",
+}));

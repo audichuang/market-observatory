@@ -1,0 +1,34 @@
+{
+  "name": "market-observatory",
+  "version": "1.0.0",
+  "description": "美股市場觀測室：S&P 500、七巨頭歸因、ETF 與事件日曆（Void + Cloudflare）",
+  "scripts": {
+    "test": "node --test tests/*.test.ts",
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "postinstall": "void prepare",
+    "typecheck": "tsc --noEmit",
+    "deploy": "void deploy",
+    "backfill": "node scripts/backfill.ts"
+  },
+  "license": "MIT",
+  "type": "module",
+  "devDependencies": {
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@void/react": "1.2.1",
+    "oxc-transform-react": "^0.149.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.0.10",
+    "void": "^1.2.1"
+  },
+  "private": true,
+  "dependencies": {
+    "fflate": "^0.8.3",
+    "hono": "^4.11.9",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "zod": "^4.6.7"
+  }
+}

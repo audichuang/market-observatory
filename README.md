@@ -6,7 +6,7 @@
 
 | 資料 | 主來源 | 核對 | 頻率 |
 | --- | --- | --- | --- |
-| 指數、個股、ETF、USD/TWD 日線 | Yahoo Finance chart API | 個股與 ETF 對 Nasdaq 歷史行情；SPX 對 Cboe 官方歷史 | 收盤後兩次（UTC 21:20、隔日 01:10），UTC 22:40 核對 |
+| 指數、個股、ETF、USD/TWD 日線 | Yahoo Finance chart API | 個股與 ETF 對 Nasdaq 歷史行情；SPX 對 Cboe 官方歷史 | UTC 21:40（冬令美東 16:40、夏令 17:40）抓價、22:50 核對；隔日 01:10 補抓並再核對 |
 | VIX | Cboe 官方 `VIX_History.csv` | — | 同上 |
 | 七巨頭權重 | State Street SPY 每日持股 xlsx | 權重合計須在 95–105%、至少 400 檔 | 每天 UTC 11:30 |
 | 財報日期 | Nasdaq 財報日曆（已排定），沒有時用 Zacks 推估 | 推估日期在畫面上標「推估」 | 每天 UTC 11:30 |
@@ -60,4 +60,4 @@ MO_URL=https://<worker>.workers.dev MO_EMAIL=… MO_PASSWORD=… node scripts/ba
 
 ## 免費方案的限制
 
-每次 Worker 呼叫的子請求約 50 個、Cron Trigger 最多 5 組，所以抓價、核對、權重＋日曆、新聞拆成四個 cron 檔；資料庫寫入一律「一次查詢＋分塊 batch」，查詢次數不隨標的數量增加。
+每次 Worker 呼叫的子請求約 50 個、Cron Trigger 最多 5 組，所以抓價、補抓、核對、權重＋日曆、新聞拆成五個 cron 檔；資料庫寫入一律「一次查詢＋分塊 batch」，查詢次數不隨標的數量增加。

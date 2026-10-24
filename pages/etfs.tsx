@@ -1,4 +1,5 @@
-import { Form, Link, useForm, useRouter } from "@void/react";
+import { Form, Link, action, useForm, useRouter } from "@void/react";
+import { useEffect, useState } from "react";
 import LineChart from "../src/ui/LineChart.tsx";
 import { Delta } from "../src/ui/bits.tsx";
 import { compactUsd, num, pctText } from "../src/ui/format.ts";
@@ -7,6 +8,10 @@ import type { Props } from "./etfs.server";
 export default function EtfPage({ asOf, catalogAsOf, rows, periods, plan, sim, dca, fxLast }: Props) {
   const router = useRouter();
   const form = useForm("/etfs", { ...plan });
+  const [monthly, setMonthly] = useState(String(sim.monthlyTwd));
+  const [savedDefault, setSavedDefault] = useState(false);
+  useEffect(() => setMonthly(String(sim.monthlyTwd)), [sim.monthlyTwd]);
+  const isDefault = plan.etf === sim.etf && plan.years === sim.years && plan.monthlyTwd === sim.monthlyTwd;
   const simUrl = (patch: Partial<typeof sim>) => {
     const next = { ...sim, ...patch };
     return `/etfs?etf=${next.etf}&years=${next.years}&monthly=${next.monthlyTwd}`;
@@ -21,7 +26,27 @@ export default function EtfPage({ asOf, catalogAsOf, rows, periods, plan, sim, d
       </div>
 
       <div className="panel">
-        <div className="table-wrap">
+        <ul className="etf-cards show-sm">
+          {rows.map((r) => (
+            <li key={r.ticker}>
+              <div className="etf-card-head">
+                <Link href={`/history?symbol=${r.ticker}`}><strong>{r.ticker}</strong></Link>
+                <span className="badge">{r.multiple}x</span>
+                <span className="num" style={{ marginLeft: "auto" }}>{num(r.close)}</span>
+              </div>
+              <div className="meta">{r.name} · 費用率 {r.netFeePct === null ? "—" : `${feeText(r.netFeePct)}%`} · AUM {compactUsd(r.aumUsd)}</div>
+              <dl className="etf-card-grid">
+                <div><dt>YTD</dt><dd><Delta value={r.ytd} percent digits={1} /></dd></div>
+                {periods.map((p) => (
+                  <div key={p}><dt>{p}</dt><dd><Delta value={r.returns[p]} percent digits={1} /></dd></div>
+                ))}
+                {r.drift1y && <div><dt>1Y 偏離</dt><dd><Delta value={r.drift1y.drift} percent digits={1} /></dd></div>}
+              </dl>
+              {r.note && <div className="meta">{r.note}</div>}
+            </li>
+          ))}
+        </ul>
+        <div className="table-wrap hide-sm">
           <table>
             <thead>
               <tr>
@@ -69,30 +94,47 @@ export default function EtfPage({ asOf, catalogAsOf, rows, periods, plan, sim, d
       <div className="grid two section">
         <div className="panel">
           <h2>定投試算（台幣）</h2>
-          <div className="row">
+          <form
+            className="row"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const m = Number(monthly);
+              if (m > 0) router.visit(simUrl({ monthlyTwd: m }));
+            }}
+          >
             <label className="field">
               標的
-              <select value={sim.etf} onChange={(e) => router.visit(simUrl({ etf: e.target.value }))}>
+              <select value={sim.etf} onChange={(e) => router.visit(simUrl({ etf: e.target.value, monthlyTwd: Number(monthly) || sim.monthlyTwd }))}>
                 {rows.map((r) => <option key={r.ticker} value={r.ticker}>{r.ticker}（{r.multiple}x）</option>)}
               </select>
             </label>
             <label className="field">
               期間
-              <select value={sim.years} onChange={(e) => router.visit(simUrl({ years: Number(e.target.value) }))}>
+              <select value={sim.years} onChange={(e) => router.visit(simUrl({ years: Number(e.target.value), monthlyTwd: Number(monthly) || sim.monthlyTwd }))}>
                 {[1, 2, 3, 5].map((y) => <option key={y} value={y}>過去 {y} 年</option>)}
               </select>
             </label>
             <label className="field">
               每月投入（台幣）
-              <input
-                type="number"
-                min={1000}
-                step={1000}
-                defaultValue={sim.monthlyTwd}
-                onBlur={(e) => Number(e.target.value) > 0 && Number(e.target.value) !== sim.monthlyTwd && router.visit(simUrl({ monthlyTwd: Number(e.target.value) }))}
-              />
+              <input type="number" inputMode="numeric" min={1000} step={1000} enterKeyHint="go" value={monthly} onChange={(e) => setMonthly(e.target.value)} />
             </label>
-          </div>
+            <div className="row" style={{ flexBasis: "100%" }}>
+              <button type="submit" disabled={Number(monthly) === sim.monthlyTwd || !(Number(monthly) > 0)}>試算</button>
+              <button
+                type="button"
+                className="secondary"
+                disabled={isDefault}
+                onClick={async () => {
+                  await action("/etfs", { data: { ...plan, etf: sim.etf, years: sim.years, monthlyTwd: sim.monthlyTwd } });
+                  setSavedDefault(true);
+                  router.refresh();
+                }}
+              >
+                {isDefault ? "已是我的預設" : "設為我的預設"}
+              </button>
+              {savedDefault && isDefault && <span className="badge ok">已儲存</span>}
+            </div>
+          </form>
           {!dca ? (
             <p className="sub" style={{ marginTop: "1rem" }}>這檔的歷史資料不夠 {sim.years} 年，或尚未回補。</p>
           ) : (
@@ -121,38 +163,20 @@ export default function EtfPage({ asOf, catalogAsOf, rows, periods, plan, sim, d
 
         <div className="panel">
           <h2>我的規劃</h2>
-          <p className="sub">只是規劃，不是持倉或交易紀錄。存檔後試算預設使用這裡的標的、期間與金額。</p>
+          <p className="sub">只是規劃，不是持倉或交易紀錄。定投的預設標的、期間與金額在左邊試算按「設為我的預設」。</p>
           <Form form={form} className="stack" style={{ marginTop: ".8rem" }}>
             <div className="row">
               <label className="field">
-                每月定投（台幣）
-                <input type="number" value={form.data.monthlyTwd} onChange={(e) => form.setData("monthlyTwd", Number(e.target.value))} />
-              </label>
-              <label className="field">
-                定投標的
-                <select value={form.data.etf} onChange={(e) => form.setData("etf", e.target.value)}>
-                  {rows.map((r) => <option key={r.ticker} value={r.ticker}>{r.ticker}</option>)}
-                </select>
-              </label>
-              <label className="field">
-                試算期間
-                <select value={form.data.years} onChange={(e) => form.setData("years", Number(e.target.value))}>
-                  {[1, 2, 3, 5].map((y) => <option key={y} value={y}>{y} 年</option>)}
-                </select>
-              </label>
-            </div>
-            <div className="row">
-              <label className="field">
                 加碼研究預算
-                <input type="number" value={form.data.researchBudgetTwd} onChange={(e) => form.setData("researchBudgetTwd", Number(e.target.value))} />
+                <input type="number" inputMode="numeric" value={form.data.researchBudgetTwd} onChange={(e) => form.setData("researchBudgetTwd", Number(e.target.value))} />
               </label>
               <label className="field">
                 單筆加碼
-                <input type="number" value={form.data.trancheTwd} onChange={(e) => form.setData("trancheTwd", Number(e.target.value))} />
+                <input type="number" inputMode="numeric" value={form.data.trancheTwd} onChange={(e) => form.setData("trancheTwd", Number(e.target.value))} />
               </label>
               <label className="field">
                 檢討門檻 ±%
-                <input type="number" value={form.data.exitConsiderationPct} onChange={(e) => form.setData("exitConsiderationPct", Number(e.target.value))} />
+                <input type="number" inputMode="numeric" value={form.data.exitConsiderationPct} onChange={(e) => form.setData("exitConsiderationPct", Number(e.target.value))} />
               </label>
             </div>
             <label className="field">

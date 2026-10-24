@@ -1,5 +1,5 @@
 import { Series, pct, periodReturn, range52w, rollWeight, round, smaAt } from "./analytics.ts";
-import { addDays, isNyseSession } from "./calendar.ts";
+import { addDays, isNyseSession, previousExpectedSession } from "./calendar.ts";
 import { EQUAL_WEIGHT_SYMBOL, INDEX_SYMBOL, MAG7, VIX_SYMBOL } from "./universe.ts";
 
 export const SNAPSHOT_VERSION = 1;
@@ -96,7 +96,11 @@ export function buildSnapshot(input: SnapshotInput): Snapshot | null {
   const spx = series[INDEX_SYMBOL];
   const close = spx?.at(tradeDate) ?? null;
   if (!spx || close === null) return null;
-  const prev = spx.previous(tradeDate);
+  // 依 NYSE 日曆，前一個應開市的交易日若缺資料，就不拿更早一天硬算「當日」漲跌與歸因。
+  const expectedPrev = previousExpectedSession(tradeDate);
+  const available = spx.previous(tradeDate);
+  const gap = expectedPrev !== null && available !== null && available.date !== expectedPrev;
+  const prev = gap ? null : available;
   const prevClose = prev?.close ?? null;
   const changePts = prevClose === null ? null : close - prevClose;
   const returnPct = prevClose === null ? null : pct(close, prevClose);
@@ -189,6 +193,10 @@ export function buildSnapshot(input: SnapshotInput): Snapshot | null {
     quality.notes.push(`權重由 ${input.weights.asOf} 的 SPY 持股依價格變動推算到 ${weightTarget}（假設期間股數不變）`);
   }
   if (quality.expectedSession === false) quality.notes.push("依 NYSE 日曆這天不是交易日，但來源有資料，請留意");
+  if (gap) {
+    quality.missing.push(`${INDEX_SYMBOL} ${expectedPrev}`);
+    quality.notes.push(`缺 ${expectedPrev} 的指數收盤，當日漲跌與歸因不計算（避免把 ${available!.date} 起的多日漲跌當成一天）`);
+  }
 
   return {
     version: SNAPSHOT_VERSION,

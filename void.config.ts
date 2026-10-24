@@ -16,8 +16,18 @@ export default defineConfig({
     "htmlAttrs": { "lang": "zh-Hant-TW" },
     "meta": [
       { "charset": "utf-8" },
-      { "name": "viewport", "content": "width=device-width, initial-scale=1" },
-      { "name": "robots", "content": "noindex, nofollow" }
+      { "name": "viewport", "content": "width=device-width, initial-scale=1, viewport-fit=cover" },
+      { "name": "robots", "content": "noindex, nofollow" },
+      { "name": "theme-color", "content": "#122456" },
+      { "name": "mobile-web-app-capable", "content": "yes" },
+      { "name": "apple-mobile-web-app-capable", "content": "yes" },
+      { "name": "apple-mobile-web-app-title", "content": "觀測室" },
+      { "name": "apple-mobile-web-app-status-bar-style", "content": "black-translucent" }
+    ],
+    "link": [
+      { "rel": "manifest", "href": "/manifest.webmanifest" },
+      { "rel": "icon", "href": "/favicon.png", "type": "image/png" },
+      { "rel": "apple-touch-icon", "href": "/icons/apple-touch-icon.png" }
     ]
   }
 });

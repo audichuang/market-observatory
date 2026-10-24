@@ -38,6 +38,13 @@ export function addDays(date: string, n: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+/** date 之前最近的一個應開市交易日；date 或結果超出日曆覆蓋時回 null（不知道）。 */
+export function previousExpectedSession(date: string): string | null {
+  if (!inCalendarCoverage(date)) return null;
+  for (let d = addDays(date, -1); inCalendarCoverage(d); d = addDays(d, -1)) if (isNyseSession(d)) return d;
+  return null;
+}
+
 /** from、to 皆含；任一端超出覆蓋範圍就丟錯，呼叫端要自己處理。 */
 export function expectedSessions(from: string, to: string): string[] {
   if (!inCalendarCoverage(from) || !inCalendarCoverage(to)) {
@@ -53,10 +60,15 @@ export function easternDate(at: Date = new Date()): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(at);
 }
 
-/** 美東時間的小時（0–23）。 */
-export function easternHour(at: Date = new Date()): number {
-  return Number(new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", hourCycle: "h23" }).format(at));
+/** 美東時間從午夜起算的分鐘數（處理夏令時間）。 */
+export function easternMinutes(at: Date = new Date()): number {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "numeric", hourCycle: "h23" }).formatToParts(at);
+  const get = (t: string) => Number(parts.find((p) => p.type === t)?.value ?? 0);
+  return get("hour") * 60 + get("minute");
 }
+
+/** 收盤 16:00 之後半小時，Yahoo 與 Nasdaq 的日線通常已是正式收盤。 */
+export const CLOSE_READY_MINUTES = 16 * 60 + 30;
 
 /**
  * 「現在應該已經有收盤價」的最近交易日：美東 16:30 以後算當天，否則往前找。
@@ -64,7 +76,7 @@ export function easternHour(at: Date = new Date()): number {
  */
 export function latestExpectedClose(at: Date = new Date()): string {
   let d = easternDate(at);
-  if (easternHour(at) < 17) d = addDays(d, -1);
+  if (easternMinutes(at) < CLOSE_READY_MINUTES) d = addDays(d, -1);
   for (let i = 0; i < 10; i++) {
     const s = isNyseSession(d);
     const weekday = new Date(`${d}T12:00:00Z`).getUTCDay();

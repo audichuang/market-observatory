@@ -19,8 +19,8 @@ const JOB_LABEL: Record<string, string> = {
 const NO_SECOND_SOURCE = new Set(["USDTWD", "VIX"]);
 
 const SCHEDULE = [
-  ["抓收盤價", "週一至五 UTC 21:20；隔日 UTC 01:10 補抓", "Yahoo chart（主）、Cboe VIX／SPX"],
-  ["交叉核對", "週一至五 UTC 22:40", "Nasdaq 歷史行情逐檔比對收盤"],
+  ["抓收盤價", "週一至五 UTC 21:40（美東收盤後）；隔日 UTC 01:10 補抓並再核對", "Yahoo chart（主）、Cboe VIX／SPX"],
+  ["交叉核對", "週一至五 UTC 22:50", "Nasdaq 歷史行情逐檔比對收盤"],
   ["持股權重＋日曆", "每天 UTC 11:30", "State Street SPY 持股檔、Nasdaq 財報日期、聯準會 FOMC 日程"],
   ["新聞", "每 4 小時", "Nasdaq 個股新聞"],
 ];
@@ -29,6 +29,7 @@ export default function SourcesPage({ expected, freshness, mismatches, runs, wei
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [showAllRuns, setShowAllRuns] = useState(false);
 
   async function trigger(job: string) {
     setBusy(job);
@@ -144,21 +145,21 @@ export default function SourcesPage({ expected, freshness, mismatches, runs, wei
 
       <div className="panel section">
         <h2>執行紀錄</h2>
-        <div className="table-wrap">
-          <table>
-            <thead><tr><th>時間</th><th>工作</th><th>狀態</th><th>摘要</th></tr></thead>
-            <tbody>
-              {runs.map((r) => (
-                <tr key={r.id}>
-                  <td className="meta" style={{ whiteSpace: "nowrap" }}>{taipeiTime(r.started_at)}<div>{r.trigger}</div></td>
-                  <td>{JOB_LABEL[r.job] ?? r.job}</td>
-                  <td><RunStatusBadge status={r.status} /></td>
-                  <td className="meta">{r.summary}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <ul className="list">
+          {(showAllRuns ? runs : runs.slice(0, 15)).map((r) => (
+            <li key={r.id}>
+              <div style={{ display: "flex", gap: ".5rem", alignItems: "center", flexWrap: "wrap" }}>
+                <RunStatusBadge status={r.status} />
+                <strong>{JOB_LABEL[r.job] ?? r.job}</strong>
+                <span className="meta">{taipeiTime(r.started_at)} · {r.trigger.startsWith("cron") ? "排程" : "手動"}</span>
+              </div>
+              <div className="meta">{r.summary}</div>
+            </li>
+          ))}
+        </ul>
+        {runs.length > 15 && !showAllRuns && (
+          <button className="secondary" style={{ marginTop: ".6rem" }} onClick={() => setShowAllRuns(true)}>顯示全部 {runs.length} 筆</button>
+        )}
       </div>
     </>
   );

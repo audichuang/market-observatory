@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { num } from "./format.ts";
 
 export interface ChartLine {
@@ -16,14 +16,27 @@ interface Props {
   suffix?: string;
   /** 在 y=0 畫一條基準線（報酬率圖用） */
   zeroLine?: boolean;
-  /** viewBox 寬度；放在窄欄位時調小，字才不會縮到看不清 */
+  /** 伺服器端算圖時的預設寬度；瀏覽器端會改用容器的實際寬度 */
   width?: number;
 }
 
 const PAD = { top: 12, right: 64, bottom: 26, left: 8 };
 
-export default function LineChart({ lines, height = 300, digits = 2, suffix = "", zeroLine = false, width: W = 900 }: Props) {
+export default function LineChart({ lines, height: maxHeight = 300, digits = 2, suffix = "", zeroLine = false, width: defaultWidth = 900 }: Props) {
   const [hover, setHover] = useState<number | null>(null);
+  // 依容器實際寬度畫圖：viewBox 跟顯示寬度一樣，手機上座標文字才會是真的 11px，不會被等比例縮到看不見。
+  const box = useRef<HTMLDivElement>(null);
+  const [W, setW] = useState(defaultWidth);
+  useEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const update = () => el.clientWidth > 0 && setW(Math.round(el.clientWidth));
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const height = Math.min(maxHeight, Math.max(200, Math.round(W * 0.62)));
   const dates = useMemo(() => {
     const set = new Set<string>();
     for (const l of lines) for (const p of l.points) set.add(p.date);
@@ -31,7 +44,7 @@ export default function LineChart({ lines, height = 300, digits = 2, suffix = ""
   }, [lines]);
   const lookup = useMemo(() => lines.map((l) => new Map(l.points.map((p) => [p.date, p.value]))), [lines]);
   const values = lines.flatMap((l) => l.points.map((p) => p.value)).filter((v): v is number => v !== null && Number.isFinite(v));
-  if (dates.length < 2 || !values.length) return <p className="sub">資料不足，無法繪圖。</p>;
+  if (dates.length < 2 || !values.length) return <div ref={box}><p className="sub">資料不足，無法繪圖。</p></div>;
 
   let min = Math.min(...values, ...(zeroLine ? [0] : []));
   let max = Math.max(...values, ...(zeroLine ? [0] : []));
@@ -48,7 +61,7 @@ export default function LineChart({ lines, height = 300, digits = 2, suffix = ""
   const y = (v: number) => PAD.top + (1 - (v - min) / (max - min)) * innerH;
 
   const ticks = Array.from({ length: 5 }, (_, i) => min + ((max - min) * i) / 4);
-  const xTickEvery = Math.max(1, Math.round(dates.length / 6));
+  const xTickEvery = Math.max(1, Math.round(dates.length / (W < 500 ? 4 : 6)));
   // 不到半年的區間用「月-日」，否則用「年-月」，避免整排標籤都一樣。
   const shortSpan = Date.parse(dates.at(-1)!) - Date.parse(dates[0]) < 183 * 86400000;
 
@@ -76,7 +89,7 @@ export default function LineChart({ lines, height = 300, digits = 2, suffix = ""
 
   const hi = hover ?? dates.length - 1;
   return (
-    <div>
+    <div ref={box}>
       <div className="tooltip">
         <strong>{dates[hi]}</strong>{" "}
         {lines.map((l, li) => {

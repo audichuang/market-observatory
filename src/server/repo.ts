@@ -183,31 +183,27 @@ export async function digestOf(data: unknown): Promise<string> {
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 16);
 }
 
-/** 內容與最新 revision 相同就不寫；不同就新增 revision（舊的保留不改）。回傳新寫入的「日期 rN」。 */
+/**
+ * 內容與最新 revision 相同就不寫；不同就新增 revision（舊的保留不改）。回傳新寫入的「日期 rN」。
+ * 版本號與「內容是否改變」都在同一條 INSERT…SELECT 裡決定：排程與手動重算同時跑時，
+ * D1 逐條執行，不會兩邊讀到同一個最新版本、搶同一個號碼。
+ */
 export async function saveSnapshots(db: D1Database, snaps: Snapshot[], reason: string): Promise<string[]> {
   if (!snaps.length) return [];
-  const dates = snaps.map((s) => s.tradeDate);
-  const latest = await db
-    .prepare(
-      `SELECT trade_date, revision, digest FROM snapshots s WHERE trade_date IN (${dates.map(() => "?").join(",")})
-       AND revision = (SELECT MAX(revision) FROM snapshots WHERE trade_date = s.trade_date)`,
-    )
-    .bind(...dates)
-    .all<{ trade_date: string; revision: number; digest: string }>();
-  const byDate = new Map(latest.results.map((r) => [r.trade_date, r]));
-  const stmt = db.prepare("INSERT INTO snapshots (trade_date, revision, digest, reason, data, created_at) VALUES (?, ?, ?, ?, ?, ?)");
-  const stmts: D1PreparedStatement[] = [];
-  const created: string[] = [];
+  const stmt = db.prepare(
+    `INSERT INTO snapshots (trade_date, revision, digest, reason, data, created_at)
+     SELECT ?1, COALESCE((SELECT MAX(revision) FROM snapshots WHERE trade_date = ?1), 0) + 1, ?2, ?3, ?4, ?5
+     WHERE COALESCE((SELECT digest FROM snapshots WHERE trade_date = ?1 ORDER BY revision DESC LIMIT 1), '') <> ?2
+     RETURNING trade_date, revision`,
+  );
   const at = nowIso();
-  for (const snap of snaps) {
-    const digest = await digestOf(snap);
-    const prev = byDate.get(snap.tradeDate);
-    if (prev?.digest === digest) continue;
-    const revision = (prev?.revision ?? 0) + 1;
-    stmts.push(stmt.bind(snap.tradeDate, revision, digest, reason, JSON.stringify(snap), at));
-    created.push(`${snap.tradeDate} r${revision}`);
+  const stmts: D1PreparedStatement[] = [];
+  for (const snap of snaps) stmts.push(stmt.bind(snap.tradeDate, await digestOf(snap), reason, JSON.stringify(snap), at));
+  const created: string[] = [];
+  for (let i = 0; i < stmts.length; i += CHUNK) {
+    const results = await db.batch<{ trade_date: string; revision: number }>(stmts.slice(i, i + CHUNK));
+    for (const r of results) for (const row of r.results ?? []) created.push(`${row.trade_date} r${row.revision}`);
   }
-  await batchRun(db, stmts);
   return created;
 }
 

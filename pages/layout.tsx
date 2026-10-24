@@ -1,5 +1,5 @@
 import { Link, useNavigation, useRouter, useShared } from "@void/react";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { auth } from "void/client";
 import PageSkeleton from "../src/ui/PageSkeleton.tsx";
 import "../src/ui/styles.css";
@@ -18,6 +18,7 @@ const PREFETCH = ["mount", "hover", "click"] as const;
 const CACHE_FOR: [string, string] = ["1m", "30m"];
 
 const isActive = (href: string, path: string) => (href === "/" ? path === "/" : path.startsWith(href));
+const TABS = NAV.filter((n) => n.href !== "/sources");
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const shared = useShared();
@@ -28,6 +29,32 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const targetPath = loading ? navigation.location!.pathname : currentPath;
   // 換到另一個分頁時先顯示目標頁的骨架；同一頁只換條件（區間、標的）時保留內容、頂端顯示進度條。
   const switchingPage = loading && targetPath !== currentPath;
+  const tabIndex = TABS.findIndex((n) => isActive(n.href, targetPath));
+  const tabbar = useRef<HTMLElement>(null);
+
+  // 往下捲時分頁列縮小、只留圖示，往上捲或回到頂端再展開；直接切 class，不經過 React 重繪。
+  useEffect(() => {
+    let lastY = window.scrollY;
+    let frame = 0;
+    const onScroll = () => {
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        const y = window.scrollY;
+        const el = tabbar.current;
+        if (el) {
+          if (y < 40 || y < lastY - 8) el.classList.remove("compact");
+          else if (y > lastY + 8) el.classList.add("compact");
+        }
+        if (Math.abs(y - lastY) > 8 || y < 40) lastY = y;
+      });
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      cancelAnimationFrame(frame);
+    };
+  }, []);
 
   useEffect(() => {
     if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
@@ -74,10 +101,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       </header>
       <main aria-busy={loading}>{switchingPage ? <PageSkeleton path={targetPath} /> : children}</main>
       <footer className="foot">
-        個人研究用途，非投資建議。行情來自 Yahoo Finance（主）、Nasdaq 與 Cboe（核對），權重來自 State Street SPY 每日持股；非官方授權資料源，可能延遲或錯誤。
+        個人研究用途，非投資建議。行情來自 Yahoo Finance（主）、Nasdaq 與 Cboe（核對），權重來自 State Street SPY 每日持股；非官方授權資料源，可能延遲或錯誤。圖表使用 <a href="https://www.tradingview.com/" target="_blank" rel="noopener">TradingView Lightweight Charts™</a>，Copyright (c) 2025 TradingView, Inc.
       </footer>
-      <nav className="tabbar" aria-label="主要分頁">
-        {NAV.filter((n) => n.href !== "/sources").map((n) => (
+      <nav ref={tabbar} className="tabbar" aria-label="主要分頁" data-tab={tabIndex} style={{ "--tab": tabIndex } as React.CSSProperties}>
+        <i className="tabbar-pill" aria-hidden />
+        {TABS.map((n) => (
           <Link key={n.href} href={n.href} prefetch={PREFETCH} cacheFor={CACHE_FOR} className={isActive(n.href, targetPath) ? "active" : ""}>
             <svg viewBox="0 0 24 24" aria-hidden>
               <path d={n.icon} />

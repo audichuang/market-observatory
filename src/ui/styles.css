@@ -52,15 +52,13 @@ p { margin: .3rem 0; }
 .topbar {
   position: sticky; top: 0; z-index: 10;
   padding-top: env(safe-area-inset-top);
-  background: color-mix(in srgb, var(--panel) 92%, transparent);
-  backdrop-filter: blur(8px);
-  border-bottom: 1px solid var(--line);
 }
 .topbar-inner { max-width: 1180px; margin: 0 auto; padding: .6rem max(1rem, env(safe-area-inset-right)) .6rem max(1rem, env(safe-area-inset-left)); display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; }
 .brand { font-weight: 700; color: var(--ink); margin-right: .5rem; }
 .nav { display: flex; gap: .25rem; flex-wrap: wrap; flex: 1; }
-.nav a { padding: .3rem .65rem; border-radius: 999px; color: var(--muted); }
-.nav a.active { background: var(--ink); color: var(--panel); text-decoration: none; }
+.nav a { padding: .3rem .75rem; border-radius: 999px; color: var(--muted); transition: background-color .2s, color .2s; }
+.nav a:hover { background: color-mix(in srgb, var(--ink) 6%, transparent); text-decoration: none; }
+.nav a.active { background: color-mix(in srgb, var(--ink) 88%, transparent); color: var(--panel); text-decoration: none; box-shadow: inset 0 1px 0 rgb(255 255 255 / .18), 0 2px 8px rgb(15 20 30 / .12); }
 .whoami { font-size: .8rem; color: var(--muted); display: flex; gap: .5rem; align-items: center; }
 
 main { max-width: 1180px; margin: 0 auto; padding: 1.25rem 1rem 3rem; }
@@ -187,7 +185,7 @@ footer.foot { max-width: 1180px; margin: 0 auto; padding: 0 1rem calc(2rem + env
 
 @media (max-width: 640px) {
   .kpi .value { font-size: 1.25rem; }
-  main { padding: .8rem .8rem calc(5rem + env(safe-area-inset-bottom)); }
+  main { padding: .8rem .8rem calc(7rem + env(safe-area-inset-bottom)); }
   .hide-sm { display: none; }
   th, td { padding: .5rem .45rem; }
 
@@ -196,21 +194,38 @@ footer.foot { max-width: 1180px; margin: 0 auto; padding: 0 1rem calc(2rem + env
   .brand { display: inline-flex; align-items: center; min-height: 44px; font-size: 1.05rem; flex: 1; }
   .whoami button { min-height: 40px; padding: .4rem .8rem; }
 
+  /* 浮動膠囊分頁列：往下捲縮小、隱藏文字，往上捲或回頂端展開（layout.tsx 切 .compact） */
   .tabbar {
     display: grid; grid-template-columns: repeat(5, 1fr);
-    position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
-    background: color-mix(in srgb, var(--panel) 94%, transparent); backdrop-filter: blur(10px);
-    border-top: 1px solid var(--line);
-    padding-bottom: env(safe-area-inset-bottom);
+    position: fixed; left: 12px; right: 12px; bottom: calc(env(safe-area-inset-bottom) + 8px); z-index: 20;
+    padding: var(--bar-pad); border-radius: var(--bar-r);
+    transform-origin: 50% 100%;
+    transition: transform .4s var(--spring);
   }
   .tabbar a {
+    position: relative; z-index: 1;
     display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
-    min-height: 56px; color: var(--muted); font-size: .72rem; text-decoration: none;
+    min-height: 52px; border-radius: var(--inner-r); color: var(--muted); font-size: .72rem; text-decoration: none;
     -webkit-tap-highlight-color: transparent;
+    transition: transform .18s ease, color .2s;
   }
+  .tabbar a:active { transform: scale(.92); }
   .tabbar a.active { color: var(--accent); font-weight: 600; }
+  .tabbar span { transition: opacity .2s; }
+  .tabbar-pill {
+    position: absolute; z-index: 0; top: var(--bar-pad); bottom: var(--bar-pad); left: var(--bar-pad);
+    width: calc((100% - 2 * var(--bar-pad)) / 5);
+    border-radius: var(--inner-r);
+    background: color-mix(in srgb, var(--accent) 16%, transparent);
+    box-shadow: inset 0 1px 0 var(--glass-shine);
+    transform: translateX(calc(var(--tab, 0) * 100%));
+    transition: transform .45s var(--spring), opacity .2s;
+  }
+  .tabbar[data-tab="-1"] .tabbar-pill { opacity: 0; }
+  .tabbar.compact { transform: scale(.86) translateY(4px); }
+  .tabbar.compact span { opacity: 0; }
   .tabbar svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-  footer.foot { padding-bottom: calc(5.5rem + env(safe-area-inset-bottom)); }
+  footer.foot { padding-bottom: calc(7.5rem + env(safe-area-inset-bottom)); }
 
   /* 觸控尺寸至少 44px；輸入框 16px，iPhone 才不會在點選時把整頁放大 */
   input, select, textarea { font-size: 16px; min-height: 44px; }
@@ -226,4 +241,72 @@ footer.foot { max-width: 1180px; margin: 0 auto; padding: 0 1rem calc(2rem + env
   td a { display: inline-flex; align-items: center; min-height: 44px; margin: -.5rem 0; }
   .etf-card-head a { display: inline-flex; align-items: center; min-height: 44px; }
   .list li a { display: block; padding: .15rem 0; }
+}
+
+/* ── Liquid Glass ──────────────────────────────────────────────
+   只用在浮在內容上方的導覽層（頂列、底部分頁列）；數字、表格、卡片留在實色面板上（Apple HIG：內容層不用玻璃，
+   固定欄也靠實色背景遮住捲過去的內容）。不做 SVG 折射：Safari 不畫、@supports 還會誤報支援。 */
+:root {
+  --glass-tint: color-mix(in srgb, var(--panel) 74%, transparent);
+  --glass-solid: color-mix(in srgb, var(--panel) 94%, transparent);
+  --glass-edge: rgb(255 255 255 / .6);
+  --glass-shine: rgb(255 255 255 / .75);
+  --glass-shadow: 0 10px 30px rgb(15 20 30 / .12), 0 1px 3px rgb(15 20 30 / .08);
+  --bar-r: 30px; --bar-pad: 6px;
+  --inner-r: calc(var(--bar-r) - var(--bar-pad));
+  --spring: cubic-bezier(.3, 1.35, .5, 1);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --glass-tint: color-mix(in srgb, var(--panel) 70%, transparent);
+    --glass-edge: rgb(255 255 255 / .11);
+    --glass-shine: rgb(255 255 255 / .15);
+    --glass-shadow: 0 10px 32px rgb(0 0 0 / .5);
+  }
+}
+/* 玻璃要有東西可以透：頁面底色加一層很淡的色暈（固定在視窗，iOS 不支援 background-attachment: fixed） */
+body::before {
+  content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+  background:
+    radial-gradient(60rem 40rem at 10% -10%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 60%),
+    radial-gradient(50rem 36rem at 110% 20%, color-mix(in srgb, #8b5cf6 8%, transparent), transparent 60%);
+}
+.glass, .topbar, .tabbar {
+  isolation: isolate;
+  background: var(--glass-solid);
+  border: 1px solid var(--glass-edge);
+  box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-shine);
+}
+.glass, .tabbar { position: relative; }
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass, .topbar, .tabbar {
+    background: var(--glass-tint);
+    -webkit-backdrop-filter: blur(16px) saturate(180%);
+    backdrop-filter: blur(16px) saturate(180%);
+  }
+}
+.glass::before, .tabbar::before {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; z-index: -1;
+  background: linear-gradient(180deg, rgb(255 255 255 / .28), transparent 45%);
+}
+@media (prefers-color-scheme: dark) {
+  .glass::before, .tabbar::before { background: linear-gradient(180deg, rgb(255 255 255 / .07), transparent 45%); }
+}
+.topbar { border-width: 0 0 1px; border-color: var(--line); box-shadow: 0 1px 12px rgb(15 20 30 / .05); }
+@media (max-width: 640px) { .tabbar { position: fixed; } }
+
+/* 卡片更像 App：圓角加大、陰影柔和 */
+.panel { border-radius: 16px; box-shadow: 0 1px 2px rgb(15 20 30 / .04), 0 4px 16px rgb(15 20 30 / .04); }
+@media (prefers-color-scheme: dark) { .panel { box-shadow: none; } }
+
+/* iOS 只認得 prefers-contrast；prefers-reduced-transparency 目前只有 Chromium 支援 */
+@media (prefers-contrast: more), (prefers-reduced-transparency: reduce) {
+  .glass, .topbar, .tabbar { background: var(--panel); -webkit-backdrop-filter: none; backdrop-filter: none; border-color: var(--line); }
+  .glass::before, .tabbar::before { display: none; }
+  body::before { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tabbar, .tabbar a, .tabbar-pill { transition: none; }
+  .tabbar.compact { transform: none; }
+  .tabbar a:active { transform: none; }
 }

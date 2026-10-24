@@ -14,7 +14,7 @@ export const loader = defineHandler(async (c) => {
   const [revisions, dates, news, events, lastPriceRun] = await Promise.all([
     tradeDate ? listRevisions(db, tradeDate) : Promise.resolve([]),
     listSnapshotDates(db, 400),
-    db.prepare("SELECT title, url, publisher, published_at, symbols FROM news ORDER BY published_at DESC, fetched_at DESC LIMIT 5").all<{ title: string; url: string; publisher: string | null; published_at: string | null; symbols: string }>(),
+    db.prepare("SELECT title, url, publisher, published_at, symbols FROM news WHERE symbols != 'SPY' ORDER BY published_at DESC, fetched_at DESC LIMIT 5").all<{ title: string; url: string; publisher: string | null; published_at: string | null; symbols: string }>(),
     db.prepare("SELECT date, kind, symbol, title, status FROM events WHERE date >= ? AND date <= ? ORDER BY date LIMIT 8").bind(today, addDays(today, 21)).all<{ date: string; kind: string; symbol: string | null; title: string; status: string }>(),
     db.prepare("SELECT status, summary, finished_at FROM runs WHERE job = 'prices' ORDER BY id DESC LIMIT 1").first<{ status: string; summary: string; finished_at: string | null }>(),
   ]);
@@ -30,4 +30,4 @@ export const loader = defineHandler(async (c) => {
   };
 });
 
-export const head = defineHead<Props>((_c, p) => ({ title: `市場總覽 ${p.snapshot?.tradeDate ?? ""}｜市場觀測室` }));
+export const head = defineHead<Props>((_c, p) => ({ title: `市場總覽 ${p.snapshot?.tradeDate ?? ""}` }));

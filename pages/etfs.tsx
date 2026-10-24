@@ -45,8 +45,8 @@ export default function EtfPage({ asOf, catalogAsOf, rows, periods, plan, sim, d
                   </td>
                   <td className="num">{r.multiple > 0 ? `${r.multiple}x` : `${r.multiple}x`}</td>
                   <td className="num">
-                    {r.netFeePct === null ? "—" : `${num(r.netFeePct, r.netFeePct < 0.1 ? 4 : 2)}%`}
-                    {r.grossFeePct !== null && r.grossFeePct !== r.netFeePct && <div className="meta">總 {num(r.grossFeePct, 2)}%</div>}
+                    {r.netFeePct === null ? "—" : `${feeText(r.netFeePct)}%`}
+                    {r.grossFeePct !== null && r.grossFeePct !== r.netFeePct && <div className="meta">總 {feeText(r.grossFeePct)}%</div>}
                   </td>
                   <td className="num hide-sm">{compactUsd(r.aumUsd)}{r.aumAsOf && <div className="meta">{r.aumAsOf}</div>}</td>
                   <td className="num">
@@ -105,7 +105,8 @@ export default function EtfPage({ asOf, catalogAsOf, rows, periods, plan, sim, d
               </div>
               <LineChart
                 digits={0}
-                height={240}
+                height={300}
+                width={560}
                 lines={[
                   { name: "累計投入", color: "#5c6b7a", dashed: true, points: dca.path.map((p) => ({ date: p.date, value: p.invested })) },
                   { name: "市值", color: "#d1343b", points: dca.path.map((p) => ({ date: p.date, value: p.value })) },
@@ -171,4 +172,9 @@ export default function EtfPage({ asOf, catalogAsOf, rows, periods, plan, sim, d
       </div>
     </>
   );
+}
+
+/** 0.0300 → 0.03、0.0945 → 0.0945：保留有效位數、去掉尾端 0。 */
+function feeText(v: number): string {
+  return String(Number(v.toFixed(4)));
 }

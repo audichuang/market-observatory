@@ -1,5 +1,5 @@
 import { addDays, latestExpectedClose, MACRO_EVENTS } from "../lib/calendar.ts";
-import { type Snapshot, buildSnapshot } from "../lib/snapshot.ts";
+import { type Snapshot, buildSnapshot, snapshotLoadWindow } from "../lib/snapshot.ts";
 import { CBOE_SOURCE, fetchCboeDaily } from "../lib/sources/cboe.ts";
 import { type EarningsDate, NASDAQ_SOURCE, fetchEarningsCalendar, fetchEarningsDate, fetchNasdaqHistorical, fetchNasdaqNews } from "../lib/sources/nasdaq.ts";
 import { fetchSpyHoldings } from "../lib/sources/ssga.ts";
@@ -60,11 +60,9 @@ export async function rebuildSnapshots(db: D1Database, reason: string, sessions 
     .all<{ date: string }>();
   const targets = dates.results.map((r) => r.date).reverse();
   if (!targets.length) return { built: [] as string[], created: [] as string[] };
-  // 52 週高低與 200 日均線需要大約 300 個交易日的歷史。
-  const [loaded, anchors] = await Promise.all([
-    loadPrices(db, SNAPSHOT_SYMBOLS, addDays(targets[0], -430), targets.at(-1)),
-    loadWeightAnchors(db, MAG7_TICKERS),
-  ]);
+  const anchors = await loadWeightAnchors(db, MAG7_TICKERS);
+  const window = snapshotLoadWindow(targets, anchors.dates);
+  const loaded = await loadPrices(db, SNAPSHOT_SYMBOLS, window.from, window.to);
   const snaps: Snapshot[] = [];
   for (const tradeDate of targets) {
     const prev = loaded.series[INDEX_SYMBOL].previous(tradeDate);
@@ -77,7 +75,8 @@ export async function rebuildSnapshots(db: D1Database, reason: string, sessions 
 
 async function fetchYahooBatch(entries: [string, string][], range: string, upTo: string) {
   const results = await mapLimit(entries, 6, async ([symbol, provider]) => {
-    const bars = (await fetchYahooDaily(provider, range)).filter((b) => symbol === FX_SYMBOL || b.date <= upTo);
+    // 匯率也只收到「最近應已收盤」那天，避免把盤中未完成的報價存成收盤。
+    const bars = (await fetchYahooDaily(provider, range)).filter((b) => b.date <= upTo);
     return { symbol, source: YAHOO_SOURCE, bars } as BarBatch;
   });
   const ok: BarBatch[] = [];
@@ -152,7 +151,7 @@ async function jobWeights(db: D1Database): Promise<JobResult> {
   };
 }
 
-// 回補分段：每段 4 檔 Yahoo 五年日線；最後一段補 Cboe VIX 並用 Cboe 核對 SPX。
+// 回補分段：每段 4 檔 Yahoo 十年日線（讓 5 年報酬與 5 年定投有完整資料）；最後一段補 Cboe VIX 並用 Cboe 核對 SPX。
 const BACKFILL_CHUNK = 4;
 export const BACKFILL_PRICE_PARTS = Math.ceil(Object.keys(YAHOO_SYMBOLS).length / BACKFILL_CHUNK) + 1;
 const CHECK_CHUNK = 5;
@@ -160,7 +159,7 @@ export const BACKFILL_CHECK_PARTS = Math.ceil(NASDAQ_CHECK_SYMBOLS.length / CHEC
 
 async function jobBackfillPrices(db: D1Database, opts: JobOptions): Promise<JobResult> {
   const part = opts.part ?? 0;
-  const since = addDays(latestExpectedClose(), -1840);
+  const since = addDays(latestExpectedClose(), -3660);
   const entries = Object.entries(YAHOO_SYMBOLS);
   if (part === BACKFILL_PRICE_PARTS - 1) {
     const vix = await fetchCboeDaily("VIX", since);
@@ -174,7 +173,7 @@ async function jobBackfillPrices(db: D1Database, opts: JobOptions): Promise<JobR
   }
   const slice = entries.slice(part * BACKFILL_CHUNK, (part + 1) * BACKFILL_CHUNK);
   if (!slice.length) return { status: "failed", summary: `沒有第 ${part} 段`, detail: {} };
-  const { ok, failed } = await fetchYahooBatch(slice, "5y", latestExpectedClose());
+  const { ok, failed } = await fetchYahooBatch(slice, "10y", latestExpectedClose());
   const changed = await upsertBars(db, ok);
   const failedNames = Object.keys(failed);
   return {

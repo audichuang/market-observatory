@@ -33,7 +33,7 @@ async function run(job: string, params: Record<string, string | number> = {}): P
   }
 }
 
-// 1. 五年日線（最後一段是 Cboe VIX＋SPX 核對）。
+// 1. 十年日線（最後一段是 Cboe VIX＋SPX 核對）。
 for (let part = 0; ; part++) {
   const r = await run("backfill-prices", { part });
   if (r.summary.startsWith("沒有第")) break;

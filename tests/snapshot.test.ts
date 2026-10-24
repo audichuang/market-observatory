@@ -65,3 +65,18 @@ test("沒有權重時不算歸因，也不假裝 0", () => {
 test("指數當天沒資料就不產生快照", () => {
   assert.equal(buildSnapshot({ ...input(), tradeDate: "2026-10-26" }), null);
 });
+
+test("回補早於持股檔的日期時，價格要載到持股日，否則權重推不回去", async () => {
+  const { snapshotLoadWindow } = await import("../src/lib/snapshot.ts");
+  // 目標 7 月、唯一一份持股檔在 10 月：結尾要延伸到 10 月。
+  assert.deepEqual(snapshotLoadWindow(["2026-07-01", "2026-07-30"], ["2026-10-22"]), { from: "2025-04-27", to: "2026-10-22" });
+  // 持股檔早於目標：維持目標結尾，不多載。
+  assert.equal(snapshotLoadWindow(["2026-10-20", "2026-10-23"], ["2026-10-22"]).to, "2026-10-23");
+  assert.equal(snapshotLoadWindow(["2026-10-23"], []).to, "2026-10-23");
+});
+
+test("持股檔晚於目標日、價格有載到時，歷史快照有歸因（往回推）", () => {
+  const s = buildSnapshot(input({ weightsAsOf: D2 }))!;
+  assert.equal(s.weights.method, "rolled");
+  assert.notEqual(s.mag7Total.contributionPts, null);
+});

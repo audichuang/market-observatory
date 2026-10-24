@@ -25,4 +25,4 @@ export const loader = defineHandler(async (c) => {
   };
 });
 
-export const head = defineHead(() => ({ title: "新聞與日曆｜市場觀測室" }));
+export const head = defineHead(() => ({ title: "新聞與日曆" }));

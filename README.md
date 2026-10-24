@@ -50,7 +50,7 @@ printf 'you@example.com' | npx void secret put OWNER_EMAIL
 
 ### 歷史回補
 
-五年日線、全段交叉核對與 500 個交易日快照，在 Worker 裡分段跑（本機 IP 容易被 Yahoo 限流）：
+十年日線、近五年交叉核對與 500 個交易日快照，在 Worker 裡分段跑（本機 IP 容易被 Yahoo 限流）：
 
 ```sh
 MO_URL=https://<worker>.workers.dev MO_EMAIL=… MO_PASSWORD=… node scripts/backfill.ts --sessions 500

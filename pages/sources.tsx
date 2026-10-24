@@ -12,9 +12,11 @@ const JOB_LABEL: Record<string, string> = {
   news: "新聞",
   events: "財報與 FOMC 日程",
   snapshots: "重算近 30 天快照",
-  "backfill-prices": "回補五年日線（分段）",
+  "backfill-prices": "回補十年日線（分段）",
   "backfill-checks": "回補交叉核對（分段）",
 };
+
+const NO_SECOND_SOURCE = new Set(["USDTWD", "VIX"]);
 
 const SCHEDULE = [
   ["抓收盤價", "週一至五 UTC 21:20；隔日 UTC 01:10 補抓", "Yahoo chart（主）、Cboe VIX／SPX"],
@@ -115,7 +117,7 @@ export default function SourcesPage({ expected, freshness, mismatches, runs, wei
                   <td className="num">{num(f.close)}</td>
                   <td className="meta">{f.source}</td>
                   <td>
-                    <CheckBadge status={(f.check_status as CheckStatus) ?? (f.symbol === "USDTWD" ? "unavailable" : "pending")} />
+                    <CheckBadge status={(f.check_status as CheckStatus) ?? (NO_SECOND_SOURCE.has(f.symbol) ? "unavailable" : "pending")} />
                     {f.check_close !== null && f.check_status === "mismatch" && <span className="meta"> {f.check_source} {num(f.check_close)}</span>}
                   </td>
                   <td className="meta hide-sm">{taipeiTime(f.fetched_at)}</td>

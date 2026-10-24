@@ -1,5 +1,6 @@
 import { Series } from "../lib/analytics.ts";
 import type { PriceCheck, Snapshot } from "../lib/snapshot.ts";
+import { detectRebase } from "../lib/rebase.ts";
 import type { DailyBar } from "../lib/sources/http.ts";
 
 // 直接用 D1 prepared statement：批次寫入比 ORM 快，也不會撞到單一查詢參數上限。
@@ -20,10 +21,13 @@ export interface BarBatch {
 
 // 免費方案每次呼叫的 D1 查詢與子請求有上限：多檔標的一律「一次查詢＋分塊 batch」，不逐檔來回。
 
-/** 寫入主來源日線；收盤價改變時清掉舊的交叉核對結果。回傳每檔新增或收盤有變的日期數。 */
-export async function upsertBars(db: D1Database, items: BarBatch[], fetchedAt = nowIso()): Promise<Record<string, number>> {
+/**
+ * 寫入主來源日線；收盤價改變時清掉舊的交叉核對結果。
+ * 回傳每檔新增或收盤有變的日期數，以及偵測到歷史基準被改寫（分割）的代號與比值。
+ */
+export async function upsertBars(db: D1Database, items: BarBatch[], fetchedAt = nowIso()): Promise<{ changed: Record<string, number>; rebased: Record<string, number> }> {
   const withBars = items.filter((i) => i.bars.length);
-  if (!withBars.length) return {};
+  if (!withBars.length) return { changed: {}, rebased: {} };
   const minDate = withBars.reduce((m, i) => (i.bars[0].date < m ? i.bars[0].date : m), "9999-12-31");
   const symbols = withBars.map((i) => i.symbol);
   const rows = await db
@@ -43,8 +47,16 @@ export async function upsertBars(db: D1Database, items: BarBatch[], fetchedAt = 
   );
   const stmts: D1PreparedStatement[] = [];
   const changed: Record<string, number> = {};
+  const rebased: Record<string, number> = {};
   for (const { symbol, source, bars } of withBars) {
     changed[symbol] = 0;
+    const mine = new Map<string, number>();
+    for (const b of bars) {
+      const old = existing.get(`${symbol}|${b.date}`);
+      if (old !== undefined) mine.set(b.date, old);
+    }
+    const factor = detectRebase(mine, bars);
+    if (factor !== null) rebased[symbol] = factor;
     for (const b of bars) {
       if (existing.get(`${symbol}|${b.date}`) === b.close) continue;
       changed[symbol]++;
@@ -52,7 +64,7 @@ export async function upsertBars(db: D1Database, items: BarBatch[], fetchedAt = 
     }
   }
   await batchRun(db, stmts);
-  return changed;
+  return { changed, rebased };
 }
 
 export const CHECK_ABS_TOLERANCE = 0.011;

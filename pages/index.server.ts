@@ -23,7 +23,8 @@ export const loader = defineHandler(async (c) => {
       db.prepare("SELECT status, summary, finished_at FROM runs WHERE job = 'prices' ORDER BY id DESC LIMIT 1").first<{ status: string; summary: string; finished_at: string | null }>(),
       db.prepare("SELECT trade_date, probability, base_rate, call FROM forecasts ORDER BY trade_date DESC LIMIT 1").first<{ trade_date: string; probability: number; base_rate: number; call: string }>(),
       // 「其餘」幾檔：用快照所依據那天的 SPY 持股實算。持股檔偶爾夾帶非股票列（例如 2602335D、權重近 0），含數字的代號不算。
-      snapshot?.data.weights.asOf
+      // 持股檔與這一天相差超過 7 天（看舊日期、權重是從後來的持股推回去的）就不寫檔數，當時的名單不一定一樣。
+      snapshot?.data.weights.asOf && Math.abs(Date.parse(snapshot.data.weights.asOf) - Date.parse(snapshot.tradeDate)) <= 7 * 86400000
         ? db
             .prepare(`SELECT COUNT(*) AS n FROM weights WHERE as_of = ? AND weight_pct > 0 AND ticker NOT GLOB '*[0-9]*' AND ticker NOT IN (${MAG7_TICKERS.map(() => "?").join(",")})`)
             .bind(snapshot.data.weights.asOf, ...MAG7_TICKERS)

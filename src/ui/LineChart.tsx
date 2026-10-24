@@ -54,7 +54,7 @@ function timeKey(t: Time | undefined): string | null {
 
 export default function LineChart({ lines, height: maxHeight = 300, digits = 2, suffix = "", zeroLine = false }: Props) {
   const box = useRef<HTMLDivElement>(null);
-  const [chart, setChart] = useState<{ api: IChartApi; lib: Lib } | null>(null);
+  const [chart, setChart] = useState<{ api: IChartApi; lib: Lib; alive: { current: boolean } } | null>(null);
   const [hoverDate, setHoverDate] = useState<string | null>(null);
 
   const dates = useMemo(() => {
@@ -70,6 +70,8 @@ export default function LineChart({ lines, height: maxHeight = 300, digits = 2, 
     if (!enough) return;
     let api: IChartApi | null = null;
     let disposed = false;
+    // 卸載時 React 先跑這個 effect 的 cleanup（api.remove()），再跑 series 那個；之後再 removeSeries 會丟例外、整頁變空白。
+    const alive = { current: true };
     let mq: MediaQueryList | null = null;
     let onScheme: (() => void) | null = null;
     import("./chartLib.ts").then((lib) => {
@@ -91,10 +93,11 @@ export default function LineChart({ lines, height: maxHeight = 300, digits = 2, 
       mq = window.matchMedia("(prefers-color-scheme: dark)");
       onScheme = () => api?.applyOptions(themeOptions(el, lib));
       mq.addEventListener("change", onScheme);
-      setChart({ api, lib });
+      setChart({ api, lib, alive });
     });
     return () => {
       disposed = true;
+      alive.current = false;
       if (mq && onScheme) mq.removeEventListener("change", onScheme);
       api?.remove(); // 釋放 canvas、ResizeObserver 與事件監聽
       setChart(null);
@@ -104,7 +107,7 @@ export default function LineChart({ lines, height: maxHeight = 300, digits = 2, 
   // 2) 換資料：拆掉上一批 series 再建新的；圖本身不重建。
   useEffect(() => {
     if (!chart) return;
-    const { api, lib } = chart;
+    const { api, lib, alive } = chart;
     const fmt = (v: number) => `${num(v, digits)}${suffix}`;
     const series: ISeriesApi<"Line">[] = lines.map((l, i) => {
       const s = api.addSeries(lib.LineSeries, {
@@ -150,6 +153,7 @@ export default function LineChart({ lines, height: maxHeight = 300, digits = 2, 
     api.subscribeCrosshairMove(onMove);
     api.subscribeClick(onTap);
     return () => {
+      if (!alive.current) return; // 整張圖已經 remove，series 跟著釋放了
       api.unsubscribeCrosshairMove(onMove);
       api.unsubscribeClick(onTap);
       for (const s of series) api.removeSeries(s);

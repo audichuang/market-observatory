@@ -96,3 +96,21 @@ test("滾動驗證的預測點互不重疊（間隔至少 21 個交易日）", (
   assert.ok(ev.points > 0);
   assert.ok(ev.points <= Math.ceil((1400 - 200 - 504) / HORIZON) + 1, `points=${ev.points}`);
 });
+
+test("條件區間包含基準率時，輸出的機率是基準率，不是條件機率", () => {
+  // 前 1500 天漲多跌少、200 日線上下交替；條件差異小、區間會包含基準率。
+  const closes: number[] = [];
+  let p = 100;
+  for (let i = 0; i < 2600; i++) {
+    p *= 1 + 0.01 * Math.sin(i / 37) + 0.0003;
+    closes.push(p);
+  }
+  const spx = series(closes);
+  const vix = series(closes.map(() => 15));
+  const obs = buildObservations(spx, vix);
+  for (const regime of [{ aboveSma200: true, vixStress: false }, { aboveSma200: false, vixStress: false }]) {
+    const pick = pickProbability(obs, day(2599), regime)!;
+    if (pick.distinct) assert.equal(pick.p, pick.conditional!.p);
+    else assert.equal(pick.p, pick.base.p);
+  }
+});

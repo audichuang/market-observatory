@@ -108,7 +108,8 @@ export function pickProbability(obs: Observation[], asOf: string, regime: Regime
     // VIX 一般狀態（<30）幾乎就是全部樣本，沒有資訊量，跳過。
     if (basis === "vix" && !regime.vixStress) continue;
     const distinct = base.p < r.low || base.p > r.high;
-    return { p: r.p, basis, base, conditional: r, distinct };
+    // 區間包含基準率就看不出差別：輸出基準率，條件機率只留著給頁面對照。
+    return { p: distinct ? r.p : base.p, basis, base, conditional: r, distinct };
   }
   return { p: base.p, basis: "base", base, conditional: null, distinct: false };
 }

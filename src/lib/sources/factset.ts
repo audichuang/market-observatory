@@ -71,7 +71,7 @@ export async function extractPdfText(pdf: Uint8Array): Promise<string> {
     const dict = m[1];
     if (!/FlateDecode/.test(dict) || /\/Subtype\s*\/(Image|Form)|FontFile|\/Type\s*\/(ObjStm|XRef|XObject)/.test(dict)) continue;
     const start = m.index + m[0].length;
-    const len = /\/Length\s+(\d+)(?!\s+\d+\s+R)/.exec(dict);
+    const len = /\/Length\s+(\d+)(?![\d\s]*R)/.exec(dict);
     const end = len ? start + Number(len[1]) : s.indexOf("endstream", start);
     let content: string;
     try {

@@ -24,8 +24,15 @@ export interface BarBatch {
 /**
  * 寫入主來源日線；收盤價改變時清掉舊的交叉核對結果。
  * 回傳每檔新增或收盤有變的日期數，以及偵測到歷史基準被改寫（分割）的代號與比值。
+ * 偵測到分割的代號這次「不寫入」：只寫一個月會新舊基準混用，而且寫了之後下一輪就再也偵測不到。
+ * 呼叫端重抓完整歷史後，用 allowRebase 整段寫入。
  */
-export async function upsertBars(db: D1Database, items: BarBatch[], fetchedAt = nowIso()): Promise<{ changed: Record<string, number>; rebased: Record<string, number> }> {
+export async function upsertBars(
+  db: D1Database,
+  items: BarBatch[],
+  opts: { allowRebase?: boolean; fetchedAt?: string } = {},
+): Promise<{ changed: Record<string, number>; rebased: Record<string, number> }> {
+  const fetchedAt = opts.fetchedAt ?? nowIso();
   const withBars = items.filter((i) => i.bars.length);
   if (!withBars.length) return { changed: {}, rebased: {} };
   const minDate = withBars.reduce((m, i) => (i.bars[0].date < m ? i.bars[0].date : m), "9999-12-31");
@@ -56,7 +63,10 @@ export async function upsertBars(db: D1Database, items: BarBatch[], fetchedAt = 
       if (old !== undefined) mine.set(b.date, old);
     }
     const factor = detectRebase(mine, bars);
-    if (factor !== null) rebased[symbol] = factor;
+    if (factor !== null) {
+      rebased[symbol] = factor;
+      if (!opts.allowRebase) continue;
+    }
     for (const b of bars) {
       if (existing.get(`${symbol}|${b.date}`) === b.close) continue;
       changed[symbol]++;

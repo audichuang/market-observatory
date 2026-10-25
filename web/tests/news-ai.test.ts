@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { easternDate } from "../src/lib/calendar.ts";
-import { digestPrompt, enrichPrompt, extractArticleText, isImportant, newsFingerprint, parseDigest, parseEnrich, parsePoints, pointsPrompt } from "../src/lib/news-ai.ts";
+import { digestPrompt, enrichPrompt, extractArticleText, isImportant, matchYahooArticle, newsFingerprint, parseDigest, parseEnrich, parsePoints, pointsPrompt } from "../src/lib/news-ai.ts";
 import type { Viewer } from "../src/server/account.ts";
 import { migratedDb } from "./helpers/fake-cloudflare.ts";
 
@@ -114,3 +114,16 @@ test("newsView：每則帶 AI 欄位與免費 important、points 轉成陣列、
 });
 
 // ── 審查後修正 ──
+
+test("matchYahooArticle: same title ignoring case, punctuation and entities; never a different article", () => {
+  const news = [
+    { title: "Apple Joins Nvidia in the $5 Trillion Club", link: "https://finance.yahoo.com/a" },
+    { title: "Here&#39;s How Many Shares of Apple Stock You&#x27;d Need", link: "https://finance.yahoo.com/b" },
+    { title: "Apple Is One of the Most Profitable Businesses", link: "http://insecure.example/c" },
+  ];
+  assert.equal(matchYahooArticle("apple joins NVIDIA in the $5 trillion club.", news), "https://finance.yahoo.com/a");
+  assert.equal(matchYahooArticle("Here's How Many Shares of Apple Stock You'd Need", news), "https://finance.yahoo.com/b");
+  assert.equal(matchYahooArticle("Apple Joins Nvidia", news), null);
+  assert.equal(matchYahooArticle("Apple Is One of the Most Profitable Businesses", news), null);
+  assert.equal(matchYahooArticle("", news), null);
+});

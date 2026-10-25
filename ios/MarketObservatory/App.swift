@@ -30,6 +30,10 @@ final class SessionStore {
     var tab: AppTab = .overview
     /// 推播帶來的日期（收盤摘要）：總覽切到那一天
     var overviewDate: String?
+    /// 名單每次增刪成功就加一：總覽與走勢據此重新載入。
+    var watchlistRevision = 0
+    /// 名單頁點公司要看走勢：走勢頁讀到後切到該標的並清掉。
+    var historySymbol: String?
     var deviceToken: String?
     var pushError: String?
 

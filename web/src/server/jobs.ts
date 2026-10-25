@@ -15,10 +15,10 @@ import { easternDate } from "../lib/calendar.ts";
 import { EQUAL_WEIGHT_SYMBOL, FX_SYMBOL, INDEX_SYMBOL, VIX_SYMBOL, type WatchMember, nasdaqCheckSymbols, watchTickers, yahooSymbols } from "../lib/universe.ts";
 import { MAX_TRACKED, addToWatchlist, removeFromWatchlist } from "../lib/watchlist.ts";
 import { WATCHLIST_KEY, latestHoldings, loadTrackedMembers, loadWatchlist, updateWatchlist } from "./watchlist.ts";
-import { type BarBatch, applyCrossChecks, finishRun, insertWeights, loadPrices, getSetting, loadWeightAnchors, nowIso, putSetting, saveSnapshots, startRun, upsertBars, weightsNear } from "./repo.ts";
+import { type BarBatch, applyCrossChecks, compareCloses, finishRun, insertMissingBars, insertWeights, loadPrices, getSetting, loadWeightAnchors, nowIso, putSetting, saveSnapshots, startRun, upsertBars, weightsNear } from "./repo.ts";
 
-export type JobName = "prices" | "crosscheck" | "weights" | "news" | "events" | "analysts" | "factset" | "forecast" | "snapshots" | "notify-close" | "notify-events" | "backfill-prices" | "backfill-checks";
-export const JOB_NAMES: JobName[] = ["prices", "crosscheck", "weights", "news", "events", "analysts", "factset", "forecast", "snapshots", "notify-close", "notify-events", "backfill-prices", "backfill-checks"];
+export type JobName = "prices" | "crosscheck" | "weights" | "news" | "events" | "analysts" | "factset" | "forecast" | "snapshots" | "notify-close" | "notify-events" | "backfill-prices" | "backfill-checks" | "backfill-index-history";
+export const JOB_NAMES: JobName[] = ["prices", "crosscheck", "weights", "news", "events", "analysts", "factset", "forecast", "snapshots", "notify-close", "notify-events", "backfill-prices", "backfill-checks", "backfill-index-history"];
 
 export interface JobOptions {
   /** 回補工作的分段序號（從 0 開始） */
@@ -29,6 +29,8 @@ export interface JobOptions {
   upTo?: string;
   /** 推播工作用的 APNs 金鑰（從 env 讀，見 src/server/push.ts 的 apnsConfig）；沒設定時推播工作記成 failed */
   push?: ApnsConfig | null;
+  /** backfill-index-history：每檔每次寫入的列數（預設 HISTORY_ROWS_PER_RUN；測試用小值驗證分段） */
+  historyRows?: number;
 }
 
 /**
@@ -280,6 +282,67 @@ async function jobBackfillPrices(db: D1Database, opts: JobOptions, budget: Budge
   };
 }
 
+/**
+ * 每檔每次寫入 2400 列：多列 INSERT 每句 12 列（D1 單一查詢上限 100 個綁定參數、一列 8 欄），
+ * 2400 列＝200 句；SPX＋VIX 共約 400 句，加上幾個讀取，遠低於 Workers Paid 每次執行 1000 個 D1 查詢
+ * （Cloudflare D1 limits；Void 文件沒寫這個上限）。免費方案是 50 個，不適用（見 SUBREQUEST_BUDGET 的說明）。
+ * 全部約 SPX 1.04 萬＋VIX 0.66 萬列，SPX 要 5 次、VIX 要 3 次，腳本重複呼叫直到 remaining 歸零。
+ */
+export const HISTORY_ROWS_PER_RUN = 2400;
+const HISTORY_OVERLAP_DATES = 250;
+
+/**
+ * Yahoo 窗口（約十年）之前的 SPX／VIX 歷史由 Cboe 補（source='cboe'、不做交叉核對）。
+ * 只往更早的方向、由新到舊補，歷史永遠連續，重跑就接著補；窗口內的列一律不動。
+ */
+async function jobBackfillIndexHistory(db: D1Database, opts: JobOptions, budget: Budget): Promise<JobResult> {
+  const perRun = opts.historyRows ?? HISTORY_ROWS_PER_RUN;
+  const symbols = { SPX: INDEX_SYMBOL, VIX: VIX_SYMBOL } as const;
+  const earliest: Record<"SPX" | "VIX", string | null> = { SPX: null, VIX: null };
+  for (const k of ["SPX", "VIX"] as const) {
+    const row = await db.prepare("SELECT MIN(date) AS d FROM prices WHERE symbol = ?").bind(symbols[k]).first<{ d: string | null }>();
+    if (!row?.d) return { status: "failed", summary: `${symbols[k]} 還沒有任何日線，請先跑 backfill-prices`, detail: {} };
+    earliest[k] = row.d;
+  }
+  const [spx, vix] = await Promise.all([fetchCboeDaily("SPX", "0000-00-00", budget), fetchCboeDaily("VIX", "0000-00-00", budget)]);
+  const cboe = { SPX: spx, VIX: vix };
+
+  // SPX 安全檢查：Cboe 與既有列在重疊日期的收盤要一致，否則可能是來源出錯，不往前接。
+  const overlapRows = await db
+    .prepare("SELECT date, close FROM prices WHERE symbol = ? AND date >= ? ORDER BY date LIMIT ?")
+    .bind(INDEX_SYMBOL, earliest.SPX, HISTORY_OVERLAP_DATES)
+    .all<{ date: string; close: number }>();
+  const cboeSpx = new Map(spx.map((b) => [b.date, b.close]));
+  let compared = 0;
+  let overlapMismatches = 0;
+  for (const r of overlapRows.results) {
+    const c = cboeSpx.get(r.date);
+    if (c === undefined) continue;
+    compared++;
+    if (compareCloses(r.close, c) === "mismatch") overlapMismatches++;
+  }
+  const spxTrusted = !(compared > 0 && overlapMismatches / compared > 0.01);
+
+  const inserted = { SPX: 0, VIX: 0 };
+  const remaining = { SPX: 0, VIX: 0 };
+  const after = { ...earliest };
+  for (const k of ["SPX", "VIX"] as const) {
+    const older = cboe[k].filter((b) => b.date < earliest[k]!);
+    const take = k === "SPX" && !spxTrusted ? [] : older.slice(-perRun);
+    if (take.length) {
+      inserted[k] = await insertMissingBars(db, { symbol: symbols[k], source: CBOE_SOURCE, bars: take }, { before: earliest[k]! });
+      after[k] = take[0].date;
+    }
+    remaining[k] = older.length - take.length;
+  }
+  const status = spxTrusted ? "ok" : "partial";
+  return {
+    status,
+    summary: `SPX +${inserted.SPX}（剩 ${remaining.SPX}）、VIX +${inserted.VIX}（剩 ${remaining.VIX}）${spxTrusted ? "" : `；SPX 與 Cboe 重疊 ${compared} 天有 ${overlapMismatches} 天不一致，略過 SPX`}`,
+    detail: { inserted, remaining, earliest: after, overlapMismatches, overlapCompared: compared },
+  };
+}
+
 async function jobBackfillChecks(db: D1Database, opts: JobOptions, budget: Budget): Promise<JobResult> {
   const part = opts.part ?? 0;
   const list = nasdaqCheckSymbols(await loadTrackedMembers(db));
@@ -521,6 +584,7 @@ const JOBS: Record<JobName, (db: D1Database, opts: JobOptions, budget: Budget) =
   "notify-events": (db, opts, budget) => notifyEvents(db, opts.push ?? null, budget),
   "backfill-prices": jobBackfillPrices,
   "backfill-checks": jobBackfillChecks,
+  "backfill-index-history": jobBackfillIndexHistory,
 };
 
 /**

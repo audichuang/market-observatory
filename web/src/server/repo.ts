@@ -82,6 +82,37 @@ export async function upsertBars(
   return { changed, rebased };
 }
 
+// D1 單一查詢最多 100 個綁定參數：一列 8 欄 → 每個 INSERT 12 列（96 個參數）。
+export const INSERT_ROWS_PER_STATEMENT = 12;
+
+/**
+ * 只補「不存在」的日線：ON CONFLICT DO NOTHING，不改任何既有列（Yahoo 窗口內的收盤與 check_* 原封不動），
+ * 且只寫 before 之前的日期；新列的 check_* 留空。回傳實際新增的列數。
+ * 多列 INSERT 把查詢數壓到 rows/12，一次執行的 D1 查詢數才不會逼近上限。
+ */
+export async function insertMissingBars(db: Db, batch: BarBatch, opts: { before: string; fetchedAt?: string }): Promise<number> {
+  const fetchedAt = opts.fetchedAt ?? nowIso();
+  const bars = batch.bars.filter((b) => b.date < opts.before);
+  const stmts: D1PreparedStatement[] = [];
+  for (let i = 0; i < bars.length; i += INSERT_ROWS_PER_STATEMENT) {
+    const part = bars.slice(i, i + INSERT_ROWS_PER_STATEMENT);
+    const args = part.flatMap((b) => [batch.symbol, b.date, b.open, b.high, b.low, b.close, batch.source, fetchedAt]);
+    stmts.push(
+      db
+        .prepare(
+          `INSERT INTO prices (symbol, date, open, high, low, close, source, fetched_at) VALUES ${part.map(() => "(?, ?, ?, ?, ?, ?, ?, ?)").join(", ")} ON CONFLICT(symbol, date) DO NOTHING`,
+        )
+        .bind(...args),
+    );
+  }
+  let inserted = 0;
+  for (let i = 0; i < stmts.length; i += CHUNK) {
+    const res = await db.batch(stmts.slice(i, i + CHUNK));
+    for (const r of res) inserted += r.meta?.changes ?? 0;
+  }
+  return inserted;
+}
+
 /**
  * 同一個收盤的兩種寫法：Yahoo spark 的收盤是單精度浮點，與 chart 的值差在第 8 位有效數字左右
  * （實測 ^GSPC 差 0.0002、相對 3e-8；單精度誤差上限約 6e-8）。門檻 1e-6 留了十幾倍餘裕；價格一萬美元以下時，它小於一分錢，真的修正收盤一定看得出來。這種差異不算「收盤改了」，否則每天都會把整個月重寫一遍、清掉已做完的交叉核對。

@@ -147,7 +147,7 @@ struct NewsView: View {
     // MARK: 新聞中文化
 
     private func isImportant(_ n: NewsPage.Item) -> Bool {
-        // 伺服器依目前選的代號算的值優先；翻譯結果不分代號，只在列表沒帶旗標時備用。
+        // translations 只收目前篩選送出的請求，重要與否跟伺服器用同一個代號算。
         n.resolvedImportant(translation: translations[n.id])
     }
 
@@ -162,7 +162,9 @@ struct NewsView: View {
 
     /// 載入完成：伺服器沒設 AI 或額度用完就不送；否則先替畫面上的前幾則排翻譯。
     private func prepareTranslation(_ p: NewsPage) {
+        // 換代號或重新整理：舊篩選的翻譯結果不沿用，已翻好的中文標題這次載入已經帶回來了。
         requested.removeAll()
+        translations.removeAll()
         aiStatus = p.ai
         digestError = nil
         aiNotice = NewsText.aiNotice(p.ai)
@@ -190,11 +192,14 @@ struct NewsView: View {
         }
     }
 
-    private struct TranslateBody: Encodable, Sendable { let ids: [String] }
+    private struct TranslateBody: Encodable, Sendable { let ids: [String]; let symbol: String? }
 
     private func translate(_ ids: [String]) async {
+        let filter = symbol
         do {
-            let r: NewsTranslateResponse = try await API.send("POST", "/api/v1/news/translate", body: TranslateBody(ids: ids))
+            let r: NewsTranslateResponse = try await API.send("POST", "/api/v1/news/translate", body: TranslateBody(ids: ids, symbol: filter))
+            // 回來前已換了代號：重要與否是照舊篩選算的，丟掉；新畫面的列出現時會自己再排翻譯。
+            guard filter == symbol else { return }
             for t in r.items where t.titleZh != nil { translations[t.id] = t }
             if let ai = r.ai { aiStatus = ai }
             if let note = NewsText.aiNotice(r.ai) { aiNotice = note; aiDisabled = true }

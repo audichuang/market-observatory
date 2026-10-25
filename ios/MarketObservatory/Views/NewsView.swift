@@ -16,13 +16,21 @@ struct NewsView: View {
         }
         // 換代號時 SwiftUI 會取消上一個請求，較慢的舊回應不會蓋掉新的。
         .task(id: symbol) {
+            // 推播冷啟動：日期在這個畫面建立前就放進 session 了，onChange 收不到。
+            if session.newsCalendarDate != nil { section = 1; session.newsCalendarDate = nil }
             if state.value == nil || state.value?.symbol != symbol { await load() }
+        }
+        .onChange(of: session.newsCalendarDate) { _, new in
+            if new != nil { section = 1; session.newsCalendarDate = nil }
         }
     }
 
     private var isLoading: Bool {
         if case .loading = state { true } else { false }
     }
+
+    /// 換代號載入中才淡化列表、顯示中央轉圈；下拉重新整理只用系統的轉圈。
+    private var isSwitchingSymbol: Bool { isLoading && state.value?.symbol != symbol }
 
     private func load() async {
         let requested = symbol
@@ -63,7 +71,7 @@ struct NewsView: View {
                     if p.news.isEmpty { Text("還沒有新聞。").foregroundStyle(.secondary) }
                     ForEach(p.news) { n in NewsRow(title: n.title, url: n.url, publisher: n.publisher, publishedAt: n.publishedAt, symbols: n.symbols) }
                 }
-                .opacity(isLoading ? 0.4 : 1)
+                .opacity(isSwitchingSymbol ? 0.4 : 1)
             } else {
                 let upcoming = p.events.filter { $0.date >= p.today }
                 let past = p.events.filter { $0.date < p.today }.reversed()
@@ -77,7 +85,7 @@ struct NewsView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .overlay { if isLoading && section == 0 { ProgressView() } }
+        .overlay { if isSwitchingSymbol && section == 0 { ProgressView() } }
         .refreshable { await load() }
     }
 

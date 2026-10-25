@@ -49,6 +49,9 @@ printf 'com.audichuang.observatory' | npx void secret put APPLE_BUNDLE_ID
 printf '<Team ID>' | npx void secret put APNS_TEAM_ID
 printf '<Key ID>' | npx void secret put APNS_KEY_ID
 npx void secret put APNS_PRIVATE_KEY < AuthKey_<Key ID>.p8
+# 刪除帳號時撤銷 Apple 登入授權：開了 Sign in with Apple 的 .p8（APNs 那把加開也行，Team ID 共用 APNS_TEAM_ID）
+printf '<Key ID>' | npx void secret put SIWA_KEY_ID
+npx void secret put SIWA_PRIVATE_KEY < AuthKey_<Key ID>.p8
 ```
 
 - APNs 金鑰（Sandbox & Production、Team Scoped）只能下載一次，備份在 1Password `Agent` vault。
@@ -85,4 +88,4 @@ App 走 `/api/v1/*` 的 JSON API（`routes/api/v1/`，跟網頁共用 `src/serve
 - **Apple 登入**：App 原生 Sign in with Apple 拿 identity token，`POST /api/auth/sign-in/social`（`provider: "apple"`、`idToken`），後端用 Apple 公鑰驗簽、audience 是 `APPLE_BUNDLE_ID`；不需要 Services ID 與 client secret。網頁版目前只有 email／密碼。
 - **推播**：App 啟動後 `POST /api/v1/devices` 註冊 device token（debug 版 `sandbox`、TestFlight／App Store 版 `production`，打不同的 APNs 主機）。收盤推播（摘要、名單個股單日漲跌超過門檻）接在抓價排程後面，只在最新快照是「最近應已收盤」那天才發；`push_log` 去重，隔天清晨的補抓排程不會重發。事件提醒（名單公司財報、FOMC）在 UTC 11:30 的 daily-reference 排程後面。APNs 回 410 的裝置自動刪除；其他錯誤（含 APNs 的 reason）記在 `devices.last_error` 與 runs 的摘要。
 - 偏好（`GET/PUT /api/v1/push`，存 `settings` 的 `push:<user id>`）；`POST /api/v1/push` 送一則測試推播到自己的裝置。
-- 刪除帳號：`DELETE /api/v1/me`（App Store 規定 App 內能刪帳號），站長帳號不能從這裡刪。
+- 刪除帳號：`DELETE /api/v1/me`（App Store 規定 App 內能刪帳號），站長帳號不能從這裡刪。綁了 Apple 登入的帳號（`GET /api/v1/me` 的 `hasApple`），App 會先再跑一次 Apple 授權，把 authorization code 放在 body 的 `appleAuthorizationCode`；後端用 `SIWA_KEY_ID`／`SIWA_PRIVATE_KEY` 簽 client secret，向 `appleid.apple.com/auth/token` 換 refresh token 再 `/auth/revoke` 撤銷（審查指南 5.1.1(v)），成功才刪資料。沒帶 code 回 400、沒設定金鑰回 503、Apple 失敗回 400／502，帳號都保留。

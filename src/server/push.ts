@@ -37,18 +37,22 @@ function pemToDer(pem: string): Uint8Array<ArrayBuffer> {
   return Uint8Array.from(bin, (ch) => ch.charCodeAt(0));
 }
 
+/** 用 Apple 後台建立的 .p8 金鑰簽 ES256 JWT（APNs 的 provider token、Sign in with Apple 的 client secret 都是這種）。 */
+export async function es256Jwt(privateKeyPem: string, keyId: string, claims: Record<string, unknown>): Promise<string> {
+  const key = await crypto.subtle.importKey("pkcs8", pemToDer(privateKeyPem), { name: "ECDSA", namedCurve: "P-256" }, false, ["sign"]);
+  const input = `${b64urlText(JSON.stringify({ alg: "ES256", kid: keyId }))}.${b64urlText(JSON.stringify(claims))}`;
+  // WebCrypto 的 ECDSA 簽章就是 JWS 要的 r||s（64 bytes），不用轉 DER。
+  const sig = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, key, new TextEncoder().encode(input));
+  return `${input}.${b64url(sig)}`;
+}
+
 /** APNs 的 provider token 有效 1 小時、更新太頻繁會被拒（TooManyProviderTokenUpdates）：同一個 isolate 裡 40 分鐘內重用。 */
 let cachedToken: { key: string; token: string; at: number } | null = null;
 
 export async function providerToken(c: ApnsConfig, now = Date.now()): Promise<string> {
   const cacheKey = `${c.teamId}:${c.keyId}`;
   if (cachedToken && cachedToken.key === cacheKey && now - cachedToken.at < 40 * 60 * 1000) return cachedToken.token;
-  const key = await crypto.subtle.importKey("pkcs8", pemToDer(c.privateKey), { name: "ECDSA", namedCurve: "P-256" }, false, ["sign"]);
-  const iat = Math.floor(now / 1000);
-  const input = `${b64urlText(JSON.stringify({ alg: "ES256", kid: c.keyId }))}.${b64urlText(JSON.stringify({ iss: c.teamId, iat }))}`;
-  // WebCrypto 的 ECDSA 簽章就是 JWS 要的 r||s（64 bytes），不用轉 DER。
-  const sig = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, key, new TextEncoder().encode(input));
-  const token = `${input}.${b64url(sig)}`;
+  const token = await es256Jwt(c.privateKey, c.keyId, { iss: c.teamId, iat: Math.floor(now / 1000) });
   cachedToken = { key: cacheKey, token, at: now };
   return token;
 }

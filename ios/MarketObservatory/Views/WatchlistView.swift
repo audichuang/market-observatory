@@ -124,14 +124,13 @@ struct WatchlistView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .confirmationDialog(
+        .alert(
             pendingRemoval.map { "從名單移除 \($0.company)？" } ?? "",
             isPresented: Binding(get: { pendingRemoval != nil }, set: { if !$0 { pendingRemoval = nil } }),
-            titleVisibility: .visible,
             presenting: pendingRemoval
         ) { m in
-            Button("移除", role: .destructive) { Task { await remove(m) } }
             Button("取消", role: .cancel) {}
+            Button("移除", role: .destructive) { Task { await remove(m) } }
         } message: { _ in
             Text("股價資料會保留，之後可以再加回來。")
         }

@@ -20,11 +20,21 @@ struct NewsView: View {
         .task(id: symbol) {
             // 推播冷啟動：日期在這個畫面建立前就放進 session 了，onChange 收不到。
             if let d = session.newsCalendarDate { openCalendar(d) }
+            applySectionRequest()
             if state.value == nil || state.value?.symbol != symbol { await load() }
         }
         .onChange(of: session.newsCalendarDate) { _, new in
             if let d = new { openCalendar(d) }
         }
+        .onChange(of: session.newsSectionRequest) { _, _ in applySectionRequest() }
+        .onAppear { applySectionRequest() }
+    }
+
+    /// 總覽的「完整日曆 →」「全部新聞 →」：不管之前停在哪一段都切過去。
+    private func applySectionRequest() {
+        guard let s = session.newsSectionRequest else { return }
+        section = s
+        session.newsSectionRequest = nil
     }
 
     /// 點事件推播進來：切到日曆、選到推播的那一天（沒帶日期就停在原本選的日子）。
@@ -203,7 +213,7 @@ struct NewsView: View {
                 }
                 Spacer(minLength: 0)
                 if url != nil {
-                    Image(systemName: "arrow.up.right").font(.caption).foregroundStyle(.tertiary)
+                    Image(systemName: "arrow.up.right").font(.caption).foregroundStyle(Color(.secondaryLabel))
                 }
             }
         }

@@ -139,11 +139,16 @@ struct LoginView: View {
         }
     }
 
+    /// 不把 AuthenticationServices 的英文錯誤直接給使用者。
+    private static func appleMessage(_ err: Error) -> String {
+        "無法使用 Apple 登入（模擬器或未登入 Apple 帳號時會發生），請改用 Email 登入"
+    }
+
     private func apple(_ result: Result<ASAuthorization, Error>) async {
         switch result {
         case let .failure(err):
             if (err as? ASAuthorizationError)?.code == .canceled { return }
-            error = "Apple 登入失敗：\(err.localizedDescription)"
+            error = Self.appleMessage(err)
         case let .success(auth):
             guard let cred = auth.credential as? ASAuthorizationAppleIDCredential,
                   let tokenData = cred.identityToken,
@@ -167,7 +172,7 @@ struct LoginView: View {
                 try await API.raw("POST", "/api/auth/sign-in/social", body: Body(provider: "apple", idToken: IdToken(token: token, nonce: nonce, user: user)))
                 await session.signedIn()
             } catch {
-                self.error = "Apple 登入失敗：\(error.localizedDescription)"
+                self.error = "Apple 登入失敗，請稍後再試"
             }
         }
     }

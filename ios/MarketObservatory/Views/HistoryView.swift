@@ -294,6 +294,7 @@ private struct PriceChart: View {
         .chartYScale(domain: (lo - pad) ... (hi + pad))
         .chartPlotStyle { $0.clipped() }
         .chartLegend(.hidden)
+        .readableAxes()
     }
 }
 
@@ -332,7 +333,7 @@ private struct RebasedChart: View {
             RuleMark(y: .value("0", 0)).foregroundStyle(.secondary.opacity(0.4))
         }
         .chartForegroundStyleScale(domain: names, range: palette)
-        .chartYAxis { AxisMarks { v in AxisGridLine(); AxisValueLabel { if let d = v.as(Double.self) { Text("\(Int(d))%") } } } }
+        .readableAxes { "\(Int($0))%" }
         .chartLegend(position: .bottom, alignment: .leading)
     }
 
@@ -375,5 +376,6 @@ private struct ContributionChart: View {
         }
         .chartForegroundStyleScale(["觀察名單貢獻": Self.watchColor, "其餘成分股": Self.restColor])
         .chartLegend(.hidden)
+        .readableAxes()
     }
 }

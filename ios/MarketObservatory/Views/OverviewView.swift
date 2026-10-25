@@ -167,13 +167,13 @@ struct OverviewView: View {
                         Text("三週內沒有登錄的事件。").foregroundStyle(.secondary)
                     }
                     ForEach(o.events) { e in eventRow(e) }
-                    Button("完整日曆 →") { session.tab = .news }.font(.subheadline)
+                    Button("完整日曆 →") { session.newsSectionRequest = 1; session.tab = .news }.font(.subheadline)
                 }
 
                 Section("最新新聞") {
                     if o.news.isEmpty { Text("還沒有新聞。").foregroundStyle(.secondary) }
                     ForEach(o.news) { n in NewsRow(title: n.title, url: n.url, publisher: n.publisher, publishedAt: n.publishedAt, symbols: n.symbols) }
-                    Button("全部新聞 →") { session.tab = .news }.font(.subheadline)
+                    Button("全部新聞 →") { session.newsSectionRequest = 0; session.tab = .news }.font(.subheadline)
                 }
             }
             .listStyle(.insetGrouped)

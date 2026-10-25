@@ -103,8 +103,17 @@ enum Fmt {
 }
 
 extension Color {
-    static let up = Color(red: 0xD1 / 255, green: 0x34 / 255, blue: 0x3B / 255)
-    static let down = Color(red: 0x12 / 255, green: 0x88 / 255, blue: 0x4E / 255)
+    // 紅漲綠跌；深色模式用較亮的同色系，深底上才有足夠對比。
+    static let up = Color(uiColor: UIColor { t in
+        t.userInterfaceStyle == .dark
+            ? UIColor(red: 0xFF / 255, green: 0x6B / 255, blue: 0x6B / 255, alpha: 1)
+            : UIColor(red: 0xD1 / 255, green: 0x34 / 255, blue: 0x3B / 255, alpha: 1)
+    })
+    static let down = Color(uiColor: UIColor { t in
+        t.userInterfaceStyle == .dark
+            ? UIColor(red: 0x3D / 255, green: 0xD6 / 255, blue: 0x8C / 255, alpha: 1)
+            : UIColor(red: 0x12 / 255, green: 0x88 / 255, blue: 0x4E / 255, alpha: 1)
+    })
 
     static func tone(_ v: Double?) -> Color {
         guard let v, v.isFinite, v != 0 else { return .secondary }
@@ -208,5 +217,31 @@ enum LoadState<T: Sendable>: Sendable {
         case let .loaded(v): v
         case let .failed(_, v): v
         }
+    }
+}
+
+import Charts
+
+extension View {
+    /// 圖表座標軸用語意色，深色模式下刻度與格線都看得清楚。
+    func readableAxes(yLabel: ((Double) -> String)? = nil) -> some View {
+        self
+            .chartXAxis {
+                AxisMarks { _ in
+                    AxisGridLine().foregroundStyle(Color(.separator))
+                    AxisTick().foregroundStyle(Color(.secondaryLabel))
+                    AxisValueLabel().foregroundStyle(Color(.secondaryLabel))
+                }
+            }
+            .chartYAxis {
+                AxisMarks { v in
+                    AxisGridLine().foregroundStyle(Color(.separator))
+                    AxisTick().foregroundStyle(Color(.secondaryLabel))
+                    AxisValueLabel {
+                        if let yLabel, let d = v.as(Double.self) { Text(yLabel(d)) } else { Text(v.as(Double.self).map { Fmt.num($0, 0) } ?? "") }
+                    }
+                    .foregroundStyle(Color(.secondaryLabel))
+                }
+            }
     }
 }

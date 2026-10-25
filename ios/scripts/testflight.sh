@@ -21,7 +21,7 @@ xcodegen generate --quiet
 if ! xcodebuild -project MarketObservatory.xcodeproj -scheme MarketObservatory -configuration Release \
   -destination 'generic/platform=iOS' -archivePath "${OUT}/MarketObservatory.xcarchive" \
   CURRENT_PROJECT_VERSION="$BUILD" "${AUTH[@]}" archive > "${OUT}/archive.log" 2>&1; then
-  grep -E "error:|BUILD FAILED" "${OUT}/archive.log" | tail -20; echo "archive 失敗，完整 log：${OUT}/archive.log"; exit 1
+  { grep -E "error:|BUILD FAILED|ARCHIVE FAILED" "${OUT}/archive.log" || true; } | tail -20; echo "archive 失敗，完整 log：${OUT}/archive.log"; exit 1
 fi
 if ! xcodebuild -exportArchive -archivePath "${OUT}/MarketObservatory.xcarchive" -exportOptionsPlist ExportOptions.plist \
   -exportPath "${OUT}/export" "${AUTH[@]}" > "${OUT}/export.log" 2>&1; then

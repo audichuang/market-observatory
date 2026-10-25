@@ -373,11 +373,22 @@ struct Etfs: Decodable, Sendable {
 struct OutlookPage: Decodable, Sendable {
     struct Outlook: Decodable, Sendable {
         struct Pick: Decodable, Sendable {
-            struct Base: Decodable, Sendable { let p: Double }
+            struct Base: Decodable, Sendable {
+                let p, low, high: Double
+                let nEff: Double?
+                let days: Int?
+            }
             let p: Double
             let basis: String
             let base: Base
+            let conditional: Base?
             let distinct: Bool?
+        }
+
+        struct Evaluation: Decodable, Sendable {
+            let points: Int
+            let hitRate, baseHitRate, brier, brierBase, bss, bssLow, bssHigh: Double?
+            let firstDate, lastDate: String?
         }
 
         struct Regime: Decodable, Sendable {
@@ -391,8 +402,30 @@ struct OutlookPage: Decodable, Sendable {
         let vix: Double?
         let regime: Regime?
         let pick: Pick
+        let evaluation: Evaluation?
         let call: String
         let reasons: [String]
+    }
+
+    struct Forecast: Decodable, Sendable, Identifiable {
+        var id: String { date }
+        let date: String
+        let p: Double
+        let base: Double?
+        let call: String
+        let close: Double?
+        let resolvedOn: String?
+        let up: Bool?
+    }
+
+    struct Factset: Decodable, Sendable {
+        let reportDate: String?
+        let bottomUpTarget: Double?
+        let upsidePct: Double?
+        let referenceClose: Double?
+        let buyPct, holdPct, sellPct: Double?
+        let forwardPE, forwardPE5y, forwardPE10y: Double?
+        let pdfUrl: String?
     }
 
     struct Rate: Decodable, Sendable {
@@ -418,12 +451,25 @@ struct OutlookPage: Decodable, Sendable {
     }
 
     struct Consensus: Decodable, Sendable {
+        struct Top: Decodable, Sendable, Identifiable {
+            var id: String { symbol }
+            let symbol: String
+            let weightPct: Double?
+            let price: Double?
+            let targetMean: Double?
+            let upsidePct: Double?
+            let buy, hold, sell: Int?
+        }
+
         let symbols: Int
         let coveredWeightPct: Double?
         let impliedUpsidePct: Double?
         let buyPct: Double?
         let revisionBreadth: Double?
         let impliedIndexTarget: Double?
+        let oldest: String?
+        let newest: String?
+        let top: [Top]
     }
 
     struct Strategists: Decodable, Sendable {
@@ -435,15 +481,27 @@ struct OutlookPage: Decodable, Sendable {
             let asOf: String?
         }
 
+        struct Poll: Decodable, Sendable {
+            let median: Double
+            let respondents: Int
+            let surveyed: String?
+            let sourceUrl: String?
+        }
+
         let list: [Target]
         let median: Double?
         let medianUpsidePct: Double?
+        let checked: String?
+        let poll: Poll?
+        let factsetUrl: String?
     }
 
     let outlook: Outlook?
     let cells: [Cell]
     let track: Track?
+    let recent: [Forecast]?
     let consensus: Consensus?
+    let factset: [Factset]
     let strategists: Strategists?
     let horizon: Int
 }

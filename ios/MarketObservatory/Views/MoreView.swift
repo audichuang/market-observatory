@@ -91,6 +91,13 @@ struct EtfView: View {
                             let v = r.returns[period] ?? nil
                             Text(Fmt.pct(v)).foregroundStyle(Color.tone(v)).monospacedDigit()
                             Text("收 \(Fmt.num(r.close))").font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                            if let d = r.drift1y {
+                                HStack(spacing: 4) {
+                                    Text("1Y 偏離").foregroundStyle(.secondary)
+                                    Delta(value: d.drift, digits: 1, percent: true)
+                                }
+                                .font(.caption)
+                            }
                         }
                     }
                 }

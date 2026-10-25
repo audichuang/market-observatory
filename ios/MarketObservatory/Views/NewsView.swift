@@ -148,7 +148,7 @@ struct NewsView: View {
 
     private func isImportant(_ n: NewsPage.Item) -> Bool {
         // 伺服器依目前選的代號算的值優先；翻譯結果不分代號，只在列表沒帶旗標時備用。
-        n.important ?? translations[n.id]?.important ?? true
+        n.resolvedImportant(translation: translations[n.id])
     }
 
     private func newsButton(_ n: NewsPage.Item) -> some View {

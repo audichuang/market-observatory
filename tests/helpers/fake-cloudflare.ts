@@ -146,12 +146,15 @@ export class FakeUpstream {
       const days = weekdays(RANGE_DAYS[url.searchParams.get("range") ?? "1mo"] ?? 22);
       return json({ chart: { result: [chartResult(symbol, days, false)], error: null } });
     }
-    if (url.host === "cdn.cboe.com") {
+    // 跟真的一樣：舊網址會轉址（Cboe 307、Nasdaq 新聞 301），打到就多花一個請求。
+    if (url.host === "cdn.cboe.com") return new Response(null, { status: 307, headers: { location: `https://cdn-api.cboe.com${p}` } });
+    if (url.host === "api.nasdaq.com" && p === "/api/news/topic/articlebysymbol") return new Response(null, { status: 301, headers: { location: `https://www.nasdaq.com${p}${url.search}` } });
+    if (url.host === "cdn-api.cboe.com") {
       const which = p.includes("VIX") ? "VIX" : "SPX";
       const rows = weekdays(60).map((d) => (which === "VIX" ? `${mdy(d)},20,21,19,${20 + (hash(d) % 5)}` : `${mdy(d)},${fakeClose("SPX", d)}`));
       return new Response([which === "VIX" ? "DATE,OPEN,HIGH,LOW,CLOSE" : "DATE,SPX", ...rows].join("\n"), { status: 200 });
     }
-    if (url.host === "api.nasdaq.com") {
+    if (url.host === "api.nasdaq.com" || (url.host === "www.nasdaq.com" && p.startsWith("/api/"))) {
       // 跟真的 Nasdaq 一樣：股類代號要用點（BRK.B），連字號版本回「Symbol not exists」。
       if (/[A-Z]-[A-Z]/.test(decodeURIComponent(p + url.search))) return json({ data: null, status: { rCode: 400, bCodeMessage: [{ code: 1001, errorMessage: "Symbol not exists." }] } });
       const hist = /^\/api\/quote\/([^/]+)\/historical$/.exec(p);

@@ -29,7 +29,7 @@ export async function seededDb() {
 const mdy = (d: string) => `${d.slice(5, 7)}/${d.slice(8, 10)}/${d.slice(0, 4)}`;
 /** 假網路的 Cboe SPX 用 fakeClose("SPX")、Yahoo 用 fakeClose("^GSPC")，兩邊不同；讓 Cboe 回 ^GSPC 的值，SPX 核對才會是 match。 */
 export const consistentSpx = (u: URL) =>
-  u.host === "cdn.cboe.com" && u.pathname.includes("SPX")
+  u.host === "cdn-api.cboe.com" && u.pathname.includes("SPX")
     ? new Response(["DATE,SPX", ...weekdays(60).map((d) => `${mdy(d)},${fakeClose("^GSPC", d)}`)].join("\n"), { status: 200 })
     : null;
 

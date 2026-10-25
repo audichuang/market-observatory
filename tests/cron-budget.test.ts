@@ -96,6 +96,12 @@ test("名單滿 12 家時，五支排程各自一次執行都不超過請求上�
       assert.equal(run.status, "ok", `${file}/${run.job}: ${run.summary}`);
     }
   }
+  // 新聞一家一個請求（直接打 www.nasdaq.com，不經過 301 轉址）；Cboe 兩個檔各一個請求。
+  const runs = sql.prepare("SELECT job, detail FROM runs").all() as { job: string; detail: string }[];
+  const newsRun = runs.filter((x) => x.job === "news").at(-1)!;
+  assert.equal(JSON.parse(newsRun.detail).subrequests, 13);
+  const pricesRun = runs.filter((x) => x.job === "prices").at(-1)!;
+  assert.equal(JSON.parse(pricesRun.detail).subrequests, 4, "spark 2 ＋ Cboe 2");
   // 股類代號（BRK-B）在 Nasdaq 要寫成 BRK.B：核對、新聞、財報日都要查得到。
   const brk = sql.prepare("SELECT date, status FROM events WHERE kind = 'earnings' AND symbol = 'BRK-B'").get() as { date: string; status: string } | undefined;
   assert.deepEqual(brk && [brk.date, brk.status], [CALENDAR_BRK_DATE, "confirmed"]);
@@ -217,7 +223,7 @@ test("Yahoo 全面限流（spark 掛掉、逐檔每次都 429）：VIX 與 SPX �
     const detail = JSON.parse(r.runs[0].detail);
     assert.ok(!("VIX" in detail.failed), JSON.stringify(detail.failed.VIX));
     assert.equal(detail.spxCheck, undefined);
-    assert.equal(r.hosts["cdn.cboe.com"], 2);
+    assert.equal(r.hosts["cdn-api.cboe.com"], 2);
   } finally {
     upstream.rules = [];
   }

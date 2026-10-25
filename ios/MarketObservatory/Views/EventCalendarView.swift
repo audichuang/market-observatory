@@ -70,7 +70,7 @@ struct EventCalendarView: View {
                 ForEach(Array(Self.weekdays.enumerated()), id: \.offset) { i, w in
                     Text(w)
                         .font(.caption.weight(.semibold))
-                        .foregroundStyle(i == 0 || i == 6 ? Color.secondary.opacity(0.7) : Color.secondary)
+                        .foregroundStyle(Color(.secondaryLabel))
                         .frame(maxWidth: .infinity)
                 }
             }

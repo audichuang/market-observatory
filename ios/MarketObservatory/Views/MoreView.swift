@@ -750,7 +750,16 @@ struct PushSettingsView: View {
                 }
             }
             if let e = session.pushError {
-                Section { Notice(kind: .bad, text: e) }
+                Section {
+                    Notice(kind: .bad, text: e)
+                    #if DEBUG
+                    if let d = session.pushErrorDetail {
+                        DisclosureGroup("技術細節") {
+                            Text(d).font(.caption.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
+                        }
+                    }
+                    #endif
+                }
             }
             Section {
                 Toggle("每日收盤摘要", isOn: $prefs.daily)
@@ -885,7 +894,8 @@ struct AccountView: View {
             }
         }
         .navigationTitle("帳號")
-        .confirmationDialog("確定要刪除帳號？", isPresented: $confirmDelete, titleVisibility: .visible) {
+        .alert("確定要刪除帳號？", isPresented: $confirmDelete) {
+            Button("取消", role: .cancel) {}
             Button("刪除帳號", role: .destructive) { Task { await deleteAccount() } }
         } message: {
             Text("這個動作無法復原。")

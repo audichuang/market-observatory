@@ -34,6 +34,8 @@ final class SessionStore {
     var overviewDate: String?
     /// 推播（事件提醒）點進來：新聞頁切到日曆並清掉
     var newsCalendarDate: String?
+    /// 總覽的捷徑要新聞頁停在哪一段（0 新聞、1 日曆）；新聞頁讀到後清掉。
+    var newsSectionRequest: Int?
     /// 名單每次增刪成功就加一：總覽與走勢據此重新載入。
     var watchlistRevision = 0
     /// 名單頁點公司要看走勢：走勢頁讀到後切到該標的並清掉。
@@ -45,6 +47,8 @@ final class SessionStore {
     private static let deviceTokenKey = "apnsDeviceToken"
     /// 只放推播註冊相關的錯誤（推播設定頁會顯示）。
     var pushError: String?
+    /// 原始錯誤字串，只在 DEBUG 版填入，推播設定頁收在「技術細節」。
+    var pushErrorDetail: String?
     /// 每次裝置向伺服器註冊成功就加一；推播設定頁看到變化就重新載入裝置清單。
     var deviceRegistrations = 0
     /// 啟動時檢查登入失敗（多半是離線）：checking 畫面顯示並提供重試。
@@ -67,6 +71,7 @@ final class SessionStore {
             phase = .signedIn(me)
             signOutError = nil
             pushError = nil
+            pushErrorDetail = nil
             await enablePush()
         } catch APIError.unauthorized {
             phase = .signedOut
@@ -119,6 +124,7 @@ final class SessionStore {
         overviewDate = nil
         historySymbol = nil
         pushError = nil
+        pushErrorDetail = nil
         restoreError = nil
         signOutError = nil
         phase = .signedOut
@@ -148,12 +154,12 @@ final class SessionStore {
         do {
             try await API.raw("POST", "/api/v1/devices", body: Body(token: hex, environment: environment, appVersion: "\(version) (\(build))"))
             pushError = nil
+            pushErrorDetail = nil
             deviceRegistrations += 1
         } catch {
-            #if DEBUG
-            pushError = "推播註冊失敗，請稍後再試\n(\(error.localizedDescription))"
-            #else
             pushError = "推播註冊失敗，請稍後再試"
+            #if DEBUG
+            pushErrorDetail = error.localizedDescription
             #endif
             handle(error)
         }
@@ -188,14 +194,19 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
         let ns = error as NSError
         // 3000：沒有有效的 aps-environment 授權（未簽章版本）；3010：模擬器不支援遠端推播。
-        var message = ns.domain == NSCocoaErrorDomain && (ns.code == 3000 || ns.code == 3010)
+        let message = ns.domain == NSCocoaErrorDomain && (ns.code == 3000 || ns.code == 3010)
             ? "這個版本無法註冊推播（模擬器或未簽章版本）"
             : "無法向 Apple 取得推播權杖，請稍後再開一次 App"
+        var detail: String?
         #if DEBUG
-        message += "\n(\(ns.domain) \(ns.code): \(ns.localizedDescription))"
+        detail = "\(ns.domain) \(ns.code): \(ns.localizedDescription)"
         #endif
         let text = message
-        Task { @MainActor in SessionStore.shared.pushError = text }
+        let raw = detail
+        Task { @MainActor in
+            SessionStore.shared.pushError = text
+            SessionStore.shared.pushErrorDetail = raw
+        }
     }
 
     // App 在前景時也顯示橫幅。

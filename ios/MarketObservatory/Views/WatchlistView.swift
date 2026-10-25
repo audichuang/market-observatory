@@ -120,7 +120,7 @@ struct WatchlistView: View {
             } header: {
                 Text("\(w.members.count)/\(w.max) 家 · 合計權重 \(Fmt.num(w.totalWeight, 1))%")
             } footer: {
-                Text("名單只影響你自己的總覽、走勢與推播；「其餘成分股」＝指數減掉名單。點一下看走勢，左滑可移除。權重取自 \(w.asOf ?? "—") 的 SPY 持股。")
+                Text("名單只影響你自己的總覽、走勢與推播；「其餘成分股」＝指數減掉名單。點一下看走勢，左滑可移除。權重取自 \(w.asOf ?? "—") 的 SPY 持股。改名單後，總覽與最近 45 個交易日的貢獻會立刻用新名單重算；更早的日子保留當時名單的數字。")
             }
         }
         .listStyle(.insetGrouped)

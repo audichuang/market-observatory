@@ -1,3 +1,4 @@
+import AuthenticationServices
 import Charts
 import SwiftUI
 
@@ -412,6 +413,7 @@ enum UNAuthorizationStatusText: Sendable {
 
 struct AccountView: View {
     @Environment(SessionStore.self) private var session
+    @Environment(\.authorizationController) private var authorizationController
     @State private var confirmDelete = false
     @State private var error: String?
     @State private var busy = false
@@ -435,7 +437,9 @@ struct AccountView: View {
                     .disabled(busy)
                 if let error { Notice(kind: .bad, text: error) }
             } footer: {
-                Text("刪除後名單、定投規劃、推播設定與登入資料都會移除，無法復原。")
+                Text(session.me?.hasApple == true
+                    ? "刪除後名單、定投規劃、推播設定與登入資料都會移除，無法復原。刪除前會請你用 Apple 確認身分，並撤銷這個 App 的 Apple 登入授權。"
+                    : "刪除後名單、定投規劃、推播設定與登入資料都會移除，無法復原。")
             }
             #if DEBUG
             Section {
@@ -463,16 +467,41 @@ struct AccountView: View {
 
     private func deleteAccount() async {
         busy = true
+        error = nil
         defer { busy = false }
+        // 用 Apple 登入的帳號：再跑一次 Apple 授權拿 authorization code，後端用它撤銷 Apple 的 token 後才刪帳號。
+        var appleCode: String?
+        if session.me?.hasApple == true {
+            do {
+                appleCode = try await appleAuthorizationCode()
+            } catch let err as ASAuthorizationError where err.code == .canceled {
+                return
+            } catch {
+                self.error = "Apple 身分確認失敗：\(error.localizedDescription)"
+                return
+            }
+        }
         if let token = session.deviceToken {
             _ = try? await API.raw("DELETE", "/api/v1/devices", body: ["token": token])
         }
+        struct DeleteBody: Encodable, Sendable { let appleAuthorizationCode: String }
         do {
-            try await API.raw("DELETE", "/api/v1/me", body: Optional<Empty>.none)
+            try await API.raw("DELETE", "/api/v1/me", body: appleCode.map(DeleteBody.init(appleAuthorizationCode:)))
             session.accountDeleted()
         } catch {
             session.handle(error)
             self.error = error.localizedDescription
         }
+    }
+
+    private func appleAuthorizationCode() async throws -> String {
+        let request = ASAuthorizationAppleIDProvider().createRequest()
+        request.requestedScopes = []
+        let result = try await authorizationController.performRequest(request)
+        guard case let .appleID(cred) = result,
+              let data = cred.authorizationCode,
+              let code = String(data: data, encoding: .utf8)
+        else { throw APIError.server(status: 0, message: "Apple 沒有回傳授權碼") }
+        return code
     }
 }

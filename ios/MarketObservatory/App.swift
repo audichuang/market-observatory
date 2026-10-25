@@ -32,6 +32,8 @@ final class SessionStore {
     var tab: AppTab = .overview
     /// 推播帶來的日期（收盤摘要）：總覽切到那一天
     var overviewDate: String?
+    /// 推播（事件提醒）點進來：新聞頁切到日曆並清掉
+    var newsCalendarDate: String?
     /// 名單每次增刪成功就加一：總覽與走勢據此重新載入。
     var watchlistRevision = 0
     /// 名單頁點公司要看走勢：走勢頁讀到後切到該標的並清掉。
@@ -153,7 +155,9 @@ final class SessionStore {
 
     func open(payload: [AnyHashable: Any]) {
         switch payload["screen"] as? String {
-        case "news": tab = .news
+        case "news":
+            newsCalendarDate = (payload["date"] as? String) ?? ""
+            tab = .news
         case "settings": tab = .more
         case "overview":
             overviewDate = payload["date"] as? String

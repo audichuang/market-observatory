@@ -843,6 +843,7 @@ struct AccountView: View {
             }
             Section {
                 Button("登出") { Task { await session.signOut() } }
+                if let e = session.signOutError { Notice(kind: .bad, text: e) }
             }
             // 站長帳號伺服器一律拒絕刪除（403），不顯示這個按鈕。
             if session.me?.isOwner != true {

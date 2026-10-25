@@ -11,6 +11,8 @@ struct MarketObservatoryApp: App {
         WindowGroup {
             RootView()
                 .environment(session)
+                // 沒有 Localizable 字串檔時系統會用英文格式化日期（圖表軸上的 Jan、Sep 6）：整個 App 固定用台灣繁中。
+                .environment(\.locale, Locale(identifier: "zh_Hant_TW"))
                 .task { await session.restore() }
         }
     }
@@ -30,10 +32,20 @@ final class SessionStore {
     var tab: AppTab = .overview
     /// 推播帶來的日期（收盤摘要）：總覽切到那一天
     var overviewDate: String?
-    var deviceToken: String?
+    /// APNs 權杖存在 UserDefaults：離線啟動（停在 checking、還沒拿到新權杖）時登出也能把這台裝置從伺服器拿掉。
+    var deviceToken: String? = UserDefaults.standard.string(forKey: SessionStore.deviceTokenKey) {
+        didSet { UserDefaults.standard.set(deviceToken, forKey: SessionStore.deviceTokenKey) }
+    }
+    private static let deviceTokenKey = "apnsDeviceToken"
+    /// 只放推播註冊相關的錯誤（推播設定頁會顯示）。
     var pushError: String?
     /// 每次裝置向伺服器註冊成功就加一；推播設定頁看到變化就重新載入裝置清單。
     var deviceRegistrations = 0
+    /// 啟動時檢查登入失敗（多半是離線）：checking 畫面顯示並提供重試。
+    var restoreError: String?
+    var isRestoring = false
+    /// 登出時沒能通知伺服器（離線或伺服器錯誤）：保留登入狀態並顯示。
+    var signOutError: String?
 
     var me: Me? {
         if case let .signedIn(me) = phase { return me }
@@ -41,16 +53,21 @@ final class SessionStore {
     }
 
     func restore() async {
+        isRestoring = true
+        restoreError = nil
+        defer { isRestoring = false }
         do {
             let me: Me = try await API.get("/api/v1/me")
             phase = .signedIn(me)
+            signOutError = nil
+            pushError = nil
             await enablePush()
         } catch APIError.unauthorized {
             phase = .signedOut
         } catch {
             // 離線時先當成已登出會很煩：有 session cookie 就停在 checking 讓使用者重試。
             phase = HTTPCookieStorage.shared.cookies(for: Backend.baseURL)?.isEmpty == false ? .checking : .signedOut
-            if case .checking = phase { pushError = error.localizedDescription }
+            if case .checking = phase { restoreError = error.localizedDescription }
         }
     }
 
@@ -63,19 +80,35 @@ final class SessionStore {
         if case APIError.unauthorized = error { phase = .signedOut }
     }
 
+    /// 先請伺服器拿掉這台裝置、結束 session，再清 cookie。
+    /// 沒連上伺服器（離線、5xx）就不清：不然伺服器上的裝置還掛在這個帳號，登出後還會收到它的推播。
+    /// 401 代表 session 已經失效，沒辦法再刪裝置，照樣在本機登出。
     func signOut() async {
-        if let token = deviceToken {
-            _ = try? await API.raw("DELETE", "/api/v1/devices", body: ["token": token])
+        signOutError = nil
+        do {
+            if let token = deviceToken {
+                try await API.raw("DELETE", "/api/v1/devices", body: ["token": token])
+            }
+            try await API.raw("POST", "/api/auth/sign-out", body: Empty())
+        } catch APIError.unauthorized {
+            // session 已失效：繼續本機登出
+        } catch {
+            signOutError = "登出失敗，請連網後再試（\(error.localizedDescription)）"
+            return
         }
-        _ = try? await API.raw("POST", "/api/auth/sign-out", body: Empty())
-        API.clearCookies()
-        tab = .overview
-        phase = .signedOut
+        finishSignOut()
     }
 
     func accountDeleted() {
+        finishSignOut()
+    }
+
+    private func finishSignOut() {
         API.clearCookies()
         tab = .overview
+        pushError = nil
+        restoreError = nil
+        signOutError = nil
         phase = .signedOut
     }
 
@@ -184,11 +217,14 @@ struct RootView: View {
         switch session.phase {
         case .checking:
             VStack(spacing: 16) {
-                ProgressView()
-                if let e = session.pushError {
+                if session.isRestoring || session.restoreError == nil { ProgressView() }
+                if let e = session.restoreError, !session.isRestoring {
                     Text(e).font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
                     Button("重試") { Task { await session.restore() } }
                     Button("改用其他帳號登入") { Task { await session.signOut() } }.font(.footnote)
+                    if let s = session.signOutError {
+                        Text(s).font(.footnote).foregroundStyle(Color.up).multilineTextAlignment(.center)
+                    }
                 }
             }
             .padding()

@@ -6,20 +6,33 @@ struct NewsView: View {
     @State private var symbol: String?
     @State private var section = 0
     @Environment(\.openURL) private var openURL
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @ScaledMetric(relativeTo: .subheadline) private var dateWidth: CGFloat = 82
 
     var body: some View {
         NavigationStack {
             Loadable(state: state, retry: load) { p in content(p) }
                 .navigationTitle("新聞與日曆")
         }
-        .task { if state.value == nil { await load() } }
+        // 換代號時 SwiftUI 會取消上一個請求，較慢的舊回應不會蓋掉新的。
+        .task(id: symbol) {
+            if state.value == nil || state.value?.symbol != symbol { await load() }
+        }
+    }
+
+    private var isLoading: Bool {
+        if case .loading = state { true } else { false }
     }
 
     private func load() async {
+        let requested = symbol
         state = .loading(state.value)
         do {
-            state = .loaded(try await API.get("/api/v1/news", query: ["symbol": symbol]))
+            let p: NewsPage = try await API.get("/api/v1/news", query: ["symbol": requested])
+            guard !Task.isCancelled, requested == symbol else { return }
+            state = .loaded(p)
         } catch {
+            guard !Task.isCancelled, requested == symbol else { return }
             session.handle(error)
             state = .failed(error.localizedDescription, state.value)
         }
@@ -37,9 +50,9 @@ struct NewsView: View {
                 if section == 0 {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 6) {
-                            Chip(text: "全部", selected: symbol == nil) { symbol = nil; Task { await load() } }
+                            Chip(text: "全部", selected: symbol == nil) { symbol = nil }
                             ForEach(p.keys, id: \.self) { k in
-                                Chip(text: k, selected: symbol == k) { symbol = k; Task { await load() } }
+                                Chip(text: k, selected: symbol == k) { symbol = k }
                             }
                         }
                     }
@@ -50,12 +63,13 @@ struct NewsView: View {
                     if p.news.isEmpty { Text("還沒有新聞。").foregroundStyle(.secondary) }
                     ForEach(p.news) { n in NewsRow(title: n.title, url: n.url, publisher: n.publisher, publishedAt: n.publishedAt, symbols: n.symbols) }
                 }
+                .opacity(isLoading ? 0.4 : 1)
             } else {
                 let upcoming = p.events.filter { $0.date >= p.today }
                 let past = p.events.filter { $0.date < p.today }.reversed()
                 Section("接下來") {
                     if upcoming.isEmpty { Text("沒有登錄的事件。").foregroundStyle(.secondary) }
-                    ForEach(upcoming) { e in eventRow(e) }
+                    ForEach(upcoming) { e in eventRow(e, today: p.today) }
                 }
                 if !past.isEmpty {
                     Section("過去 30 天") { ForEach(Array(past)) { e in eventRow(e) } }
@@ -63,25 +77,83 @@ struct NewsView: View {
             }
         }
         .listStyle(.insetGrouped)
+        .overlay { if isLoading && section == 0 { ProgressView() } }
         .refreshable { await load() }
     }
 
-    private func eventRow(_ e: NewsPage.Event) -> some View {
-        Button {
-            if let s = e.sourceUrl, let u = URL(string: s) { openURL(u) }
+    private func eventRow(_ e: NewsPage.Event, today: String? = nil) -> some View {
+        let url = e.sourceUrl.flatMap(URL.init(string:))
+        let layout = typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
+            : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 10))
+        return Button {
+            if let url { openURL(url) }
         } label: {
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text(Fmt.dateWithWeekday(e.date)).font(.subheadline.monospacedDigit()).foregroundStyle(.secondary).frame(width: 82, alignment: .leading)
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 6) {
-                        Text(e.title).font(.subheadline).foregroundStyle(.primary)
-                        if e.status == "estimated" { Text("推估").font(.caption2).foregroundStyle(.orange) }
-                        if e.status == "tentative" { Text("暫定").font(.caption2).foregroundStyle(.orange) }
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                layout {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(Fmt.dateWithWeekday(e.date)).font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
+                            .lineLimit(1).fixedSize()
+                        if let t = today, let d = Fmt.daysBetween(t, e.date) {
+                            Text(d == 0 ? "今天" : "\(d) 天後")
+                                .font(.caption.weight(d == 0 ? .semibold : .regular))
+                                .foregroundStyle(d == 0 ? Color.orange : Color.secondary)
+                                .lineLimit(1).fixedSize()
+                        }
                     }
-                    if let d = e.detail, !d.isEmpty { Text(d).font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.leading) }
+                    .frame(minWidth: typeSize.isAccessibilitySize ? nil : dateWidth, alignment: .leading)
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            if let s = e.symbol {
+                                Text(s).font(.subheadline.monospaced().weight(.semibold)).foregroundStyle(Color.accentColor)
+                            }
+                            Text(e.title).font(.subheadline).foregroundStyle(.primary)
+                                .multilineTextAlignment(.leading)
+                                .layoutPriority(1)
+                        }
+                        EventStatusBadge(status: e.status)
+                        if let d = e.detail, !d.isEmpty { Text(d).font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.leading) }
+                    }
+                }
+                Spacer(minLength: 0)
+                if url != nil {
+                    Image(systemName: "arrow.up.right").font(.caption).foregroundStyle(.tertiary)
                 }
             }
         }
+        .disabled(url == nil)
+        .accessibilityHint(url != nil ? "開啟來源網頁" : "")
+        .contextMenu {
+            if let s = e.symbol {
+                // 改 symbol 會觸發 .task(id:) 重新載入，不必另外呼叫 load()。
+                Button("看 \(s) 新聞", systemImage: "newspaper") { symbol = s; section = 0 }
+            }
+            if let url {
+                Link(destination: url) { Label("開啟來源", systemImage: "safari") }
+            }
+        }
+    }
+}
+
+/// 日曆事件的來源狀態，對照網頁 pages/news.tsx 的 STATUS。
+private struct EventStatusBadge: View {
+    let status: String
+    var body: some View {
+        let (text, color): (String, Color) = switch status {
+        case "confirmed": ("公司已公布", .down)
+        case "scheduled": ("官方日程", .down)
+        case "estimated": ("Zacks 推估", .orange)
+        case "tentative": ("官方暫定", .orange)
+        default: (status, .secondary)
+        }
+        Text(text)
+            .font(.caption2.weight(.semibold))
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(color.opacity(0.12), in: Capsule())
+            .foregroundStyle(color)
+            .lineLimit(1)
+            .fixedSize()
     }
 }
 

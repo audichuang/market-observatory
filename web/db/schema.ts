@@ -65,7 +65,7 @@ export const news = sqliteTable(
     summary: text("summary"),
     /** 來源標的主角代號（Nasdaq primarysymbol，Yahoo 格式），常跟 symbols 不同：選股文會掛在很多代號底下 */
     primarySymbol: text("primary_symbol"),
-    // ── AI 加工（src/server/news-ai.ts）：讀者不一定懂英文，標題翻成繁中、標出利多利空與類別、濾掉雜訊 ──
+    // ── AI 加工（本機排程寫入，src/server/ai-batch.ts）：讀者不一定懂英文，標題翻成繁中、標出利多利空與類別、濾掉雜訊 ──
     titleZh: text("title_zh"),
     /** positive／negative／neutral（對 focus 裡的公司而言） */
     tone: text("tone"),
@@ -73,23 +73,10 @@ export const news = sqliteTable(
     /** 這則真正在講的代號（逗號分隔，SPY 代表大盤／總經）；空字串＝雜訊（選股標題黨、只順帶提到） */
     focus: text("focus"),
     enrichedAt: text("enriched_at"),
-    /** 翻譯請求認領這則的時間：同時有兩個請求要翻同一則時，只有認領到的呼叫模型、扣額度，另一個等它寫回 */
-    aiClaimAt: text("ai_claim_at"),
-    /** 單篇文章的 AI 重點（JSON 字串陣列，3～5 點繁中）；使用者點「AI 重點」時才產生，所有人共用 */
+    /** 單篇文章的 AI 重點（JSON 字串陣列，3～5 點繁中）；本機排程產生（scripts/ai-batch.ts），所有人共用 */
     pointsZh: text("points_zh"),
   },
   (t) => [index("news_published_idx").on(t.publishedAt), index("news_enriched_idx").on(t.enrichedAt)],
-);
-
-// 每個帳號每天（美東日期）已用掉的 AI 呼叫次數；快取命中不算。上限見 src/server/news-ai.ts。
-export const aiUsage = sqliteTable(
-  "ai_usage",
-  {
-    userId: text("user_id").notNull(),
-    date: text("date").notNull(),
-    calls: integer("calls").notNull().default(0),
-  },
-  (t) => [primaryKey({ columns: [t.userId, t.date] })],
 );
 
 // 每家公司每天的新聞重點（AI 依當天新聞與漲跌寫 1～2 句繁中）。digest 是當時用到的新聞 id 的雜湊，新聞變了才重寫。

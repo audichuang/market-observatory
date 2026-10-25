@@ -433,3 +433,33 @@ test("同一則同時被兩個請求翻（換篩選、兩個分頁、兩個使�
   await translateNews(db, ai, user("z"), [NVDA], ["n2"]);
   assert.equal(calls.length, 2);
 });
+
+test("認領：別人持有未過期的認領時不呼叫模型，等不到回 pending；過期的舊請求失敗時不會清掉別人重新認領的；額度用完也放掉認領", async () => {
+  const { db, sql } = await seeded();
+  const { translateNews } = await import("../src/server/news-ai.ts");
+  const { ai, calls } = fakeAi(enrichAnswer);
+  const claimOf = (id: string) => (sql.prepare("SELECT ai_claim_at FROM news WHERE id = ?").get(id) as { ai_claim_at: string | null }).ai_claim_at;
+  // 別人剛認領 n2：這次只翻 n3，n2 回 pending
+  const other = `${new Date().toISOString()}#other`;
+  sql.prepare("UPDATE news SET ai_claim_at = ? WHERE id = 'n2'").run(other);
+  const r = await translateNews(db, ai, user(), [NVDA], ["n2", "n3"], null, 300);
+  assert.equal(calls.length, 1);
+  assert.deepEqual(r.pending, ["n2"]);
+  assert.deepEqual(r.items.map((i) => i.id), ["n3"]);
+  assert.equal(claimOf("n2"), other, "不動別人的認領");
+  // 過期的認領可以重新認領；模型執行中被別人接手（舊請求過期），舊請求失敗時只放自己的
+  sql.prepare("UPDATE news SET ai_claim_at = '2000-01-01T00:00:00.000Z#dead' WHERE id = 'n2'").run();
+  const taker = `${new Date().toISOString()}#taker`;
+  const slow = fakeAi(() => {
+    sql.prepare("UPDATE news SET ai_claim_at = ? WHERE id = 'n2'").run(taker);
+    throw new Error("boom");
+  });
+  await assert.rejects(translateNews(db, slow.ai, user("b"), [NVDA], ["n2"]));
+  assert.equal(slow.calls.length, 1, "過期的認領被重新認領，呼叫了模型");
+  assert.equal(claimOf("n2"), taker, "失敗時沒清掉接手者的認領");
+  // 額度用完：429，認領放掉
+  sql.prepare("UPDATE news SET ai_claim_at = NULL WHERE id = 'n2'").run();
+  sql.prepare("INSERT INTO ai_usage (user_id, date, calls) VALUES ('q', ?, 999) ON CONFLICT DO UPDATE SET calls = 999").run(easternDate());
+  await assert.rejects(translateNews(db, ai, user("q"), [NVDA], ["n2"]), (e: unknown) => e instanceof Error && "status" in e && (e as { status: number }).status === 429);
+  assert.equal(claimOf("n2"), null);
+});

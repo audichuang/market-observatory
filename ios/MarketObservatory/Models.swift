@@ -301,6 +301,13 @@ struct NewsPage: Decodable, Sendable {
         let focus: String?
         let important: Bool?
         let pointsZh: [String]?
+
+        /// focus 為 nil 代表還沒分類，伺服器帶的 important 只是暫定值（一律 true），
+        /// 剛翻譯回來的分類要優先；已分類的項目則維持伺服器依代號算的值。
+        func resolvedImportant(translation: NewsTranslation?) -> Bool {
+            if focus == nil { return translation?.important ?? important ?? true }
+            return important ?? translation?.important ?? true
+        }
     }
 
     struct Event: Decodable, Sendable, Identifiable {

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Series } from "../src/lib/analytics.ts";
-import { HORIZON, buildObservations, buildOutlook, conditionalRate, pickProbability, walkForward, wilson } from "../src/lib/forecast.ts";
+import { DEFAULT_MODEL, HORIZON, buildObservations, buildOutlook, conditionalRate, evaluateRows, pickProbability, walkForward, walkForwardRows, wilson, type ModelConfig } from "../src/lib/forecast.ts";
 
 const day = (i: number) => new Date(Date.UTC(2015, 0, 1) + i * 864e5).toISOString().slice(0, 10);
 const series = (closes: number[]) => new Series(closes.map((close, i) => ({ date: day(i), close })));
@@ -166,4 +166,26 @@ test("特徵測試：walkForward 與 buildOutlook 的輸出固定", () => {
   assert.deepEqual([none.p, none.basis], [1, "base"]);
   const both = pickProbability(obs, day(899), { aboveSma200: true, vixStress: false })!;
   assert.deepEqual([both.p, both.basis], [1, "trend+vix"]);
+});
+
+test("walkForward = evaluateRows(walkForwardRows)；只有趨勢旗標的模型不會出現 vix 依據", () => {
+  const [, spx, vix] = characterised[4];
+  const obs = buildObservations(series(spx), series(vix));
+  assert.deepEqual(walkForward(obs), evaluateRows(walkForwardRows(obs)));
+  assert.ok(walkForwardRows(obs).length > 0);
+
+  const trendOnly: ModelConfig = { ...DEFAULT_MODEL, version: "test-trend", flags: [DEFAULT_MODEL.flags[0]], candidates: [["aboveSma200"]] };
+  const tObs = buildObservations(series(spx), series(vix), trendOnly);
+  assert.deepEqual(Object.keys(tObs.at(-1)!.regime ?? tObs[tObs.length - 22].regime!), ["aboveSma200"]);
+  const rows = walkForwardRows(tObs, trendOnly);
+  assert.ok(rows.length > 0);
+  assert.ok(rows.every((r) => r.basis === "trend" || r.basis === "base"));
+  const o = buildOutlook(series(spx), series(vix), trendOnly)!;
+  assert.equal(o.modelVersion, "test-trend");
+  assert.notEqual(o.pick.basis, "vix");
+  assert.equal(buildOutlook(series(spx), series(vix))!.modelVersion, "2026-10-base");
+
+  // dates 只算指定日期。
+  const some = rows.slice(0, 3).map((r) => r.date);
+  assert.deepEqual(walkForwardRows(tObs, trendOnly, { dates: some }).map((r) => r.date), some);
 });

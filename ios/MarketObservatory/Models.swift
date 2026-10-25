@@ -342,6 +342,8 @@ struct NewsTranslation: Decodable, Sendable {
 
 struct NewsTranslateResponse: Decodable, Sendable {
     let items: [NewsTranslation]
+    /// 別的請求正在翻、這次等不到的 id；過幾秒再送
+    let pending: [String]?
     let ai: AIStatus?
 }
 

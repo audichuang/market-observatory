@@ -206,6 +206,15 @@ struct NewsView: View {
             let r: NewsTranslateResponse = try await API.send("POST", "/api/v1/news/translate", body: TranslateBody(ids: ids, symbol: filter))
             // 存回送出時的篩選；重要與否是照那個篩選算的。
             for t in r.items where t.titleZh != nil { translationsBy[filter ?? "", default: [:]][t.id] = t }
+            // 別人正在翻同一則：伺服器回 pending，過幾秒再送一次拿快取（還停在同一個篩選、列還在才送）。
+            if let later = r.pending, !later.isEmpty {
+                requestedBy[filter ?? ""]?.subtract(later)
+                Task {
+                    try? await Task.sleep(for: .seconds(6))
+                    guard filter == symbol, let p = state.value, p.symbol == filter else { return }
+                    for n in p.news where later.contains(n.id) { enqueue(n) }
+                }
+            }
             if let ai = r.ai { aiStatus = ai }
             if let note = NewsText.aiNotice(r.ai) { aiNotice = note; aiDisabled = true }
         } catch {

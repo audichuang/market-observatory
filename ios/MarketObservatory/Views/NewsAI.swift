@@ -109,7 +109,9 @@ struct NewsDetailSheet: View {
                 VStack(alignment: .leading, spacing: 12) {
                     HStack(spacing: 6) {
                         if zh != nil { ToneTag(tone: tone) }
-                        if let category, !category.isEmpty, zh != nil { Text(category).font(.caption2).foregroundStyle(.secondary) }
+                        let showCategory = zh != nil && category?.isEmpty == false
+                        if showCategory, let category { Text(category).font(.caption2).foregroundStyle(.secondary) }
+                        if showCategory && !item.symbols.isEmpty { Text("·").font(.caption2).foregroundStyle(.secondary) }
                         if !item.symbols.isEmpty {
                             Text(item.symbols.replacingOccurrences(of: ",", with: " · ")).font(.caption2.weight(.semibold)).foregroundStyle(.tint)
                         }

@@ -12,9 +12,19 @@ xcodebuild -project MarketObservatory.xcodeproj -scheme MarketObservatory \
 ```
 
 - Bundle ID `com.audichuang.observatory`、Team `37HFR5V2JJ`，能力：Push Notifications、Sign in with Apple。
-- 後端：`https://market-observatory.kzfvvwnwhp.workers.dev` 的 `/api/v1/*`（見 `routes/api/v1/`）。Debug 版可在「更多 → 帳號」改伺服器。
+- 後端：`https://market-observatory.kzfvvwnwhp.workers.dev` 的 `/api/v1/*`（見 [`web/routes/api/v1/`](../web/routes/api/v1/)）。Debug 版可在「更多 → 帳號」改伺服器。
 - 登入是 Better Auth 的 session cookie（`HTTPCookieStorage.shared`）；POST／PUT／DELETE 一律帶 `Origin`（`API.raw` 自動加）。
 - 推播：登入後要求通知權限、註冊 APNs，把 token 送到 `POST /api/v1/devices`；Debug 版標 `sandbox`、Release（TestFlight）標 `production`。
+
+## 單元測試
+
+`MarketObservatoryTests` 用 `MarketObservatoryTests/Fixtures/*.json` 驗證模型解得開；fixture 是用測試帳號從正式站 `/api/v1/*` 存下來的回應，改了 API 欄位要重抓。
+
+```sh
+xcodebuild -project MarketObservatory.xcodeproj -scheme MarketObservatory \
+  -destination 'id=<模擬器 UDID>' -derivedDataPath build CODE_SIGNING_ALLOWED=NO \
+  -only-testing:MarketObservatoryTests test
+```
 
 ## UI 測試（模擬器走一遍並截圖）
 
@@ -38,7 +48,7 @@ xcrun simctl push <UDID> com.audichuang.observatory payload.json
 ## 上傳 TestFlight
 
 ```sh
-ios/scripts/testflight.sh        # archive → 匯出（發佈簽章）→ 上傳；build 號用時間 yyyymmddHHMM
+scripts/testflight.sh            # archive → 匯出（發佈簽章）→ 上傳；build 號用時間 yyyymmddHHMM
 ```
 
 - 簽章與上傳用 team 層級的 App Store Connect API key（`~/.appstoreconnect/private_keys/AuthKey_PSZ89WD7LP.p8`，備份在 1Password `Agent` vault），Xcode 自動簽章會自己建或更新描述檔。

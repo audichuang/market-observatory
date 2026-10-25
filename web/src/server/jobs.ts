@@ -558,7 +558,7 @@ export const SCHEDULES = {
   retry: ["prices", "crosscheck", "notify-close"],
   // 事件提醒在美東早上（UTC 11:30 = 台灣晚上 7:30）：當天的財報日剛更新完。
   "daily-reference": ["weights", "events", "factset", "notify-events"],
-  // 抓完新聞就翻譯、分類、寫各家重點（Workers AI），再輪替抓分析師共識。
+  // 抓 Nasdaq 新聞，再輪替抓分析師共識；翻譯與重點由本機排程（scripts/ai-batch.ts）寫入。
   news: ["news", "analysts"],
 } as const satisfies Record<string, readonly JobName[]>;
 export type ScheduleName = keyof typeof SCHEDULES;

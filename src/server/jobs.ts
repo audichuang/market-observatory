@@ -11,7 +11,7 @@ import { Budget } from "../lib/sources/http.ts";
 import { buildOutlook } from "../lib/forecast.ts";
 import { rotationPicks } from "../lib/consensus.ts";
 import { easternDate } from "../lib/calendar.ts";
-import { EQUAL_WEIGHT_SYMBOL, FX_SYMBOL, INDEX_SYMBOL, VIX_SYMBOL, nasdaqCheckSymbols, watchTickers, yahooSymbols } from "../lib/universe.ts";
+import { EQUAL_WEIGHT_SYMBOL, FX_SYMBOL, INDEX_SYMBOL, VIX_SYMBOL, type WatchMember, nasdaqCheckSymbols, watchTickers, yahooSymbols } from "../lib/universe.ts";
 import { addToWatchlist, removeFromWatchlist } from "../lib/watchlist.ts";
 import { latestHoldings, loadWatchlist, updateWatchlist } from "./watchlist.ts";
 import { type BarBatch, applyCrossChecks, finishRun, insertWeights, loadPrices, getSetting, loadWeightAnchors, nowIso, putSetting, saveSnapshots, startRun, upsertBars, weightsNear } from "./repo.ts";
@@ -70,7 +70,17 @@ const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
  * 查詢次數固定（不隨天數增加），一次可以重算幾十天。
  */
 export async function rebuildSnapshots(db: D1Database, reason: string, sessions = 5, upTo?: string) {
-  const members = await loadWatchlist(db);
+  // 計算中名單可能被別的裝置改掉（加入／移除也會重算快照）：存檔前重讀一次，變了就用新名單重算，
+  // 否則較慢的這一方會把舊名單的快照寫在最後，總覽停在舊名單直到下一次重算。
+  for (let attempt = 0; ; attempt++) {
+    const members = await loadWatchlist(db);
+    const result = await computeSnapshots(db, members, sessions, upTo);
+    if (attempt < 2 && JSON.stringify(await loadWatchlist(db)) !== JSON.stringify(members)) continue;
+    return { built: result.built, created: await saveSnapshots(db, result.snaps, reason) };
+  }
+}
+
+async function computeSnapshots(db: D1Database, members: WatchMember[], sessions: number, upTo?: string) {
   const tickers = watchTickers(members);
   const end = upTo ?? "9999-12-31";
   const dates = await db
@@ -78,7 +88,7 @@ export async function rebuildSnapshots(db: D1Database, reason: string, sessions 
     .bind(INDEX_SYMBOL, end, sessions)
     .all<{ date: string }>();
   const targets = dates.results.map((r) => r.date).reverse();
-  if (!targets.length) return { built: [] as string[], created: [] as string[] };
+  if (!targets.length) return { built: [] as string[], snaps: [] as Snapshot[] };
   const anchors = await loadWeightAnchors(db, tickers);
   const window = snapshotLoadWindow(targets, anchors.dates);
   const loaded = await loadPrices(db, [INDEX_SYMBOL, VIX_SYMBOL, EQUAL_WEIGHT_SYMBOL, ...tickers], window.from, window.to);
@@ -89,7 +99,7 @@ export async function rebuildSnapshots(db: D1Database, reason: string, sessions 
     const snap = buildSnapshot({ tradeDate, series: loaded.series, checks: loaded.checks, weights, members });
     if (snap) snaps.push(snap);
   }
-  return { built: targets, created: await saveSnapshots(db, snaps, reason) };
+  return { built: targets, snaps };
 }
 
 async function fetchYahooBatch(entries: [string, string][], range: string, upTo: string, budget: Budget) {
@@ -130,21 +140,28 @@ async function jobPrices(db: D1Database, _opts: JobOptions, budget: Budget): Pro
   const symbols = yahooSymbols(await loadWatchlist(db));
   const entries = Object.entries(symbols);
   // 留 2 個給 Cboe 的 VIX 與 SPX。
-  const { ok, failed, sparkErrors, fallback } = await fetchRecentBars(entries, "1mo", expected, budget, 2);
-  const detail: Record<string, unknown> = { expected, failed, sparkErrors, fallback };
-  // VIX 以 Cboe 為主來源；SPX 用 Cboe 交叉核對 Yahoo。兩個都先抓，額度不會被後面的分割重抓吃掉。
+  // VIX 以 Cboe 為主來源；SPX 用 Cboe 交叉核對 Yahoo。兩個最先抓：Yahoo 限流時逐檔補抓與重試可能把額度用光，
+  // 先抓才不會連帶丟掉 VIX 與 SPX 核對（Cboe 跟 Yahoo 無關）。
   const since = addDays(expected, -40);
+  let vix: BarBatch | null = null;
+  let vixError: string | null = null;
   try {
-    ok.push({ symbol: VIX_SYMBOL, source: CBOE_SOURCE, bars: await fetchCboeDaily("VIX", since, budget) });
+    vix = { symbol: VIX_SYMBOL, source: CBOE_SOURCE, bars: await fetchCboeDaily("VIX", since, budget) };
   } catch (e) {
-    failed[VIX_SYMBOL] = errText(e);
+    vixError = errText(e);
   }
   let spx: BarBatch | null = null;
+  let spxError: string | null = null;
   try {
     spx = { symbol: INDEX_SYMBOL, source: CBOE_SOURCE, bars: await fetchCboeDaily("SPX", since, budget) };
   } catch (e) {
-    detail.spxCheck = errText(e);
+    spxError = errText(e);
   }
+  const { ok, failed, sparkErrors, fallback } = await fetchRecentBars(entries, "1mo", expected, budget, 0);
+  if (vix) ok.push(vix);
+  if (vixError) failed[VIX_SYMBOL] = vixError;
+  const detail: Record<string, unknown> = { expected, failed, sparkErrors, fallback };
+  if (spxError) detail.spxCheck = spxError;
   // 待修清單上的代號（之前偵測到分割、但完整歷史還沒重抓成功）不寫一個月資料，避免新舊基準混用。
   // 已從名單移除的代號不再追（之前偵測到分割、還沒重抓成功的也一樣）。
   const pending = Object.fromEntries(Object.entries(await getSetting<Record<string, number>>(db, PENDING_REBASE_KEY, {})).filter(([s]) => s in symbols));
@@ -152,7 +169,7 @@ async function jobPrices(db: D1Database, _opts: JobOptions, budget: Budget): Pro
   detail.changed = changed;
   // 分割後 Yahoo 改寫了整段歷史：偵測到（或還在待修清單上）就重抓這幾檔的十年日線。
   // 額度只夠重抓一部分時，其餘留在待修清單，下一次排程接著重抓。
-  const rebasedSymbols = Object.keys({ ...pending, ...rebased });
+  const rebasedSymbols = Object.keys({ ...pending, ...rebased }).filter((s) => s in symbols);
   if (rebasedSymbols.length) {
     const now = rebasedSymbols.slice(0, budget.remaining);
     const full = await fetchYahooBatch(now.map((s) => [s, symbols[s]] as [string, string]), "10y", expected, budget);

@@ -7,7 +7,7 @@ import { SCHEDULES, type ScheduleName, runJobs } from "../../../src/server/jobs.
 export const POST = defineHandler(async (c) => {
   const user = requireAuth(c);
   const name = c.req.query("name") as ScheduleName;
-  if (!(name in SCHEDULES)) return c.json({ error: `未知的排程：${name}；可用 ${Object.keys(SCHEDULES).join(", ")}` }, 400);
+  if (!Object.hasOwn(SCHEDULES, name)) return c.json({ error: `未知的排程：${name}；可用 ${Object.keys(SCHEDULES).join(", ")}` }, 400);
   const runs = await runJobs(c.env.DB, `manual-cron ${user.email}`, SCHEDULES[name]);
   return c.json({ name, runs });
 });

@@ -2,7 +2,7 @@
 // 用 tests/helpers/fake-cloudflare.ts 模擬 D1 與外部網路：超過 50 個就跟 Cloudflare 一樣丟錯。
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
-import { FakeUpstream, migratedDb, weekdays } from "./helpers/fake-cloudflare.ts";
+import { CALENDAR_BRK_DATE, FakeUpstream, migratedDb, weekdays } from "./helpers/fake-cloudflare.ts";
 import { MAX_WATCH } from "../src/lib/watchlist.ts";
 
 const upstream = new FakeUpstream();
@@ -96,6 +96,11 @@ test("名單滿 12 家時，五支排程各自一次執行都不超過請求上�
       assert.equal(run.status, "ok", `${file}/${run.job}: ${run.summary}`);
     }
   }
+  // 股類代號（BRK-B）在 Nasdaq 要寫成 BRK.B：核對、新聞、財報日都要查得到。
+  const brk = sql.prepare("SELECT date, status FROM events WHERE kind = 'earnings' AND symbol = 'BRK-B'").get() as { date: string; status: string } | undefined;
+  assert.deepEqual(brk && [brk.date, brk.status], [CALENDAR_BRK_DATE, "confirmed"]);
+  const brkCheck = sql.prepare("SELECT COUNT(*) AS n FROM prices WHERE symbol = 'BRK-B' AND check_status = 'match'").get() as { n: number };
+  assert.ok(brkCheck.n > 0, "BRK-B 沒有被 Nasdaq 核對到");
   // 01:10 那支：收盤＋核對在同一次執行，核對 27 檔要全部做完，不再因額度略過 ETF。
   const retry = sql.prepare("SELECT summary FROM runs WHERE job = 'crosscheck' ORDER BY id DESC LIMIT 1").get() as { summary: string };
   assert.ok(!retry.summary.includes("略過"), retry.summary);
@@ -201,4 +206,61 @@ test("分析師輪替只抓剩下額度付得起的檔數：全部成功，而�
   // 1 個 spark ＋ 前 100 檔每檔 2 個；留 2 個給重試 → 最多 17 個
   assert.ok(upstream.count <= 18 && upstream.count >= 15, String(upstream.count));
   assert.match(r.summary, /分析師共識 8\/8 檔/);
+});
+
+test("Yahoo 全面限流（spark 掛掉、逐檔每次都 429）：VIX 與 SPX 核對照樣從 Cboe 拿到", async () => {
+  const { db, sql } = await fullListDb();
+  upstream.rules = [(u) => (u.host === "query1.finance.yahoo.com" ? new Response("slow down", { status: u.pathname.startsWith("/v7") ? 500 : 429, headers: { "retry-after": "0" } }) : null)];
+  try {
+    const r = await invokeCron("prices", db, sql);
+    assertWithinLimit("prices（Yahoo 限流）", r);
+    const detail = JSON.parse(r.runs[0].detail);
+    assert.ok(!("VIX" in detail.failed), JSON.stringify(detail.failed.VIX));
+    assert.equal(detail.spxCheck, undefined);
+    assert.equal(r.hosts["cdn.cboe.com"], 2);
+  } finally {
+    upstream.rules = [];
+  }
+});
+
+test("重算快照途中名單被改：存檔的快照用的是改完的名單", async () => {
+  const { db, sql } = await fullListDb();
+  await invokeCron("prices", db, sql);
+  const { rebuildSnapshots } = await import("../src/server/jobs.ts");
+  // 第一次讀價格（快照計算中途）時，另一個裝置移除了 TSLA。
+  let fired = false;
+  const racing = new Proxy(db, {
+    get(target, prop) {
+      if (prop !== "prepare") return Reflect.get(target, prop);
+      return (q: string) => {
+        if (!fired && /FROM prices WHERE symbol IN/.test(q) && /date <= \?/.test(q)) {
+          fired = true;
+          sql.prepare("UPDATE settings SET value = ? WHERE key = 'watchlist'").run(
+            JSON.stringify(JSON.parse((sql.prepare("SELECT value FROM settings WHERE key = 'watchlist'").get() as { value: string }).value).filter((m: { key: string }) => m.key !== "TSLA")),
+          );
+        }
+        return target.prepare(q);
+      };
+    },
+  });
+  await rebuildSnapshots(racing as D1Database, "測試", 3);
+  assert.ok(fired, "沒有觸發到中途修改（查詢字串對不上）");
+  const latest = sql.prepare("SELECT data FROM snapshots ORDER BY trade_date DESC, revision DESC LIMIT 1").get() as { data: string };
+  const keys = (JSON.parse(latest.data).mag7 as { key: string }[]).map((r) => r.key);
+  assert.ok(!keys.includes("TSLA"), keys.join(","));
+  assert.equal(keys.length, 11);
+});
+
+test("財報日曆沒排到時改查推估日期：股類代號（BRK-B）也查得到", async () => {
+  const { db, sql } = await fullListDb();
+  upstream.rules = [(u) => (u.pathname === "/api/calendar/earnings" ? new Response(JSON.stringify({ data: { rows: [] }, status: { rCode: 200 } })) : null)];
+  try {
+    const r = await invokeCron("daily-reference", db, sql);
+    assertWithinLimit("daily-reference（日曆空白）", r);
+    const ev = r.runs.find((x) => x.job === "events")!;
+    assert.equal(ev.status, "ok", ev.summary);
+    assert.match(ev.summary, /BRK-B 2026-11-19（估）/);
+  } finally {
+    upstream.rules = [];
+  }
 });

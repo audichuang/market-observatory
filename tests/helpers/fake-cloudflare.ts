@@ -66,6 +66,17 @@ function chartResult(symbol: string, days: string[], closeOnly: boolean) {
   };
 }
 
+/** 假財報日曆裡 BRK.B 的日期：測試執行日之後的第 3 個平日（events 工作只看未來兩週）。 */
+export const CALENDAR_BRK_DATE = (() => {
+  const out: string[] = [];
+  for (let d = new Date().toISOString().slice(0, 10); out.length < 3; ) {
+    d = addDays(d, 1);
+    const wd = new Date(`${d}T12:00:00Z`).getUTCDay();
+    if (wd !== 0 && wd !== 6) out.push(d);
+  }
+  return out[2];
+})();
+
 const RANGE_DAYS: Record<string, number> = { "5d": 5, "1mo": 22, "10y": 260 };
 
 export type Rule = (url: URL, n: number) => Response | null | undefined;
@@ -141,9 +152,11 @@ export class FakeUpstream {
       return new Response([which === "VIX" ? "DATE,OPEN,HIGH,LOW,CLOSE" : "DATE,SPX", ...rows].join("\n"), { status: 200 });
     }
     if (url.host === "api.nasdaq.com") {
+      // 跟真的 Nasdaq 一樣：股類代號要用點（BRK.B），連字號版本回「Symbol not exists」。
+      if (/[A-Z]-[A-Z]/.test(decodeURIComponent(p + url.search))) return json({ data: null, status: { rCode: 400, bCodeMessage: [{ code: 1001, errorMessage: "Symbol not exists." }] } });
       const hist = /^\/api\/quote\/([^/]+)\/historical$/.exec(p);
       if (hist) {
-        const symbol = decodeURIComponent(hist[1]);
+        const symbol = decodeURIComponent(hist[1]).replace(".", "-");
         const from = url.searchParams.get("fromdate") ?? "2000-01-01";
         const rows = weekdays(40).filter((d) => d >= from).reverse().map((d) => ({ date: mdy(d), close: `$${fakeClose(symbol, d).toFixed(2)}` }));
         return nasdaq({ tradesTable: { rows } });
@@ -152,7 +165,8 @@ export class FakeUpstream {
         const sym = (url.searchParams.get("q") ?? "").split("|")[0];
         return nasdaq({ rows: [1, 2, 3].map((i) => ({ id: `${sym}-${i}`, title: `${sym} news ${i}`, url: `/articles/${sym}-${i}`, publisher: "Fake", created: "Oct 23, 2026" })) });
       }
-      if (p === "/api/calendar/earnings") return nasdaq({ rows: [] });
+      // 財報日曆的代號也是點的寫法；BRK.B 排在 11/03（日期本身只是測試資料）。
+      if (p === "/api/calendar/earnings") return nasdaq({ rows: url.searchParams.get("date") === CALENDAR_BRK_DATE ? [{ symbol: "BRK.B", time: "time-pre-market" }] : [] });
       if (p.endsWith("/earnings-date")) return nasdaq({ announcement: "Earnings announcement* for X: Nov 19, 2026", reportText: "derived from an algorithm" });
       if (p.endsWith("/targetprice")) return nasdaq({ consensusOverview: { priceTarget: "$120", lowPriceTarget: "$90", highPriceTarget: "$150", buy: 10, hold: 3, sell: 1 } });
       if (p.endsWith("/earnings-forecast")) return nasdaq({ yearlyForecast: { rows: [{ fiscalEnd: "Dec 2026", consensusEPSForecast: "5.1", noOfEstimates: 20, up: 2, down: 1 }] } });

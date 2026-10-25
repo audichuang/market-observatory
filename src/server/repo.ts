@@ -83,8 +83,8 @@ export async function upsertBars(
 }
 
 /**
- * 同一個收盤的兩種寫法：Yahoo spark 的收盤是單精度浮點（例如 6812.3457 vs chart 的 6812.35），
- * 差在第 7 位有效數字。這種差異不算「收盤改了」，否則每天都會把整個月重寫一遍、清掉已做完的交叉核對。
+ * 同一個收盤的兩種寫法：Yahoo spark 的收盤是單精度浮點，與 chart 的值差在第 8 位有效數字左右
+ * （實測 ^GSPC 差 0.0002、相對 3e-8；單精度誤差上限約 6e-8）。門檻 1e-6 留了十幾倍餘裕；價格一萬美元以下時，它小於一分錢，真的修正收盤一定看得出來。這種差異不算「收盤改了」，否則每天都會把整個月重寫一遍、清掉已做完的交叉核對。
  */
 export const sameClose = (a: number, b: number) => Math.abs(a - b) <= Math.max(Math.abs(a), Math.abs(b)) * 1e-6;
 

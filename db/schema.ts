@@ -61,8 +61,51 @@ export const news = sqliteTable(
     publishedAt: text("published_at"),
     source: text("source").notNull(),
     fetchedAt: text("fetched_at").notNull(),
+    /** 來源附的英文摘要（Nasdaq description），給 AI 寫重點用 */
+    summary: text("summary"),
+    /** 來源標的主角代號（Nasdaq primarysymbol，Yahoo 格式），常跟 symbols 不同：選股文會掛在很多代號底下 */
+    primarySymbol: text("primary_symbol"),
+    // ── AI 加工（src/server/news-ai.ts）：讀者不一定懂英文，標題翻成繁中、標出利多利空與類別、濾掉雜訊 ──
+    titleZh: text("title_zh"),
+    /** positive／negative／neutral（對 focus 裡的公司而言） */
+    tone: text("tone"),
+    category: text("category"),
+    /** 這則真正在講的代號（逗號分隔，SPY 代表大盤／總經）；空字串＝雜訊（選股標題黨、只順帶提到） */
+    focus: text("focus"),
+    enrichedAt: text("enriched_at"),
+    /** 翻譯請求認領這則的時間：同時有兩個請求要翻同一則時，只有認領到的呼叫模型、扣額度，另一個等它寫回 */
+    aiClaimAt: text("ai_claim_at"),
+    /** 單篇文章的 AI 重點（JSON 字串陣列，3～5 點繁中）；使用者點「AI 重點」時才產生，所有人共用 */
+    pointsZh: text("points_zh"),
   },
-  (t) => [index("news_published_idx").on(t.publishedAt)],
+  (t) => [index("news_published_idx").on(t.publishedAt), index("news_enriched_idx").on(t.enrichedAt)],
+);
+
+// 每個帳號每天（美東日期）已用掉的 AI 呼叫次數；快取命中不算。上限見 src/server/news-ai.ts。
+export const aiUsage = sqliteTable(
+  "ai_usage",
+  {
+    userId: text("user_id").notNull(),
+    date: text("date").notNull(),
+    calls: integer("calls").notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.date] })],
+);
+
+// 每家公司每天的新聞重點（AI 依當天新聞與漲跌寫 1～2 句繁中）。digest 是當時用到的新聞 id 的雜湊，新聞變了才重寫。
+export const newsDigests = sqliteTable(
+  "news_digests",
+  {
+    symbol: text("symbol").notNull(),
+    date: text("date").notNull(),
+    summary: text("summary").notNull(),
+    tone: text("tone").notNull(),
+    newsIds: text("news_ids").notNull(),
+    digest: text("digest").notNull(),
+    model: text("model").notNull(),
+    createdAt: text("created_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.symbol, t.date] }), index("news_digests_date_idx").on(t.date)],
 );
 
 // 事件日曆：財報（Nasdaq／Zacks 估計）與總經（官方公布的 FOMC 等日程）。
@@ -139,3 +182,36 @@ export const forecasts = sqliteTable("forecasts", {
   close: real("close").notNull(),
   createdAt: text("created_at").notNull(),
 });
+
+// App 註冊的推播裝置（APNs device token）。一個使用者可以有多台；list_key 是註冊時這個人的名單 key（src/server/account.ts），
+// 推播時用它找名單，不必在排程裡判斷誰是站長。environment：Xcode 直接跑的 debug 版走 sandbox，TestFlight／App Store 走 production。
+export const devices = sqliteTable(
+  "devices",
+  {
+    token: text("token").primaryKey(),
+    userId: text("user_id").notNull(),
+    listKey: text("list_key").notNull(),
+    environment: text("environment").notNull(),
+    appVersion: text("app_version"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+    lastError: text("last_error"),
+  },
+  (t) => [index("devices_user_idx").on(t.userId)],
+);
+
+// 已發出的推播（去重用）：收盤後的補抓排程會再跑一次收盤推播，同一天同一個人只發一次。id 是「種類:日期:user id」。
+export const pushLog = sqliteTable(
+  "push_log",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id").notNull(),
+    kind: text("kind").notNull(),
+    title: text("title").notNull(),
+    body: text("body").notNull(),
+    devices: integer("devices").notNull(),
+    delivered: integer("delivered").notNull(),
+    createdAt: text("created_at").notNull(),
+  },
+  (t) => [index("push_log_created_idx").on(t.createdAt)],
+);

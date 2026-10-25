@@ -269,3 +269,47 @@ export function snapshotLoadWindow(targets: string[], weightAnchorDates: string[
   const earliestAnchor = weightAnchorDates[0];
   return { from: addDays(targets[0], -430), to: earliestAnchor && earliestAnchor > last ? earliestAnchor : last };
 }
+
+/**
+ * 快照是用「所有使用者名單的聯集」算的：每個人看到的總覽只留自己名單上的公司，合計、占比與「其餘」照自己的名單重算。
+ * 名單上有、但建快照時還沒追蹤的公司（剛加入、更早的快照）這一天沒有資料，列在 notTracked。
+ */
+export function viewForMembers(snap: Snapshot, members: Pick<WatchMember, "key" | "tickers">[]): Snapshot & { notTracked: string[] } {
+  // 同一家公司在不同人的名單上 key 可能不同（股類權重換了大小），代號有重疊就算同一家。
+  const matches = (r: Mag7Row, m: Pick<WatchMember, "key" | "tickers">) => r.key === m.key || r.tickers.some((t) => m.tickers.includes(t));
+  const rows = snap.mag7.filter((r) => members.some((m) => matches(r, m)));
+  const wanted = new Set(rows.map((r) => r.key));
+  const changePts = snap.index.changePts;
+  const prevClose = snap.index.prevClose;
+  const significantMove = changePts !== null && Math.abs(changePts) >= 0.5;
+  const pts = rows.every((r) => r.contributionPts !== null) ? rows.reduce((a, r) => a + (r.contributionPts as number), 0) : null;
+  const weight = rows.every((r) => r.weightPct !== null) ? rows.reduce((a, r) => a + (r.weightPct as number), 0) : null;
+  const restPts = pts !== null && changePts !== null ? changePts - pts : null;
+  const restWeight = weight === null ? null : 100 - weight;
+  const restReturn = restPts !== null && restWeight && prevClose ? (restPts / (prevClose * (restWeight / 100))) * 100 : null;
+  // 品質註記只留跟這個人有關的代號（大盤、VIX、RSP 與自己名單上的）
+  const mine = new Set(rows.flatMap((r) => r.tickers));
+  const relevant = (s: string) => {
+    const sym = s.split(" ")[0];
+    return mine.has(sym) || !snap.mag7.some((r) => r.tickers.includes(sym));
+  };
+  const others = snap.mag7.filter((r) => !wanted.has(r.key)).flatMap((r) => r.tickers);
+  return {
+    ...snap,
+    mag7: rows,
+    mag7Total: {
+      weightPct: r4(weight),
+      contributionPts: r4(pts),
+      shareOfMovePct: significantMove && pts !== null ? r2((pts / (changePts as number)) * 100) : null,
+    },
+    rest: { contributionPts: r4(restPts), impliedReturnPct: r4(restReturn) },
+    quality: {
+      ...snap.quality,
+      missing: snap.quality.missing.filter(relevant),
+      mismatches: snap.quality.mismatches.filter(relevant),
+      pendingChecks: snap.quality.pendingChecks.filter(relevant),
+      notes: snap.quality.notes.filter((n) => !others.some((t) => n.startsWith(`${t} `))),
+    },
+    notTracked: members.filter((m) => !rows.some((r) => matches(r, m))).map((m) => m.key),
+  };
+}

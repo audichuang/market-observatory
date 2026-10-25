@@ -2,9 +2,10 @@ import { Link, useRouter } from "@void/react";
 import type { Mag7Row } from "../src/lib/snapshot.ts";
 import { CenteredBar, CheckBadge, Delta } from "../src/ui/bits.tsx";
 import { dateWithWeekday, num, pctText, signed, taipeiTime } from "../src/ui/format.ts";
+import { NewsFeed } from "../src/ui/NewsFeed.tsx";
 import type { Props } from "./index.server";
 
-export default function Overview({ snapshot, revisions, dates, expectedClose, news, events, lastPriceRun, forecast, restCount, viewingLatest }: Props) {
+export default function Overview({ snapshot, dates, expectedClose, news, digests, market, events, lastPriceRun, forecast, restCount, viewingLatest }: Props) {
   const router = useRouter();
   if (!snapshot) {
     return (
@@ -17,37 +18,23 @@ export default function Overview({ snapshot, revisions, dates, expectedClose, ne
   const s = snapshot.data;
   const stale = viewingLatest && s.tradeDate < expectedClose;
   const maxContribution = Math.max(0.01, ...s.mag7.map((r) => Math.abs(r.contributionPts ?? 0)), Math.abs(s.rest.contributionPts ?? 0));
-  const isLatestRevision = revisions[0]?.revision === snapshot.revision;
 
   return (
     <>
       <div className="page-head">
         <div>
           <h1>S&amp;P 500 收盤 {dateWithWeekday(s.tradeDate)}</h1>
-          <p className="sub">
-            第 {snapshot.revision} 版（{snapshot.reason}，{taipeiTime(snapshot.createdAt)}）
-            {!isLatestRevision && <> · <Link href={`/?date=${s.tradeDate}`}>看最新版</Link></>}
-          </p>
+          <p className="sub">資料 {taipeiTime(snapshot.createdAt)} 產出</p>
         </div>
         <div className="row" style={{ maxWidth: 360 }}>
           <label className="field">
             查看其他交易日
             <select value={s.tradeDate} onChange={(e) => router.visit(`/?date=${e.target.value}`)}>
               {dates.map((d) => (
-                <option key={d.tradeDate} value={d.tradeDate}>{d.tradeDate}{d.revision > 1 ? `（${d.revision} 版）` : ""}</option>
+                <option key={d.tradeDate} value={d.tradeDate}>{d.tradeDate}</option>
               ))}
             </select>
           </label>
-          {revisions.length > 1 && (
-            <label className="field">
-              版本
-              <select value={snapshot.revision} onChange={(e) => router.visit(`/?date=${s.tradeDate}&rev=${e.target.value}`)}>
-                {revisions.map((r) => (
-                  <option key={r.revision} value={r.revision}>r{r.revision} {r.reason}</option>
-                ))}
-              </select>
-            </label>
-          )}
         </div>
       </div>
 
@@ -140,7 +127,6 @@ export default function Overview({ snapshot, revisions, dates, expectedClose, ne
                 <th className="num">貢獻（點）</th>
                 <th className="hide-sm" style={{ minWidth: 120 }}></th>
                 <th className="num hide-sm">占漲跌</th>
-                <th className="hide-sm">核對</th>
               </tr>
             </thead>
             <tbody>
@@ -153,7 +139,6 @@ export default function Overview({ snapshot, revisions, dates, expectedClose, ne
                 <td className="num"><Delta value={s.rest.contributionPts} /></td>
                 <td className="hide-sm"><CenteredBar value={s.rest.contributionPts} max={maxContribution} /></td>
                 <td className="num hide-sm">{s.mag7Total.shareOfMovePct === null ? "—" : `${num(100 - s.mag7Total.shareOfMovePct, 0)}%`}</td>
-                <td className="hide-sm"></td>
               </tr>
             </tbody>
             <tfoot>
@@ -165,7 +150,6 @@ export default function Overview({ snapshot, revisions, dates, expectedClose, ne
                 <td className="num"><Delta value={s.index.changePts} /></td>
                 <td className="hide-sm"></td>
                 <td className="num hide-sm">100%</td>
-                <td className="hide-sm"></td>
               </tr>
             </tfoot>
           </table>
@@ -182,16 +166,7 @@ export default function Overview({ snapshot, revisions, dates, expectedClose, ne
       <div className="grid two section">
         <div className="panel">
           <h2>最新新聞</h2>
-          {news.length === 0 ? <p className="sub">還沒有新聞。</p> : (
-            <ul className="list">
-              {news.map((n) => (
-                <li key={n.url}>
-                  <a href={n.url} target="_blank" rel="noreferrer">{n.title}</a>
-                  <div className="meta">{n.symbols.replace(/,/g, " · ")} · {n.publisher ?? "Nasdaq"} · {n.published_at ?? ""}</div>
-                </li>
-              ))}
-            </ul>
-          )}
+          <NewsFeed news={news} digests={digests} showOthers={false} />
           <p style={{ marginTop: ".5rem" }}><Link href="/news">全部新聞 →</Link></p>
         </div>
         <div className="panel">
@@ -244,7 +219,6 @@ function Mag7Line({ r, max }: { r: Mag7Row; max: number }) {
       <td className="num"><Delta value={r.contributionPts} /></td>
       <td className="hide-sm"><CenteredBar value={r.contributionPts} max={max} /></td>
       <td className="num hide-sm">{r.shareOfMovePct === null ? "—" : `${signed(r.shareOfMovePct, 0).replace("+", "")}%`}</td>
-      <td className="hide-sm"><CheckBadge status={r.check} /></td>
     </tr>
   );
 }

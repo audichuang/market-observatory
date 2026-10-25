@@ -1,0 +1,1 @@
+ALTER TABLE `news` ADD `ai_claim_at` text;

@@ -15,6 +15,34 @@
       "when": 1792882345122,
       "tag": "20261024225225_lumpy_centennial",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1792922272434,
+      "tag": "20261025095752_premium_black_bolt",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1792928854997,
+      "tag": "20261025114734_hard_darkstar",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1792931097375,
+      "tag": "20261025122457_shocking_ezekiel_stane",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1792935284037,
+      "tag": "20261025133444_keen_cable",
+      "breakpoints": true
     }
   ]
 }

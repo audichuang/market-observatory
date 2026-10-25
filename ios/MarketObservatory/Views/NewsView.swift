@@ -7,6 +7,18 @@ struct NewsView: View {
     @State private var section = 0
     /// 月曆上選取的日子（"YYYY-MM-DD"）；nil 時用今天
     @State private var calendarDay: String?
+    // 新聞中文化：翻譯結果就地蓋在原本的列上，不重抓整頁。
+    @State private var translations: [String: NewsTranslation] = [:]
+    @State private var requested: Set<String> = []
+    @State private var pending: [String] = []
+    @State private var flushTask: Task<Void, Never>?
+    @State private var aiNotice: String?
+    @State private var aiDisabled = false
+    @State private var pointsCache: [String: [String]] = [:]
+    @State private var selected: NewsPage.Item?
+    @State private var generatedDigests: [NewsDigest] = []
+    @State private var digestBusy = false
+    @State private var digestError: String?
     @Environment(\.openURL) private var openURL
     @Environment(\.dynamicTypeSize) private var typeSize
     @ScaledMetric(relativeTo: .subheadline) private var dateWidth: CGFloat = 82
@@ -15,6 +27,17 @@ struct NewsView: View {
         NavigationStack {
             Loadable(state: state, retry: load) { p in content(p) }
                 .navigationTitle("新聞與日曆")
+        }
+        .sheet(item: $selected) { n in
+            let tr = translations[n.id]
+            NewsDetailSheet(
+                item: n,
+                titleZh: tr?.titleZh ?? n.titleZh,
+                tone: tr?.tone ?? n.tone,
+                category: tr?.category ?? n.category,
+                cachedPoints: pointsCache[n.id] ?? n.pointsZh,
+                onPoints: { id, pts in pointsCache[id] = pts }
+            )
         }
         // 換代號時 SwiftUI 會取消上一個請求，較慢的舊回應不會蓋掉新的。
         .task(id: symbol) {
@@ -58,6 +81,7 @@ struct NewsView: View {
             let p: NewsPage = try await API.get("/api/v1/news", query: ["symbol": requested])
             guard !Task.isCancelled, requested == symbol else { return }
             state = .loaded(p)
+            prepareTranslation(p)
         } catch {
             guard !Task.isCancelled, requested == symbol else { return }
             session.handle(error)
@@ -86,11 +110,25 @@ struct NewsView: View {
                 }
             }
             if section == 0 {
+                if symbol == nil { digestSection(p) }
+                let important = p.news.filter { isImportant($0) }
+                let others = p.news.filter { !isImportant($0) }
                 Section {
+                    if let aiNotice {
+                        Label(aiNotice, systemImage: "info.circle").font(.caption).foregroundStyle(.secondary)
+                    }
                     if p.news.isEmpty { Text("還沒有新聞。").foregroundStyle(.secondary) }
-                    ForEach(p.news) { n in NewsRow(title: n.title, url: n.url, publisher: n.publisher, publishedAt: n.publishedAt, symbols: n.symbols) }
+                    ForEach(important) { n in newsButton(n) }
                 }
                 .opacity(isSwitchingSymbol ? 0.4 : 1)
+                if !others.isEmpty {
+                    Section {
+                        DisclosureGroup("其他 \(others.count) 則") {
+                            ForEach(others) { n in newsButton(n) }
+                        }
+                    }
+                    .opacity(isSwitchingSymbol ? 0.4 : 1)
+                }
             } else {
                 calendarSections(p)
             }
@@ -98,6 +136,102 @@ struct NewsView: View {
         .listStyle(.insetGrouped)
         .overlay { if isSwitchingSymbol && section == 0 { ProgressView() } }
         .refreshable { await load() }
+    }
+
+    // MARK: 新聞中文化
+
+    private func isImportant(_ n: NewsPage.Item) -> Bool {
+        translations[n.id]?.important ?? n.important ?? true
+    }
+
+    private func newsButton(_ n: NewsPage.Item) -> some View {
+        let tr = translations[n.id]
+        return Button { selected = n } label: {
+            NewsItemRow(item: n, titleZh: tr?.titleZh ?? n.titleZh, tone: tr?.tone ?? n.tone, category: tr?.category ?? n.category)
+        }
+        .buttonStyle(.plain)
+        .onAppear { enqueue(n) }
+    }
+
+    /// 載入完成：伺服器沒設 AI 或額度用完就不送；否則先替畫面上的前幾則排翻譯。
+    private func prepareTranslation(_ p: NewsPage) {
+        requested.removeAll()
+        aiNotice = NewsText.aiNotice(p.ai)
+        aiDisabled = aiNotice != nil
+        for n in p.news.filter({ isImportant($0) }).prefix(20) { enqueue(n) }
+    }
+
+    /// 列出現在畫面上才排進佇列；300ms 內的合併成一次請求（一次最多 20 則）。
+    private func enqueue(_ n: NewsPage.Item) {
+        guard !aiDisabled, n.titleZh == nil, translations[n.id] == nil, !requested.contains(n.id) else { return }
+        requested.insert(n.id)
+        pending.append(n.id)
+        flushTask?.cancel()
+        flushTask = Task {
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled else { return }
+            let batch = Array(pending)
+            pending.removeAll()
+            // 請求另開 Task，之後的 enqueue 取消計時器時不會連帶取消這次請求。
+            for chunk in stride(from: 0, to: batch.count, by: 20).map({ Array(batch[$0 ..< min($0 + 20, batch.count)]) }) {
+                Task { await translate(chunk) }
+            }
+        }
+    }
+
+    private struct TranslateBody: Encodable, Sendable { let ids: [String] }
+
+    private func translate(_ ids: [String]) async {
+        do {
+            let r: NewsTranslateResponse = try await API.send("POST", "/api/v1/news/translate", body: TranslateBody(ids: ids))
+            for t in r.items where t.titleZh != nil { translations[t.id] = t }
+            if let note = NewsText.aiNotice(r.ai) { aiNotice = note; aiDisabled = true }
+        } catch {
+            if case APIError.unauthorized = error { session.handle(error) }
+            aiNotice = NewsText.aiNotice(error)
+            // 額度用完／沒設 key 就別再送了；其他錯誤等下拉重新整理再試。
+            if case let APIError.server(status, _) = error, status == 429 || status == 503 { aiDisabled = true }
+        }
+    }
+
+    @ViewBuilder
+    private func digestSection(_ p: NewsPage) -> some View {
+        let source = (p.digests?.isEmpty == false) ? (p.digests ?? []) : generatedDigests
+        let ds = source.sorted { (p.keys.firstIndex(of: $0.symbol) ?? .max) < (p.keys.firstIndex(of: $1.symbol) ?? .max) }
+        Section {
+            if ds.isEmpty {
+                Button {
+                    Task { await generateDigests() }
+                } label: {
+                    HStack(spacing: 8) {
+                        if digestBusy { ProgressView() } else { Image(systemName: "sparkles") }
+                        Text(digestBusy ? "AI 整理中…" : "產生今日重點")
+                    }
+                }
+                .disabled(digestBusy)
+                if let digestError { Text(digestError).font(.caption).foregroundStyle(.secondary) }
+            } else {
+                ForEach(ds) { d in DigestRow(digest: d) }
+            }
+        } header: {
+            Text(ds.first.map { "今日重點 · \(Fmt.dateWithWeekday($0.date))" } ?? "今日重點")
+        }
+    }
+
+    private struct DigestBody: Encodable, Sendable { var date: String? }
+
+    private func generateDigests() async {
+        digestBusy = true
+        digestError = nil
+        defer { digestBusy = false }
+        do {
+            let r: DigestsResponse = try await API.send("POST", "/api/v1/digests", body: DigestBody())
+            generatedDigests = r.digests
+            if r.digests.isEmpty { digestError = "今天還沒有名單公司的相關新聞可以整理" }
+        } catch {
+            if case APIError.unauthorized = error { session.handle(error) }
+            digestError = NewsText.aiNotice(error)
+        }
     }
 
     @ViewBuilder

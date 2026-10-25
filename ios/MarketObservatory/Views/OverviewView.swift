@@ -148,7 +148,7 @@ struct OverviewView: View {
                 .listRowSeparator(.hidden)
                 .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
 
-                attribution(s, restCount: o.restCount)
+                attribution(s, restCount: o.restCount, digests: o.digests ?? [])
 
                 // 展望是「今天往後」的預測，看舊日期時不顯示，免得誤以為屬於那一天。
                 if let f = o.forecast, o.viewingLatest {
@@ -172,7 +172,7 @@ struct OverviewView: View {
 
                 Section("最新新聞") {
                     if o.news.isEmpty { Text("還沒有新聞。").foregroundStyle(.secondary) }
-                    ForEach(o.news) { n in NewsRow(title: n.title, url: n.url, publisher: n.publisher, publishedAt: n.publishedAt, symbols: n.symbols) }
+                    ForEach(o.news) { n in NewsRow(title: n.titleZh ?? n.title, url: n.url, publisher: n.publisher, publishedAt: n.publishedAt, symbols: n.symbols) }
                     Button("全部新聞 →") { session.newsSectionRequest = 0; session.tab = .news }.font(.subheadline)
                 }
             }
@@ -309,7 +309,7 @@ struct OverviewView: View {
         }
     }
 
-    private func attribution(_ s: Snapshot, restCount: Int?) -> some View {
+    private func attribution(_ s: Snapshot, restCount: Int?, digests: [NewsDigest]) -> some View {
         let maxAbs = max(0.01, s.mag7.map { abs($0.contributionPts ?? 0) }.max() ?? 0, abs(s.rest.contributionPts ?? 0))
         return Section {
             ForEach(s.mag7) { r in
@@ -317,9 +317,15 @@ struct OverviewView: View {
                     session.historySymbol = r.key
                     session.tab = .history
                 } label: {
-                    HStack {
-                        AttributionRow(title: r.key, subtitle: r.company, ret: r.returnPct, weight: r.weightPct, pts: r.contributionPts, share: r.shareOfMovePct, maxAbs: maxAbs, check: r.check)
-                        Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack {
+                            AttributionRow(title: r.key, subtitle: r.company, ret: r.returnPct, weight: r.weightPct, pts: r.contributionPts, share: r.shareOfMovePct, maxAbs: maxAbs, check: r.check)
+                            Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
+                        }
+                        // 有當日重點的公司，在該列下方多一行灰字（最多兩行）。
+                        if let d = digests.first(where: { $0.symbol == r.key }) {
+                            Text(d.summary).font(.caption).foregroundStyle(.secondary).lineLimit(2).multilineTextAlignment(.leading)
+                        }
                     }
                     .contentShape(Rectangle())
                 }

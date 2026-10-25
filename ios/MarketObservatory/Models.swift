@@ -316,7 +316,14 @@ struct Etfs: Decodable, Sendable {
         let lastDate: String?
         let ytd: Double?
         let returns: [String: Double?]
-        let drift1y: Double?
+        /// 近一年實際報酬 vs「指數 × 倍數」的單純估計；資料不足一年時後端給 null。
+        struct Drift: Decodable, Sendable {
+            let actual: Double
+            let naive: Double
+            let drift: Double
+        }
+
+        let drift1y: Drift?
         let note: String?
     }
 

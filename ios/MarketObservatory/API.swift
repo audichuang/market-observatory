@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// 後端的 JSON API（/api/v1/*，跟網頁共用同一份資料）與 Better Auth 的登入端點（/api/auth/*）。
 /// 登入狀態是 Better Auth 的 session cookie，放在 HTTPCookieStorage.shared（URLSession 預設就會帶、也會存檔）。
@@ -6,14 +7,15 @@ enum APIError: LocalizedError, Sendable {
     case unauthorized
     case server(status: Int, message: String)
     case transport(String)
-    case decoding(String)
+    /// 細節（coding path）只寫進 os.Logger，不顯示給使用者。
+    case decoding
 
     var errorDescription: String? {
         switch self {
         case .unauthorized: "登入已過期，請重新登入"
         case let .server(status, message): message.isEmpty ? "伺服器錯誤（HTTP \(status)）" : message
         case let .transport(m): "連線失敗：\(m)"
-        case let .decoding(m): "資料格式不符：\(m)"
+        case .decoding: "伺服器回傳的資料格式和 App 版本不相符，請更新 App 或稍後再試"
         }
     }
 }
@@ -66,14 +68,23 @@ struct API: Sendable {
         if T.self == Empty.self { return Empty() as! T }
         do {
             return try decoder.decode(T.self, from: data)
-        } catch let DecodingError.keyNotFound(key, ctx) {
-            throw APIError.decoding("缺少 \(key.stringValue)（\(ctx.codingPath.map(\.stringValue).joined(separator: "."))）")
-        } catch let DecodingError.typeMismatch(_, ctx) {
-            throw APIError.decoding("型別不符：\(ctx.codingPath.map(\.stringValue).joined(separator: "."))")
-        } catch let DecodingError.valueNotFound(_, ctx) {
-            throw APIError.decoding("缺值：\(ctx.codingPath.map(\.stringValue).joined(separator: "."))")
         } catch {
-            throw APIError.decoding(error.localizedDescription)
+            logger.error("decode \(String(describing: T.self), privacy: .public) \(path, privacy: .public): \(Self.describe(error), privacy: .public)")
+            throw APIError.decoding
+        }
+    }
+
+    private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "MarketObservatory", category: "API")
+
+    /// 解碼失敗的種類與 coding path（例如 `typeMismatch rows.Index 4.drift1y`），只給 log 用。
+    private static func describe(_ error: any Error) -> String {
+        func path(_ ctx: DecodingError.Context) -> String { ctx.codingPath.map(\.stringValue).joined(separator: ".") }
+        switch error {
+        case let DecodingError.keyNotFound(key, ctx): return "keyNotFound \(key.stringValue) at \(path(ctx))"
+        case let DecodingError.typeMismatch(type, ctx): return "typeMismatch \(type) at \(path(ctx)): \(ctx.debugDescription)"
+        case let DecodingError.valueNotFound(type, ctx): return "valueNotFound \(type) at \(path(ctx))"
+        case let DecodingError.dataCorrupted(ctx): return "dataCorrupted at \(path(ctx)): \(ctx.debugDescription)"
+        default: return String(describing: error)
         }
     }
 
@@ -98,7 +109,8 @@ struct API: Sendable {
             throw APIError.transport(error.localizedDescription)
         }
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-        if status == 401 { throw APIError.unauthorized }
+        // /api/auth/* 的 401 是登入本身失敗（密碼錯、Apple 權杖驗證失敗…），要顯示 Better Auth 回的原因，不是「登入已過期」。
+        if status == 401 && !path.hasPrefix("/api/auth/") { throw APIError.unauthorized }
         guard (200 ..< 300).contains(status) else { throw APIError.server(status: status, message: errorMessage(data)) }
         return data
     }
@@ -119,6 +131,10 @@ struct API: Sendable {
         case "USER_ALREADY_EXISTS", "USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL": "這個 Email 已經註冊過，請直接登入"
         case "PASSWORD_TOO_SHORT": "密碼至少 8 個字"
         case "INVALID_EMAIL": "Email 格式不正確"
+        case "INVALID_TOKEN": "Apple 身分權杖驗證失敗（nonce／audience 不符或已過期）"
+        case "USER_EMAIL_NOT_FOUND": "Apple 帳號沒有提供 Email"
+        case "FAILED_TO_GET_USER_INFO": "無法取得 Apple 帳號資料"
+        case "OAUTH_LINK_ERROR": "無法連結既有帳號"
         default: message
         }
     }

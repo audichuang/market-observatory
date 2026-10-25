@@ -1,6 +1,6 @@
 # 市場觀測室（market-observatory）
 
-個人用的美股觀測站：S&P 500 每日收盤、自選觀察名單（預設七巨頭，可加入任何成分股）對指數的點數歸因、VIX 與等權重對照、歷史走勢與均線、S&P 500 ETF 比較與台幣定投試算、新聞與財報／FOMC 日曆。跑在 Cloudflare Workers（[Void](https://github.com/voidzero-dev/void)），資料存 D1，排程用 Cron Triggers。任何人都能註冊（email／密碼，或 iOS App 裡的 Apple 登入），每個帳號有自己的觀察名單與定投規劃；`OWNER_EMAIL` 那個帳號是站長，只有站長能手動跑排程與回補。iOS App（含推播）在 [`ios/`](ios/README.md)。
+個人用的美股觀測站：S&P 500 每日收盤、自選觀察名單（預設七巨頭，可加入任何成分股）對指數的點數歸因、VIX 與等權重對照、歷史走勢與均線、S&P 500 ETF 比較與台幣定投試算、新聞與財報／FOMC 日曆。跑在 Cloudflare Workers（[Void](https://github.com/voidzero-dev/void)），資料存 D1，排程用 Cron Triggers。任何人都能註冊（email／密碼，或 iOS App 裡的 Apple 登入），每個帳號有自己的觀察名單與定投規劃；`OWNER_EMAIL` 那個帳號是站長，只有站長能手動跑排程與回補。網站（Void 專案）在 [`web/`](web/)，下文的檔案路徑與指令都相對於 `web/`；iOS App（含推播）在 [`ios/`](ios/README.md)。
 
 ## 資料從哪裡來
 
@@ -29,6 +29,7 @@ Yahoo 與 Nasdaq 是非官方端點、沒有授權保證；兩源收盤差距超
 需要 Node.js 24.21 以上。
 
 ```sh
+cd web
 npm install
 npx void db migrate                  # 本機 D1
 echo 'OWNER_EMAIL=you@example.com' > .env

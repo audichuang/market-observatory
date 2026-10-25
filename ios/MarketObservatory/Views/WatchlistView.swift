@@ -6,6 +6,8 @@ struct WatchlistView: View {
     @State private var busy: String?
     @State private var message: (ok: Bool, text: String)?
     @State private var adding = false
+    @State private var pendingRemoval: Watchlist.Member?
+    @Environment(\.dynamicTypeSize) private var dts
 
     var body: some View {
         NavigationStack {
@@ -19,9 +21,9 @@ struct WatchlistView: View {
                 }
                 .sheet(isPresented: $adding) {
                     if let w = state.value {
-                        AddSheet(candidates: w.candidates) { ticker in
+                        AddSheet(candidates: w.candidates) { c in
                             adding = false
-                            Task { await add(ticker) }
+                            Task { await add(c) }
                         }
                     }
                 }
@@ -39,16 +41,16 @@ struct WatchlistView: View {
         }
     }
 
-    private func add(_ ticker: String) async {
-        busy = "正在加入 \(ticker)…（全站第一次追蹤的公司要抓十年股價，約十幾秒）"
+    private func add(_ c: Watchlist.Candidate) async {
+        busy = c.tracked == true ? "正在加入 \(c.name)…" : "正在加入 \(c.name)…（全站第一次追蹤，要抓十年股價，約十幾秒）"
         message = nil
         defer { busy = nil }
         struct Body: Encodable, Sendable { let symbol: String }
         do {
-            let w: Watchlist = try await API.send("POST", "/api/v1/watchlist", body: Body(symbol: ticker))
+            let w: Watchlist = try await API.send("POST", "/api/v1/watchlist", body: Body(symbol: c.ticker))
             state = .loaded(w)
             session.watchlistRevision += 1
-            message = (true, w.summary ?? "已加入 \(ticker)")
+            message = (true, w.summary ?? "已加入 \(c.name)")
         } catch {
             session.handle(error)
             message = (false, error.localizedDescription)
@@ -87,21 +89,17 @@ struct WatchlistView: View {
                 Notice(kind: message.ok ? .ok : .bad, text: message.text)
                     .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
             }
+            if w.members.count >= w.max {
+                Notice(kind: .info, text: "名單已滿 \(w.max) 家，先移除一家才能再加。")
+                    .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
+            }
             Section {
                 ForEach(w.members) { m in
                     Button {
                         openHistory(m)
                     } label: {
                         HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(m.company).font(.body)
-                                Text(m.tickers.joined(separator: "＋")).font(.caption).foregroundStyle(.secondary)
-                                if !m.outOfIndex.isEmpty {
-                                    Text("\(m.outOfIndex.joined(separator: "、")) 不在最新持股裡").font(.caption2).foregroundStyle(.orange)
-                                }
-                            }
-                            Spacer()
-                            Text("\(Fmt.num(m.weightPct, 2))%").monospacedDigit().foregroundStyle(.secondary)
+                            memberRow(m)
                             Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
                         }
                         .contentShape(Rectangle())
@@ -109,10 +107,10 @@ struct WatchlistView: View {
                     .buttonStyle(.plain)
                     .contextMenu {
                         Button("看走勢", systemImage: "chart.xyaxis.line") { openHistory(m) }
-                        Button("移除", systemImage: "trash", role: .destructive) { Task { await remove(m) } }
+                        Button("移除", systemImage: "trash", role: .destructive) { pendingRemoval = m }
                     }
-                    .swipeActions {
-                        Button("移除", role: .destructive) { Task { await remove(m) } }
+                    .swipeActions(allowsFullSwipe: false) {
+                        Button("移除", role: .destructive) { pendingRemoval = m }
                     }
                     .disabled(busy != nil)
                 }
@@ -122,18 +120,52 @@ struct WatchlistView: View {
             } header: {
                 Text("\(w.members.count)/\(w.max) 家 · 合計權重 \(Fmt.num(w.totalWeight, 1))%")
             } footer: {
-                Text("名單只影響你自己的總覽、走勢與推播。點一下看走勢，左滑可移除。權重取自 \(w.asOf ?? "—") 的 SPY 持股。")
+                Text("名單只影響你自己的總覽、走勢與推播；「其餘成分股」＝指數減掉名單。點一下看走勢，左滑可移除。權重取自 \(w.asOf ?? "—") 的 SPY 持股。")
             }
         }
         .listStyle(.insetGrouped)
+        .confirmationDialog(
+            pendingRemoval.map { "從名單移除 \($0.company)？" } ?? "",
+            isPresented: Binding(get: { pendingRemoval != nil }, set: { if !$0 { pendingRemoval = nil } }),
+            titleVisibility: .visible,
+            presenting: pendingRemoval
+        ) { m in
+            Button("移除", role: .destructive) { Task { await remove(m) } }
+            Button("取消", role: .cancel) {}
+        } message: { _ in
+            Text("股價資料會保留，之後可以再加回來。")
+        }
         .refreshable { await load() }
+    }
+
+    @ViewBuilder
+    private func memberRow(_ m: Watchlist.Member) -> some View {
+        let weight = Text("\(Fmt.num(m.weightPct, 2))%").monospacedDigit().foregroundStyle(.secondary)
+        let names = VStack(alignment: .leading, spacing: 2) {
+            Text(m.company).font(.body)
+            Text(m.tickers.joined(separator: "＋")).font(.caption).foregroundStyle(.secondary)
+            if dts.isAccessibilitySize { weight }
+            if !m.outOfIndex.isEmpty {
+                Text("\(m.outOfIndex.joined(separator: "、")) 已不在最新 SPY 持股（可能調出 S&P 500）").font(.caption2).foregroundStyle(.orange)
+            }
+        }
+        if dts.isAccessibilitySize {
+            names.frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            HStack {
+                names.layoutPriority(1)
+                Spacer()
+                weight
+            }
+        }
     }
 }
 
 private struct AddSheet: View {
     let candidates: [Watchlist.Candidate]
-    let pick: (String) -> Void
+    let pick: (Watchlist.Candidate) -> Void
     @State private var query = ""
+    @Environment(\.dynamicTypeSize) private var dts
     @Environment(\.dismiss) private var dismiss
 
     private var filtered: [Watchlist.Candidate] {
@@ -146,19 +178,9 @@ private struct AddSheet: View {
         NavigationStack {
             List(filtered) { c in
                 Button {
-                    pick(c.ticker)
+                    pick(c)
                 } label: {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(c.ticker).font(.headline).foregroundStyle(.primary)
-                            Text(c.name).font(.caption).foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        if c.tracked == true {
-                            Text("已追蹤").font(.caption2.weight(.semibold)).padding(.horizontal, 6).padding(.vertical, 2).background(Color.down.opacity(0.12), in: Capsule()).foregroundStyle(Color.down)
-                        }
-                        Text("\(Fmt.num(c.weightPct, 2))%").font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
-                    }
+                    row(c)
                 }
             }
             .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "代號或公司名稱")
@@ -167,6 +189,39 @@ private struct AddSheet: View {
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } } }
             .overlay {
                 if filtered.isEmpty { ContentUnavailableView.search(text: query) }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func row(_ c: Watchlist.Candidate) -> some View {
+        let trailing = HStack(spacing: 6) {
+            if c.tracked == true {
+                Text("資料已備妥")
+                    .font(.caption2.weight(.semibold))
+                    .fixedSize()
+                    .padding(.horizontal, 6).padding(.vertical, 2)
+                    .background(Color.secondary.opacity(0.12), in: Capsule())
+                    .foregroundStyle(.secondary)
+            }
+            Text("\(Fmt.num(c.weightPct, 2))%").font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
+        }
+        if dts.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(c.ticker).font(.headline).foregroundStyle(.primary)
+                Text(c.name).font(.caption).foregroundStyle(.secondary)
+                trailing
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(c.ticker).font(.headline).foregroundStyle(.primary)
+                    Text(c.name).font(.caption).foregroundStyle(.secondary)
+                }
+                .layoutPriority(1)
+                Spacer()
+                trailing
             }
         }
     }

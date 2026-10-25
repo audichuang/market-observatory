@@ -47,6 +47,7 @@ struct WatchlistView: View {
         do {
             let w: Watchlist = try await API.send("POST", "/api/v1/watchlist", body: Body(symbol: ticker))
             state = .loaded(w)
+            session.watchlistRevision += 1
             message = (true, w.summary ?? "已加入 \(ticker)")
         } catch {
             session.handle(error)
@@ -61,11 +62,17 @@ struct WatchlistView: View {
         do {
             let w: Watchlist = try await API.send("DELETE", "/api/v1/watchlist", query: ["key": m.key], body: Optional<Empty>.none)
             state = .loaded(w)
+            session.watchlistRevision += 1
             message = (true, w.summary ?? "已移除 \(m.company)")
         } catch {
             session.handle(error)
             message = (false, error.localizedDescription)
         }
+    }
+
+    private func openHistory(_ m: Watchlist.Member) {
+        session.historySymbol = m.key
+        session.tab = .history
     }
 
     private func content(_ w: Watchlist) -> some View {
@@ -82,16 +89,27 @@ struct WatchlistView: View {
             }
             Section {
                 ForEach(w.members) { m in
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(m.company).font(.body)
-                            Text(m.tickers.joined(separator: "＋")).font(.caption).foregroundStyle(.secondary)
-                            if !m.outOfIndex.isEmpty {
-                                Text("\(m.outOfIndex.joined(separator: "、")) 不在最新持股裡").font(.caption2).foregroundStyle(.orange)
+                    Button {
+                        openHistory(m)
+                    } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(m.company).font(.body)
+                                Text(m.tickers.joined(separator: "＋")).font(.caption).foregroundStyle(.secondary)
+                                if !m.outOfIndex.isEmpty {
+                                    Text("\(m.outOfIndex.joined(separator: "、")) 不在最新持股裡").font(.caption2).foregroundStyle(.orange)
+                                }
                             }
+                            Spacer()
+                            Text("\(Fmt.num(m.weightPct, 2))%").monospacedDigit().foregroundStyle(.secondary)
+                            Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
                         }
-                        Spacer()
-                        Text("\(Fmt.num(m.weightPct, 2))%").monospacedDigit().foregroundStyle(.secondary)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .contextMenu {
+                        Button("看走勢", systemImage: "chart.xyaxis.line") { openHistory(m) }
+                        Button("移除", systemImage: "trash", role: .destructive) { Task { await remove(m) } }
                     }
                     .swipeActions {
                         Button("移除", role: .destructive) { Task { await remove(m) } }
@@ -104,7 +122,7 @@ struct WatchlistView: View {
             } header: {
                 Text("\(w.members.count)/\(w.max) 家 · 合計權重 \(Fmt.num(w.totalWeight, 1))%")
             } footer: {
-                Text("名單只影響你自己的總覽、走勢與推播。左滑可移除。權重取自 \(w.asOf ?? "—") 的 SPY 持股。")
+                Text("名單只影響你自己的總覽、走勢與推播。點一下看走勢，左滑可移除。權重取自 \(w.asOf ?? "—") 的 SPY 持股。")
             }
         }
         .listStyle(.insetGrouped)

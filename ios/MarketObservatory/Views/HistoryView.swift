@@ -28,7 +28,19 @@ struct HistoryView: View {
                     }
                 }
         }
-        .task { if state.value == nil { await load() } }
+        .task { if takePending() || state.value == nil { await load() } }
+        .onChange(of: session.historySymbol) { _, new in
+            if new != nil, takePending() { Task { await load() } }
+        }
+        .onChange(of: session.watchlistRevision) { Task { await load() } }
+    }
+
+    /// 名單頁指定的標的：讀進來就清掉，下次點同一家也會觸發。
+    private func takePending() -> Bool {
+        guard let s = session.historySymbol else { return false }
+        symbol = s
+        session.historySymbol = nil
+        return true
     }
 
     private func load() async {

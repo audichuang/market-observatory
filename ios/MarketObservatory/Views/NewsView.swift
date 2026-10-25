@@ -7,21 +7,8 @@ struct NewsView: View {
     @State private var section = 0
     /// 月曆上選取的日子（"YYYY-MM-DD"）；nil 時用今天
     @State private var calendarDay: String?
-    // 新聞中文化：翻譯結果就地蓋在原本的列上，不重抓整頁。
-    // 依代號篩選分開記（key 是 symbol ?? ""）：重要與否照篩選算，舊篩選晚到的回應存回自己那份，切回去照樣用得上。
-    @State private var translationsBy: [String: [String: NewsTranslation]] = [:]
-    @State private var requestedBy: [String: Set<String>] = [:]
-    @State private var pending: [(filter: String?, id: String)] = []
-    @State private var flushTask: Task<Void, Never>?
-    @State private var aiNotice: String?
-    @State private var aiDisabled = false
-    @State private var pointsCache: [String: [String]] = [:]
     @State private var selected: NewsPage.Item?
-    @State private var generatedDigests: [NewsDigest] = []
-    @State private var digestBusy = false
-    @State private var digestError: String?
     @State private var expandedDigest: String?
-    @State private var aiStatus: AIStatus?
     @Environment(\.openURL) private var openURL
     @Environment(\.dynamicTypeSize) private var typeSize
     @ScaledMetric(relativeTo: .subheadline) private var dateWidth: CGFloat = 82
@@ -31,17 +18,7 @@ struct NewsView: View {
             Loadable(state: state, retry: load) { p in content(p) }
                 .navigationTitle("新聞與日曆")
         }
-        .sheet(item: $selected) { n in
-            let tr = translations[n.id]
-            NewsDetailSheet(
-                item: n,
-                titleZh: tr?.titleZh ?? n.titleZh,
-                tone: tr?.tone ?? n.tone,
-                category: tr?.category ?? n.category,
-                cachedPoints: pointsCache[n.id] ?? n.pointsZh,
-                onPoints: { id, pts in pointsCache[id] = pts }
-            )
-        }
+        .sheet(item: $selected) { n in NewsDetailSheet(item: n) }
         // 換代號時 SwiftUI 會取消上一個請求，較慢的舊回應不會蓋掉新的。
         .task(id: symbol) {
             // 推播冷啟動：日期在這個畫面建立前就放進 session 了，onChange 收不到。
@@ -84,7 +61,6 @@ struct NewsView: View {
             let p: NewsPage = try await API.get("/api/v1/news", query: ["symbol": requested])
             guard !Task.isCancelled, requested == symbol else { return }
             state = .loaded(p)
-            prepareTranslation(p)
         } catch {
             guard !Task.isCancelled, requested == symbol else { return }
             session.handle(error)
@@ -118,12 +94,9 @@ struct NewsView: View {
             }
             if section == 0 {
                 if symbol == nil { digestSection(p) }
-                let important = p.news.filter { isImportant($0) }
-                let others = p.news.filter { !isImportant($0) }
+                let important = p.news.filter { $0.important ?? true }
+                let others = p.news.filter { !($0.important ?? true) }
                 Section {
-                    if let aiNotice {
-                        Notice(kind: .info, text: aiNotice).noticeRow()
-                    }
                     if p.news.isEmpty { Text("還沒有新聞。").foregroundStyle(.secondary) }
                     ForEach(important) { n in newsButton(n) }
                 }
@@ -145,148 +118,32 @@ struct NewsView: View {
         .refreshable { await load() }
     }
 
-    // MARK: 新聞中文化
-
-    private var filterKey: String { symbol ?? "" }
-    private var translations: [String: NewsTranslation] { translationsBy[filterKey] ?? [:] }
-
-    private func isImportant(_ n: NewsPage.Item) -> Bool {
-        // translations 只有這個篩選送出的請求，重要與否跟伺服器用同一個代號算。
-        n.resolvedImportant(translation: translations[n.id])
-    }
-
     private func newsButton(_ n: NewsPage.Item) -> some View {
-        let tr = translations[n.id]
-        return Button { selected = n } label: {
-            NewsRow(titleZh: tr?.titleZh ?? n.titleZh, title: n.title, tone: tr?.tone ?? n.tone, category: tr?.category ?? n.category, symbols: n.symbols, publisher: n.publisher, publishedAt: n.publishedAt, titleLines: 3)
+        Button { selected = n } label: {
+            NewsRow(titleZh: n.titleZh, title: n.title, tone: n.tone, category: n.category, symbols: n.symbols, publisher: n.publisher, publishedAt: n.publishedAt, titleLines: 3)
         }
         .buttonStyle(.plain)
-        .onAppear { enqueue(n) }
     }
 
-    /// 載入完成：伺服器沒設 AI 或額度用完就不送；否則先替畫面上的前幾則排翻譯。
-    private func prepareTranslation(_ p: NewsPage) {
-        // 重新載入後讓這個篩選還沒翻到的再排一次（失敗過的也重試）；已翻好的結果留著。
-        requestedBy[filterKey] = Set(translations.keys)
-        aiStatus = p.ai
-        digestError = nil
-        aiNotice = NewsText.aiNotice(p.ai)
-        aiDisabled = aiNotice != nil
-        // 日曆段看不到新聞列，不預先翻譯；切回新聞時由各列 onAppear 排隊。
-        guard section == 0 else { return }
-        for n in p.news.filter({ isImportant($0) }).prefix(20) { enqueue(n) }
-    }
-
-    /// 列出現在畫面上才排進佇列；300ms 內的合併成一次請求（一次最多 20 則）。
-    private func enqueue(_ n: NewsPage.Item) {
-        guard !aiDisabled, n.titleZh == nil, translations[n.id] == nil, !(requestedBy[filterKey]?.contains(n.id) ?? false) else { return }
-        requestedBy[filterKey, default: []].insert(n.id)
-        pending.append((symbol, n.id))
-        flushTask?.cancel()
-        flushTask = Task {
-            try? await Task.sleep(for: .milliseconds(300))
-            guard !Task.isCancelled else { return }
-            let batch = pending
-            pending.removeAll()
-            // 依排隊時的篩選分組送；請求另開 Task，之後的 enqueue 取消計時器時不會連帶取消這次請求。
-            for filter in Set(batch.map { $0.filter ?? "" }) {
-                let ids = batch.filter { ($0.filter ?? "") == filter }.map(\.id)
-                for chunk in stride(from: 0, to: ids.count, by: 20).map({ Array(ids[$0 ..< min($0 + 20, ids.count)]) }) {
-                    Task { await translate(chunk, filter: filter.isEmpty ? nil : filter) }
-                }
-            }
-        }
-    }
-
-    private struct TranslateBody: Encodable, Sendable { let ids: [String]; let symbol: String? }
-
-    private func translate(_ ids: [String], filter: String?) async {
-        // 不同篩選同時送到同一則也沒關係：伺服器會認領，只有一邊呼叫模型、扣額度。
-        do {
-            let r: NewsTranslateResponse = try await API.send("POST", "/api/v1/news/translate", body: TranslateBody(ids: ids, symbol: filter))
-            // 存回送出時的篩選；重要與否是照那個篩選算的。
-            let later = r.pending ?? []
-            // pending 的還在別人手上重翻，回來的是舊結果，先不收
-            for t in r.items where t.titleZh != nil && !later.contains(t.id) { translationsBy[filter ?? "", default: [:]][t.id] = t }
-            // 別人正在翻同一則：過幾秒直接再問一次（還停在同一個篩選、列還在才問）。
-            // 不經過 enqueue：額度用完時 aiDisabled 會擋，但拿快取不扣額度；真要呼叫模型伺服器自己會回 429。
-            if !later.isEmpty {
-                Task {
-                    try? await Task.sleep(for: .seconds(6))
-                    guard filter == symbol, let p = state.value, p.symbol == filter else { return }
-                    let ids = p.news.filter { later.contains($0.id) && translations[$0.id] == nil }.map(\.id)
-                    if !ids.isEmpty { await translate(ids, filter: filter) }
-                }
-            }
-            if let ai = r.ai { aiStatus = ai }
-            if let note = NewsText.aiNotice(r.ai) { aiNotice = note; aiDisabled = true }
-        } catch {
-            if case APIError.unauthorized = error { session.handle(error) }
-            aiNotice = NewsText.aiNotice(error)
-            // 額度用完／沒設 key 就別再送了；其他錯誤等下拉重新整理再試。
-            if case let APIError.server(status, _) = error, status == 429 || status == 503 { aiDisabled = true }
-        }
-    }
-
+    /// 名單公司的每日重點（排程寫好的）；沒有就不顯示這一段。
     @ViewBuilder
     private func digestSection(_ p: NewsPage) -> some View {
-        let source = (p.digests?.isEmpty == false) ? (p.digests ?? []) : generatedDigests
-        let ds = source.sorted { (p.keys.firstIndex(of: $0.symbol) ?? .max) < (p.keys.firstIndex(of: $1.symbol) ?? .max) }
-        let ai = aiStatus ?? p.ai
-        Section {
-            if let digestError { Notice(kind: .info, text: digestError).noticeRow() }
-            if ds.isEmpty {
-                if digestBusy {
-                    AILoadingRow()
-                } else if digestError == nil {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Button("產生今日重點") { Task { await generateDigests() } }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
-                        Text("每家公司用 1 次 AI 額度").font(.footnote).foregroundStyle(.secondary)
-                    }
-                }
-            } else {
+        let ds = (p.digests ?? []).sorted { (p.keys.firstIndex(of: $0.symbol) ?? .max) < (p.keys.firstIndex(of: $1.symbol) ?? .max) }
+        if !ds.isEmpty {
+            Section("今日重點") {
                 ForEach(ds.prefix(3)) { d in digestRow(d) }
                 if ds.count > 3 {
                     DisclosureGroup("其餘 \(ds.count - 3) 家") {
                         ForEach(ds.dropFirst(3)) { d in digestRow(d) }
                     }
                 }
-                if digestBusy { AILoadingRow() }
             }
-        } header: {
-            HStack {
-                Text("今日重點")
-                Spacer()
-                if let ai, ai.enabled {
-                    Text("AI 額度 \(ai.used)/\(ai.limit)").font(.caption).foregroundStyle(.secondary)
-                }
-            }
-            .textCase(nil)
         }
     }
 
     private func digestRow(_ d: NewsDigest) -> some View {
         DigestRow(digest: d, expanded: expandedDigest == d.symbol) {
             withAnimation { expandedDigest = expandedDigest == d.symbol ? nil : d.symbol }
-        }
-    }
-
-    private struct DigestBody: Encodable, Sendable { var date: String? }
-
-    private func generateDigests() async {
-        digestBusy = true
-        digestError = nil
-        defer { digestBusy = false }
-        do {
-            let r: DigestsResponse = try await API.send("POST", "/api/v1/digests", body: DigestBody())
-            generatedDigests = r.digests
-            if let ai = r.ai { aiStatus = ai }
-            if r.digests.isEmpty { digestError = "今天還沒有名單公司的相關新聞可以整理" }
-        } catch {
-            if case APIError.unauthorized = error { session.handle(error) }
-            digestError = NewsText.aiNotice(error)
         }
     }
 

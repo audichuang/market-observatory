@@ -5,7 +5,7 @@ import { dateWithWeekday, num, pctText, signed, taipeiTime } from "../src/ui/for
 import { NewsFeed } from "../src/ui/NewsFeed.tsx";
 import type { Props } from "./index.server";
 
-export default function Overview({ snapshot, dates, expectedClose, news, digests, ai, events, lastPriceRun, forecast, restCount, viewingLatest }: Props) {
+export default function Overview({ snapshot, dates, expectedClose, news, digests, market, events, lastPriceRun, forecast, restCount, viewingLatest }: Props) {
   const router = useRouter();
   if (!snapshot) {
     return (
@@ -166,7 +166,7 @@ export default function Overview({ snapshot, dates, expectedClose, news, digests
       <div className="grid two section">
         <div className="panel">
           <h2>最新新聞</h2>
-          <NewsFeed news={news} digests={digests} ai={ai} date={snapshot?.tradeDate ?? ""} showOthers={false} />
+          <NewsFeed news={news} digests={digests} showOthers={false} />
           <p style={{ marginTop: ".5rem" }}><Link href="/news">全部新聞 →</Link></p>
         </div>
         <div className="panel">

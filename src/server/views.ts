@@ -10,13 +10,14 @@ import { MAX_WATCH, displayName, isConstituent } from "../lib/watchlist.ts";
 import { z } from "zod";
 import { type Viewer, getViewerSetting, settingKey, viewerWatchlist } from "./account.ts";
 import { rebuildSnapshots, WATCHLIST_REBUILD_SESSIONS } from "./jobs.ts";
-import { aiState, latestDigests } from "./news-ai.ts";
+import { MARKET_KEY } from "./ai-batch.ts";
+import { latestDigests } from "./news-ai.ts";
 import { bumpDataVersion, cachedPage, readDb } from "./page-cache.ts";
 import { getSnapshot, listRevisions, listSnapshotDates, loadPrices, putSetting } from "./repo.ts";
 import { latestHoldings, loadTrackedMembers } from "./watchlist.ts";
 
 export interface ViewCtx {
-  env: { DB: D1Database; ANTHROPIC_API_KEY?: string };
+  env: { DB: D1Database };
   req: { query(key: string): string | undefined; url: string };
   executionCtx?: { waitUntil(p: Promise<unknown>): void };
 }
@@ -93,8 +94,13 @@ export async function overviewView(c: ViewCtx, v: Viewer) {
     viewingLatest: !date,
     // 名單公司在這個交易日（或之後一天，盤後新聞）的 AI 新聞重點
     digests: s ? await latestDigests(c.env.DB, members, s.tradeDate, addDays(s.tradeDate, 1)) : [],
-    ai: await aiState(c.env.DB, v, Boolean(c.env.ANTHROPIC_API_KEY)),
+    market: s ? await marketDigest(c.env.DB, s.tradeDate) : null,
   };
+}
+
+/** 總覽最上面那段「今天為什麼漲跌」：排程寫在 news_digests（代號 SPX），沒寫到就不顯示。 */
+async function marketDigest(db: D1Database, date: string) {
+  return db.prepare("SELECT date, summary, tone FROM news_digests WHERE symbol = ? AND date = ?").bind(MARKET_KEY, date).first<{ date: string; summary: string; tone: string }>();
 }
 
 // ── 走勢 ───────────────────────────────────────────────
@@ -301,15 +307,14 @@ export interface NewsRow {
 
 /** 輸出給網頁與 App 的新聞：primary_symbol 不外露，points_zh 轉成陣列。 */
 export function newsOut(n: NewsRow, important: boolean) {
-  const { primary_symbol: _p, points_zh, enriched_at, ...rest } = n;
+  const { primary_symbol: _p, points_zh, enriched_at: _e, ...rest } = n;
   let points: string[] | null = null;
   try {
     points = points_zh ? (JSON.parse(points_zh) as string[]) : null;
   } catch {
     points = null;
   }
-  // needs_ai：標題還沒翻，或多掛了代號、AI 要重新判斷這則在講誰（enriched_at 被排程清掉）
-  return { ...rest, points_zh: points, important, needs_ai: rest.title_zh === null || enriched_at === null };
+  return { ...rest, points_zh: points, important };
 }
 
 export async function newsView(c: ViewCtx, v: Viewer) {
@@ -341,7 +346,6 @@ export async function newsView(c: ViewCtx, v: Viewer) {
     today,
     news: news.results.map((n) => newsOut(n, important(n))),
     digests: await latestDigests(c.env.DB, digestMembers, addDays(today, -3)),
-    ai: await aiState(c.env.DB, v, Boolean(c.env.ANTHROPIC_API_KEY)),
     events: events.filter((e) => e.kind !== "earnings" || (e.symbol !== null && keys.includes(e.symbol))),
   };
 }

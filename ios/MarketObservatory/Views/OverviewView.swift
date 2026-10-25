@@ -120,6 +120,7 @@ struct OverviewView: View {
 
                 Section {
                     IndexHero(s: s, createdAt: row.createdAt)
+                    if let m = o.market { MarketDigestCard(digest: m) }
                     indicatorsToggle(s)
                     if showIndicators {
                         kpis(s)
@@ -371,6 +372,23 @@ struct OverviewView: View {
                 Button("編輯名單") { showWatchlist = true }.font(.caption)
             }
         }
+    }
+}
+
+/// 「今天為什麼漲跌」：排程寫好的一段話，列首色條標整體偏多（紅）或偏空（綠）。
+private struct MarketDigestCard: View {
+    let digest: MarketDigest
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Capsule().fill(Color.newsTone(digest.tone)).frame(width: 3).frame(maxHeight: .infinity)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("今天為什麼漲跌").font(.subheadline.weight(.semibold))
+                Text(digest.summary).font(.subheadline).fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .cardBackground()
+        .accessibilityElement(children: .combine)
     }
 }
 

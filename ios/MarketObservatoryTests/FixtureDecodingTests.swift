@@ -33,25 +33,3 @@ struct FixtureDecodingTests {
         #expect(e.rows.filter { $0.multiple != 1 }.allSatisfy { $0.drift1y != nil })
     }
 }
-
-struct NewsImportantTests {
-    private func item(focus: String?, important: Bool?) throws -> NewsPage.Item {
-        let f = focus.map { "\"\($0)\"" } ?? "null"
-        let i = important.map { "\($0)" } ?? "null"
-        let json = #"{"id":"a","symbols":"NVDA","title":"t","url":"u","focus":\#(f),"important":\#(i)}"#
-        return try API.decoder.decode(NewsPage.Item.self, from: Data(json.utf8))
-    }
-    private func tr(_ v: Bool) throws -> NewsTranslation {
-        try API.decoder.decode(NewsTranslation.self, from: Data(#"{"id":"a","important":\#(v)}"#.utf8))
-    }
-
-    @Test func freshClassificationBeatsProvisionalServerValue() throws {
-        #expect(try item(focus: nil, important: true).resolvedImportant(translation: tr(false)) == false)
-    }
-    @Test func classifiedItemKeepsServerPerSymbolValue() throws {
-        #expect(try item(focus: "NVDA", important: false).resolvedImportant(translation: tr(true)) == false)
-    }
-    @Test func fallsBackToTrue() throws {
-        #expect(try item(focus: nil, important: nil).resolvedImportant(translation: nil) == true)
-    }
-}

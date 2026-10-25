@@ -294,6 +294,7 @@ struct PushSettingsView: View {
     @State private var testResult: String?
     @State private var testing = false
     @State private var authorization: UNAuthorizationStatusText = .unknown
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         Loadable(state: state, retry: load) { s in content(s) }
@@ -301,6 +302,10 @@ struct PushSettingsView: View {
             .task {
                 if state.value == nil { await load() }
                 authorization = await UNAuthorizationStatusText.current()
+            }
+            // 從「打開系統設定」回來：重新讀通知權限，已允許就收掉警告。
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active { Task { authorization = await UNAuthorizationStatusText.current() } }
             }
     }
 
@@ -429,6 +434,7 @@ struct AccountView: View {
             }
             Section {
                 Button("登出") { Task { await session.signOut() } }
+                if let e = session.signOutError { Notice(kind: .bad, text: e) }
             }
             Section {
                 Button("刪除帳號", role: .destructive) { confirmDelete = true }

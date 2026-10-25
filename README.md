@@ -86,6 +86,8 @@ node scripts/ai-batch.ts push translate
 
 文章重點要有原文才寫：Nasdaq 文章頁會擋機器，所以 pull 時在本機用代號搜 Yahoo 新聞、以標題對回同一篇轉載文章抓正文，對不到的（例如 Zacks）就不寫。帳密用 `MO_EMAIL`／`MO_PASSWORD`，沒設就讀 1Password 的 Agent vault。格式不對的答案會略過，下次排程再給一次。
 
+改了腳本或排程後要驗證時，`orca automations run` 手動觸發不會跑 precheck，agent 會讀到上一次留下的 `tasks.md`，把舊的那批重新寫一次。所以要先自己跑一次 `pull`，有待辦時再手動觸發。
+
 ## Cloudflare 方案與請求額度
 
 帳號是 Workers Paid（$5／月）：每次 Worker 執行的外部子請求上限預設 10,000（免費方案只有 50），外部請求不計費；同時等待回應的連線兩種方案都是 6 個。Cron Trigger 免費方案最多 5 組，所以抓價、補抓、核對、權重＋日曆、新聞拆成五個 cron 檔；資料庫寫入一律「一次查詢＋分塊 batch」，查詢次數不隨標的數量增加。

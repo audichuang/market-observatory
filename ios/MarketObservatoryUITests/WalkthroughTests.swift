@@ -106,6 +106,13 @@ final class WalkthroughTests: XCTestCase {
         app.buttons["日曆"].tap()
         sleep(1)
         snap("05b-calendar")
+        // 點月曆上第一個有總經事件（FOMC）的日子，看當天的事件列表
+        let macroDay = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "有總經事件")).firstMatch
+        if macroDay.waitForExistence(timeout: 3) {
+            macroDay.tap()
+            sleep(1)
+            snap("05c-calendar-day")
+        }
 
         tab(app, "更多")
         sleep(1)

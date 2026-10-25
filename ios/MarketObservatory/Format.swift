@@ -65,6 +65,16 @@ enum Fmt {
         return cal.date(from: DateComponents(year: parts[0], month: parts[1], day: parts[2], hour: 12))
     }
 
+    /// 「YYYY-MM-DD」加減 n 天
+    static func addDays(_ iso: String, _ n: Int) -> String {
+        guard let d = day(iso) else { return iso }
+        let f = DateFormatter()
+        f.calendar = Calendar(identifier: .gregorian)
+        f.timeZone = TimeZone(identifier: "UTC")
+        f.dateFormat = "yyyy-MM-dd"
+        return f.string(from: d.addingTimeInterval(Double(n) * 86400))
+    }
+
     /// 兩個「YYYY-MM-DD」相差幾天（b − a），跟網頁的 daysBetween 一致。
     static func daysBetween(_ a: String, _ b: String) -> Int? {
         guard let da = day(a), let db = day(b) else { return nil }

@@ -5,6 +5,8 @@ struct NewsView: View {
     @State private var state: LoadState<NewsPage> = .idle
     @State private var symbol: String?
     @State private var section = 0
+    /// 月曆上選取的日子（"YYYY-MM-DD"）；nil 時用今天
+    @State private var calendarDay: String?
     @Environment(\.openURL) private var openURL
     @Environment(\.dynamicTypeSize) private var typeSize
     @ScaledMetric(relativeTo: .subheadline) private var dateWidth: CGFloat = 82
@@ -17,12 +19,19 @@ struct NewsView: View {
         // 換代號時 SwiftUI 會取消上一個請求，較慢的舊回應不會蓋掉新的。
         .task(id: symbol) {
             // 推播冷啟動：日期在這個畫面建立前就放進 session 了，onChange 收不到。
-            if session.newsCalendarDate != nil { section = 1; session.newsCalendarDate = nil }
+            if let d = session.newsCalendarDate { openCalendar(d) }
             if state.value == nil || state.value?.symbol != symbol { await load() }
         }
         .onChange(of: session.newsCalendarDate) { _, new in
-            if new != nil { section = 1; session.newsCalendarDate = nil }
+            if let d = new { openCalendar(d) }
         }
+    }
+
+    /// 點事件推播進來：切到日曆、選到推播的那一天（沒帶日期就停在原本選的日子）。
+    private func openCalendar(_ date: String) {
+        section = 1
+        if !date.isEmpty { calendarDay = date }
+        session.newsCalendarDate = nil
     }
 
     private var isLoading: Bool {
@@ -73,15 +82,7 @@ struct NewsView: View {
                 }
                 .opacity(isSwitchingSymbol ? 0.4 : 1)
             } else {
-                let upcoming = p.events.filter { $0.date >= p.today }
-                let past = p.events.filter { $0.date < p.today }.reversed()
-                Section("接下來") {
-                    if upcoming.isEmpty { Text("沒有登錄的事件。").foregroundStyle(.secondary) }
-                    ForEach(upcoming) { e in eventRow(e, today: p.today) }
-                }
-                if !past.isEmpty {
-                    Section("過去 30 天") { ForEach(Array(past)) { e in eventRow(e) } }
-                }
+                calendarSections(p)
             }
         }
         .listStyle(.insetGrouped)
@@ -89,7 +90,82 @@ struct NewsView: View {
         .refreshable { await load() }
     }
 
-    private func eventRow(_ e: NewsPage.Event, today: String? = nil) -> some View {
+    @ViewBuilder
+    private func calendarSections(_ p: NewsPage) -> some View {
+        let day = calendarDay ?? p.today
+        let marks = p.events.reduce(into: [String: DayMarks]()) { acc, e in
+            if e.kind == "earnings" { acc[e.date, default: DayMarks()].earnings = true } else { acc[e.date, default: DayMarks()].macro = true }
+        }
+        // 跟 API 的事件範圍一致：過去 30 天到未來 120 天
+        let lower = Fmt.addDays(p.today, -30)
+        let upper = Fmt.addDays(p.today, 120)
+        Section {
+            EventCalendarView(
+                marks: marks,
+                range: lower...upper,
+                today: p.today,
+                selected: Binding(get: { day }, set: { calendarDay = $0 })
+            )
+            .listRowInsets(EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8))
+        } footer: {
+            HStack(spacing: 14) {
+                legend(Color.up, "總經（FOMC）")
+                legend(.blue, "名單公司財報")
+            }
+        }
+        let todays = p.events.filter { $0.date == day }
+        Section {
+            if todays.isEmpty {
+                Text("這天沒有登錄的事件。").foregroundStyle(.secondary)
+            }
+            ForEach(todays) { e in eventRow(e, showDate: false) }
+        } header: {
+            Text(dayHeader(day, today: p.today))
+        }
+        let upcoming = p.events.filter { $0.date >= p.today && $0.date != day }.prefix(5)
+        if !upcoming.isEmpty {
+            Section("接下來") {
+                ForEach(Array(upcoming)) { e in
+                    Button { calendarDay = e.date } label: { upcomingRow(e, today: p.today) }
+                        .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    private func dayHeader(_ day: String, today: String) -> String {
+        let base = Fmt.dateWithWeekday(day)
+        guard let d = Fmt.daysBetween(today, day) else { return base }
+        switch d {
+        case 0: return "\(base) · 今天"
+        case let n where n > 0: return "\(base) · \(n) 天後"
+        default: return "\(base) · \(-d) 天前"
+        }
+    }
+
+    private func legend(_ color: Color, _ text: String) -> some View {
+        HStack(spacing: 5) {
+            Circle().fill(color).frame(width: 7, height: 7)
+            Text(text)
+        }
+    }
+
+    /// 「接下來」的精簡列：點了在月曆上選到那天。
+    private func upcomingRow(_ e: NewsPage.Event, today: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Circle().fill(e.kind == "earnings" ? Color.blue : Color.up).frame(width: 7, height: 7)
+            Text(Fmt.dateWithWeekday(e.date)).font(.subheadline.monospacedDigit()).foregroundStyle(.secondary).lineLimit(1).fixedSize()
+            if let s = e.symbol { Text(s).font(.subheadline.monospaced().weight(.semibold)).foregroundStyle(Color.accentColor) }
+            Text(e.title).font(.subheadline).lineLimit(1)
+            Spacer(minLength: 4)
+            if let d = Fmt.daysBetween(today, e.date) {
+                Text(d == 0 ? "今天" : "\(d) 天後").font(.caption).foregroundStyle(d == 0 ? Color.orange : Color.secondary).lineLimit(1).fixedSize()
+            }
+        }
+        .contentShape(Rectangle())
+    }
+
+    private func eventRow(_ e: NewsPage.Event, today: String? = nil, showDate: Bool = true) -> some View {
         let url = e.sourceUrl.flatMap(URL.init(string:))
         let layout = typeSize.isAccessibilitySize
             ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
@@ -99,6 +175,7 @@ struct NewsView: View {
         } label: {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 layout {
+                    if showDate {
                     VStack(alignment: .leading, spacing: 1) {
                         Text(Fmt.dateWithWeekday(e.date)).font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
                             .lineLimit(1).fixedSize()
@@ -110,6 +187,7 @@ struct NewsView: View {
                         }
                     }
                     .frame(minWidth: typeSize.isAccessibilitySize ? nil : dateWidth, alignment: .leading)
+                    }
                     VStack(alignment: .leading, spacing: 3) {
                         HStack(alignment: .firstTextBaseline, spacing: 6) {
                             if let s = e.symbol {

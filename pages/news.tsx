@@ -62,7 +62,7 @@ export default function NewsPage({ symbol, keys, today, news, digests, ai, event
             <Link href="/news" className={`chip ${symbol === null ? "active" : ""}`}>全部</Link>
             {keys.map((k) => <Link key={k} href={`/news?symbol=${k}`} className={`chip ${symbol === k ? "active" : ""}`}>{k}</Link>)}
           </div>
-          <NewsFeed news={news} digests={digests} ai={ai} date={today} />
+          <NewsFeed news={news} digests={digests} ai={ai} date={today} symbol={symbol} />
         </div>
       </div>
     </>

@@ -23,7 +23,10 @@ export interface Ai {
   json(req: AiRequest): Promise<unknown>;
 }
 
-export class AiRefusalError extends Error {
+/** 模型已經回應（HTTP 200）才發生的錯：拒絕、被截斷、空白、JSON 壞掉。這次呼叫已經計費，額度不能退回。 */
+export class AiModelError extends Error {}
+
+export class AiRefusalError extends AiModelError {
   constructor() {
     super("模型拒絕回答這則內容");
   }
@@ -53,10 +56,14 @@ export function createAi(apiKey: string, budget: Budget): Ai {
         output_config: { effort: "low", format: { type: "json_schema", schema: req.schema } },
       });
       if (res.stop_reason === "refusal") throw new AiRefusalError();
-      if (res.stop_reason === "max_tokens") throw new Error("模型回應被截斷");
+      if (res.stop_reason === "max_tokens") throw new AiModelError("模型回應被截斷");
       const text = res.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
-      if (!text) throw new Error("模型沒有回傳內容");
-      return JSON.parse(text);
+      if (!text) throw new AiModelError("模型沒有回傳內容");
+      try {
+        return JSON.parse(text);
+      } catch {
+        throw new AiModelError("模型回傳的不是 JSON");
+      }
     },
   };
 }

@@ -3,7 +3,7 @@
 // 或把名單放進快取鍵，不會把甲的名單快取給乙看。
 import { maxDrawdown, periodReturn, smaSeries, Series, leverageDrift, simulateDca } from "../lib/analytics.ts";
 import { addDays, latestExpectedClose } from "../lib/calendar.ts";
-import { isImportant } from "../lib/news-ai.ts";
+import { importanceFor, isImportant } from "../lib/news-ai.ts";
 import { viewForMembers } from "../lib/snapshot.ts";
 import { ETFS, ETF_CATALOG_AS_OF, EQUAL_WEIGHT_SYMBOL, FX_SYMBOL, INDEX_SYMBOL, VIX_SYMBOL, type WatchMember } from "../lib/universe.ts";
 import { MAX_WATCH, displayName, isConstituent } from "../lib/watchlist.ts";
@@ -278,7 +278,7 @@ export async function etfsView(c: ViewCtx, v: Viewer) {
 // ── 新聞與日曆 ───────────────────────────────────────────
 
 /** `news` 表裡 API 與頁面會用到的欄位（primary_symbol 與 points_zh 只在伺服器內部／轉成陣列後輸出） */
-export const NEWS_COLS = "id, symbols, title, url, publisher, published_at, fetched_at, primary_symbol, title_zh, tone, category, focus, points_zh";
+export const NEWS_COLS = "id, symbols, title, url, publisher, published_at, fetched_at, primary_symbol, title_zh, tone, category, focus, points_zh, enriched_at";
 
 export interface NewsRow {
   id: string;
@@ -296,18 +296,20 @@ export interface NewsRow {
   focus: string | null;
   /** AI 重點（JSON 字串陣列）；null＝還沒產生 */
   points_zh: string | null;
+  enriched_at: string | null;
 }
 
 /** 輸出給網頁與 App 的新聞：primary_symbol 不外露，points_zh 轉成陣列。 */
 export function newsOut(n: NewsRow, important: boolean) {
-  const { primary_symbol: _p, points_zh, ...rest } = n;
+  const { primary_symbol: _p, points_zh, enriched_at, ...rest } = n;
   let points: string[] | null = null;
   try {
     points = points_zh ? (JSON.parse(points_zh) as string[]) : null;
   } catch {
     points = null;
   }
-  return { ...rest, points_zh: points, important };
+  // needs_ai：標題還沒翻，或多掛了代號、AI 要重新判斷這則在講誰（enriched_at 被排程清掉）
+  return { ...rest, points_zh: points, important, needs_ai: rest.title_zh === null || enriched_at === null };
 }
 
 export async function newsView(c: ViewCtx, v: Viewer) {
@@ -331,9 +333,7 @@ export async function newsView(c: ViewCtx, v: Viewer) {
     ? await c.env.DB.prepare(`SELECT ${NEWS_COLS} FROM news WHERE ',' || symbols || ',' LIKE ? ORDER BY published_at DESC, fetched_at DESC LIMIT 60`).bind(`%,${symbol},%`).all<NewsRow>()
     : await c.env.DB.prepare(`SELECT ${NEWS_COLS} FROM news WHERE ${like} ORDER BY published_at DESC, fetched_at DESC LIMIT 120`).bind(...keys.map((k) => `%,${k},%`)).all<NewsRow>();
   // 指定代號時，「重要」是這則真的在講那家公司
-  const wantedKeys = symbol ? [symbol] : keys;
-  const wantedTickers = members.filter((m) => wantedKeys.includes(m.key)).flatMap((m) => m.tickers);
-  const important = (n: NewsRow) => (symbol === "SPY" && n.focus !== null ? n.focus.split(",").includes("SPY") : isImportant(n, wantedKeys, wantedTickers));
+  const important = importanceFor(members, symbol);
   const digestMembers = symbol ? members.filter((m) => m.key === symbol) : members;
   return {
     symbol,

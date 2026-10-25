@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { mergeTranslated, pendingTranslateIds } from "./news-feed-logic.ts";
 
 export interface NewsItem {
   id: string;
@@ -13,6 +14,8 @@ export interface NewsItem {
   focus: string | null;
   important: boolean;
   points_zh: string[] | null;
+  /** 標題還沒翻，或 AI 要重新判斷這則在講誰 */
+  needs_ai: boolean;
 }
 
 export interface DigestItem {
@@ -69,11 +72,13 @@ export function ToneBadge({ tone }: { tone: string | null }) {
 }
 
 /** 新聞列表＋每日重點：中文標題為主、英文原文小字；進頁面時把還沒翻的標題送去翻；每則可點「AI 重點」。 */
-export function NewsFeed({ news: initial, digests: initialDigests, ai: initialAi, date, showOthers = true, showDigests = true }: {
+export function NewsFeed({ news: initial, digests: initialDigests, ai: initialAi, date, symbol = null, showOthers = true, showDigests = true }: {
   news: NewsItem[];
   digests: DigestItem[];
   ai: AiInfo;
   date: string;
+  /** 新聞頁的代號篩選；翻譯回應照這個畫面的規則算「重要」 */
+  symbol?: string | null;
   showOthers?: boolean;
   showDigests?: boolean;
 }) {
@@ -86,7 +91,16 @@ export function NewsFeed({ news: initial, digests: initialDigests, ai: initialAi
   const [pointsError, setPointsError] = useState<Record<string, string>>({});
   const [digestBusy, setDigestBusy] = useState(false);
   const [digestNote, setDigestNote] = useState<string | null>(null);
+  const [othersOpen, setOthersOpen] = useState(false);
   const tried = useRef(new Set<string>());
+  const inflight = useRef(false);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   // 伺服器重新載入（換代號、換頁）時以新資料為準
   useEffect(() => {
@@ -95,33 +109,26 @@ export function NewsFeed({ news: initial, digests: initialDigests, ai: initialAi
     setAi(initialAi);
   }, [initial, initialDigests, initialAi]);
 
-  // 進頁面時，畫面上（重要的優先）還沒翻的標題一次送去翻；失敗就維持英文。
+  // 畫面上看得到的（重要的；「其他」展開後才算）還沒翻的標題一次送去翻；失敗就維持英文。
+  // 請求的生命週期跟著元件（不是跟著 news／ai 的每次變動）：AI 重點或額度更新時，進行中的翻譯結果照樣依 id 併回；
+  // 同時只送一批，這批回來更新 news 後 effect 會再接著送下一批。
   useEffect(() => {
-    if (!ai.enabled || ai.used >= ai.limit) return;
-    const pending = [...news.filter((n) => n.important), ...news.filter((n) => !n.important)]
-      .filter((n) => n.title_zh === null && !tried.current.has(n.id))
-      .slice(0, MAX_TRANSLATE)
-      .map((n) => n.id);
+    if (!ai.enabled || ai.used >= ai.limit || inflight.current) return;
+    const pending = pendingTranslateIds(news, { showOthers, othersOpen, tried: tried.current, max: MAX_TRANSLATE });
     if (pending.length === 0) return;
     for (const id of pending) tried.current.add(id);
-    let live = true;
-    void postJson<{ items: TranslateOut[]; ai: AiInfo }>("/api/v1/news/translate", { ids: pending }).then((r) => {
-      if (!live) return;
+    inflight.current = true;
+    void postJson<{ items: TranslateOut[]; ai: AiInfo }>("/api/v1/news/translate", { ids: pending, ...(symbol ? { symbol } : {}) }).then((r) => {
+      inflight.current = false;
+      if (!mounted.current) return;
       if (!r.ok) {
         setNotice(r.status === 429 || r.status === 503 ? r.error : "標題暫時無法翻成中文，先顯示英文原文。");
         return;
       }
-      const byId = new Map(r.data.items.map((i) => [i.id, i]));
-      setNews((cur) => cur.map((n) => {
-        const t = byId.get(n.id);
-        return t ? { ...n, title_zh: t.title_zh, tone: t.tone, category: t.category, focus: t.focus, important: t.important } : n;
-      }));
+      setNews((cur) => mergeTranslated(cur, r.data.items));
       setAi(r.data.ai);
     });
-    return () => {
-      live = false;
-    };
-  }, [news, ai.enabled, ai.used, ai.limit]);
+  }, [news, ai.enabled, ai.used, ai.limit, showOthers, othersOpen, symbol]);
 
   async function loadPoints(id: string) {
     setOpen((o) => ({ ...o, [id]: true }));
@@ -218,7 +225,7 @@ export function NewsFeed({ news: initial, digests: initialDigests, ai: initialAi
         <>
           {shown.length > 0 ? <ul className="list">{shown.map(renderItem)}</ul> : <p className="sub">這陣子沒有特別重要的新聞。</p>}
           {showOthers && others.length > 0 && (
-            <details className="news-others">
+            <details className="news-others" onToggle={(e) => setOthersOpen(e.currentTarget.open)}>
               <summary>其他 {others.length} 則</summary>
               <ul className="list">{others.map(renderItem)}</ul>
             </details>

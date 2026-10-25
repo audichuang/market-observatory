@@ -214,6 +214,17 @@ export function isImportant(n: { focus: string | null; category: string | null; 
   return wantedKeys.includes("SPY") && n.symbols.split(",").includes("SPY");
 }
 
+/**
+ * 一則新聞在「某個畫面」的重要與否：不指定代號時看整份名單（含大盤 SPY），指定代號時只看那一個。
+ * 網頁的新聞頁（newsView）與標題翻譯的回應共用這條規則，避免翻完之後分組跳掉。
+ */
+export function importanceFor(members: { key: string; tickers: string[] }[], symbol: string | null) {
+  const wantedKeys = symbol ? [symbol] : [...members.map((m) => m.key), "SPY"];
+  const wantedTickers = members.filter((m) => wantedKeys.includes(m.key)).flatMap((m) => m.tickers);
+  return (n: { focus: string | null; category: string | null; primary_symbol: string | null; symbols: string }): boolean =>
+    symbol === "SPY" && n.focus !== null ? n.focus.split(",").includes("SPY") : isImportant(n, wantedKeys, wantedTickers);
+}
+
 /** 一組新聞 id 的指紋：新聞沒變就不重寫重點。 */
 export function newsFingerprint(ids: string[]): string {
   let h = 2166136261;

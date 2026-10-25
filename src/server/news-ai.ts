@@ -2,11 +2,11 @@
 // 只在使用者打開畫面／點開文章時才呼叫（API 在 routes/api/v1），不在排程裡跑。結果存進 D1、所有人共用，同一則只做一次；
 // 每個帳號每天（美東日期）有呼叫次數上限（ai_usage），快取命中不算次數。
 import { easternDate } from "../lib/calendar.ts";
-import { DIGEST_SCHEMA, ENRICH_SCHEMA, POINTS_SCHEMA, type EnrichInput, digestPrompt, enrichPrompt, extractArticleText, isImportant, newsFingerprint, parseDigest, parseEnrich, parsePoints, pointsPrompt } from "../lib/news-ai.ts";
+import { DIGEST_SCHEMA, ENRICH_SCHEMA, POINTS_SCHEMA, type EnrichInput, digestPrompt, enrichPrompt, extractArticleText, importanceFor, isImportant, newsFingerprint, parseDigest, parseEnrich, parsePoints, pointsPrompt } from "../lib/news-ai.ts";
 import { type Budget, fetchWithTimeout } from "../lib/sources/http.ts";
 import type { WatchMember } from "../lib/universe.ts";
 import type { Viewer } from "./account.ts";
-import { type Ai, HAIKU, SONNET } from "./anthropic.ts";
+import { type Ai, AiModelError, HAIKU, SONNET } from "./anthropic.ts";
 import { type Db, getSnapshot, nowIso } from "./repo.ts";
 
 /** 一般帳號每天的 AI 呼叫上限（開放註冊，避免被拿來刷額度）；站長 10 倍。 */
@@ -65,13 +65,26 @@ export async function refundCalls(db: Db, v: Viewer, n: number, date = easternDa
   if (n > 0) await db.prepare("UPDATE ai_usage SET calls = MAX(0, calls - ?) WHERE user_id = ? AND date = ?").bind(n, v.id, date).run();
 }
 
+/** 只有「模型還沒回應」的失敗（沒 key、網路、逾時、HTTP 錯誤）才退回額度；模型回應了才壞（拒絕、截斷、解析失敗）已經計費，不退。 */
+const refundable = (e: unknown) => !(e instanceof AiModelError);
+
+/** 模型已回應但內容不能用（格式不對）：已計費，不退額度。 */
+function parseOrModelError<T>(parse: () => T | null, message: string): T {
+  let out: T | null;
+  try {
+    out = parse();
+  } catch (e) {
+    throw new AiModelError(e instanceof Error ? e.message : message);
+  }
+  if (out === null) throw new AiModelError(message);
+  return out;
+}
+
 function failure(e: unknown): AiHttpError {
   if (e instanceof AiHttpError) return e;
   console.error("AI 呼叫失敗：", e instanceof Error ? e.message : String(e));
   return new AiHttpError(502, FAILED_MESSAGE);
 }
-
-const wantedOf = (members: WatchMember[]) => ({ keys: [...members.map((m) => m.key), "SPY"], tickers: members.flatMap((m) => m.tickers) });
 
 // ── 標題翻譯與分類 ──────────────────────────────────────
 
@@ -85,37 +98,44 @@ interface NewsRow {
   tone: string | null;
   category: string | null;
   focus: string | null;
+  enriched_at: string | null;
 }
-const NEWS_COLS = "id, symbols, title, summary, primary_symbol, title_zh, tone, category, focus";
+const NEWS_COLS = "id, symbols, title, summary, primary_symbol, title_zh, tone, category, focus, enriched_at";
 const placeholders = (n: number) => Array.from({ length: n }, () => "?").join(",");
 
-/** 只處理還沒翻的（一次 Haiku 呼叫）；已翻的直接回傳，不算次數。 */
-export async function translateNews(db: Db, ai: Ai | null, v: Viewer, members: WatchMember[], ids: string[]) {
+/**
+ * 只處理還沒翻、或多掛了代號要重新判斷在講誰的（enriched_at 被排程清掉）：一次 Haiku 呼叫；其餘直接回傳，不算次數。
+ * symbol 是畫面上的代號篩選（新聞頁 ?symbol=），重要與否照該畫面的規則算，翻完分組才不會跳。
+ */
+export async function translateNews(db: Db, ai: Ai | null, v: Viewer, members: WatchMember[], ids: string[], symbol: string | null = null) {
   const unique = [...new Set(ids)].slice(0, MAX_TRANSLATE);
   const load = async () => (unique.length ? (await db.prepare(`SELECT ${NEWS_COLS} FROM news WHERE id IN (${placeholders(unique.length)})`).bind(...unique).all<NewsRow>()).results : []);
   const rows = await load();
-  const todo = rows.filter((r) => r.title_zh === null);
+  const todo = rows.filter((r) => r.title_zh === null || r.enriched_at === null);
   if (todo.length) {
     if (!ai) throw new AiHttpError(503, NO_KEY_MESSAGE);
     const date = easternDate();
     if ((await reserveCalls(db, v, 1, date)) === 0) throw new AiHttpError(429, QUOTA_MESSAGE);
+    let billed = false;
     try {
       const inputs: EnrichInput[] = todo.map((r) => ({ id: r.id, title: r.title, summary: r.summary, symbols: r.symbols.split(","), primarySymbol: r.primary_symbol }));
       const p = enrichPrompt(inputs);
-      const parsed = parseEnrich(await ai.json({ model: HAIKU, system: p.system, user: p.user, schema: ENRICH_SCHEMA, maxTokens: 4000 }), inputs);
+      const raw = await ai.json({ model: HAIKU, system: p.system, user: p.user, schema: ENRICH_SCHEMA, maxTokens: 4000 });
+      billed = true;
+      const parsed = parseOrModelError(() => parseEnrich(raw, inputs), "標題翻譯格式不對");
       const now = nowIso();
-      const update = db.prepare("UPDATE news SET title_zh = ?, tone = ?, category = ?, focus = ?, enriched_at = ? WHERE id = ? AND title_zh IS NULL");
+      const update = db.prepare("UPDATE news SET title_zh = ?, tone = ?, category = ?, focus = ?, enriched_at = ? WHERE id = ? AND (title_zh IS NULL OR enriched_at IS NULL)");
       if (parsed.length) await db.batch(parsed.map((e) => update.bind(e.titleZh, e.tone, e.category, e.focus.join(","), now, e.id)));
     } catch (e) {
-      await refundCalls(db, v, 1, date).catch(() => {});
+      if (!billed && refundable(e)) await refundCalls(db, v, 1, date).catch(() => {});
       throw failure(e);
     }
   }
-  const { keys, tickers } = wantedOf(members);
+  const important = importanceFor(members, symbol);
   const fresh = todo.length ? await load() : rows;
   const items = fresh
     .filter((r) => r.title_zh !== null)
-    .map((r) => ({ id: r.id, title_zh: r.title_zh, tone: r.tone, category: r.category, focus: r.focus, important: isImportant(r, keys, tickers) }));
+    .map((r) => ({ id: r.id, title_zh: r.title_zh, tone: r.tone, category: r.category, focus: r.focus, important: important(r) }));
   return { items, ai: await aiState(db, v, ai !== null) };
 }
 
@@ -153,15 +173,17 @@ export async function newsPoints(db: Db, ai: Ai | null, v: Viewer, id: string, b
   if (!ai) throw new AiHttpError(503, NO_KEY_MESSAGE);
   const date = easternDate();
   if ((await reserveCalls(db, v, 1, date)) === 0) throw new AiHttpError(429, QUOTA_MESSAGE);
+  let billed = false;
   try {
     const body = await fetchArticle(row.url, budget);
     const p = pointsPrompt({ title: row.title, body, summary: row.summary, symbols: row.symbols.split(",") });
-    const out = parsePoints(await ai.json({ model: SONNET, system: p.system, user: p.user, schema: POINTS_SCHEMA, maxTokens: 1500 }));
-    if (!out) throw new Error("重點格式不對");
+    const raw = await ai.json({ model: SONNET, system: p.system, user: p.user, schema: POINTS_SCHEMA, maxTokens: 1500 });
+    billed = true;
+    const out = parseOrModelError(() => parsePoints(raw), "重點格式不對");
     await db.prepare("UPDATE news SET points_zh = ?, tone = COALESCE(tone, ?) WHERE id = ?").bind(JSON.stringify(out.points), out.tone, id).run();
     return { id, points: out.points, tone: row.tone ?? out.tone, cached: false, ai: await aiState(db, v, true) };
   } catch (e) {
-    await refundCalls(db, v, 1, date).catch(() => {});
+    if (!billed && refundable(e)) await refundCalls(db, v, 1, date).catch(() => {});
     throw failure(e);
   }
 }
@@ -244,8 +266,8 @@ export async function generateDigests(db: Db, ai: Ai | null, v: Viewer, members:
         contributionPts: row?.contributionPts ?? null,
         news: news.map((n) => ({ titleZh: n.title_zh ?? n.title, title: n.title, summary: n.summary, tone: n.tone ?? "neutral", category: n.category ?? "未分類" })),
       });
-      const d = parseDigest(await ai.json({ model: SONNET, system: p.system, user: p.user, schema: DIGEST_SCHEMA, maxTokens: 600 }));
-      if (!d) throw new Error(`${m.key} 重點格式不對`);
+      const raw = await ai.json({ model: SONNET, system: p.system, user: p.user, schema: DIGEST_SCHEMA, maxTokens: 600 });
+      const d = parseOrModelError(() => parseDigest(raw), `${m.key} 重點格式不對`);
       return { m, news, d };
     });
     const now = nowIso();
@@ -255,7 +277,7 @@ export async function generateDigests(db: Db, ai: Ai | null, v: Viewer, members:
     );
     const stmts = results.flatMap((r) => (r.status === "fulfilled" ? [insert.bind(r.value.m.key, date, r.value.d.summary, r.value.d.tone, r.value.news.map((n) => n.id).join(","), newsFingerprint(r.value.news.map((n) => n.id)), SONNET, now)] : []));
     const failed = results.filter((r) => r.status === "rejected");
-    await refundCalls(db, v, failed.length, quotaDate).catch(() => {});
+    await refundCalls(db, v, failed.filter((f) => refundable(f.reason)).length, quotaDate).catch(() => {});
     if (stmts.length) await db.batch(stmts);
     if (failed.length) failed.forEach((f) => console.error("每日重點失敗：", (f as PromiseRejectedResult).reason));
     if (!stmts.length) throw failure((failed[0] as PromiseRejectedResult).reason);

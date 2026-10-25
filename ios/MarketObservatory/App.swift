@@ -30,6 +30,8 @@ final class SessionStore {
     var tab: AppTab = .overview
     /// 推播帶來的日期（收盤摘要）：總覽切到那一天
     var overviewDate: String?
+    /// 總覽點公司時要走勢頁打開的標的
+    var historySymbol: String?
     var deviceToken: String?
     var pushError: String?
 

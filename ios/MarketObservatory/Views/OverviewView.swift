@@ -31,6 +31,7 @@ struct OverviewView: View {
             }
         }
         .task { if state.value == nil { await load() } }
+        .onChange(of: session.watchlistRevision) { Task { await load() } }
         .onChange(of: session.overviewDate) { _, new in
             guard let new else { return }
             date = new

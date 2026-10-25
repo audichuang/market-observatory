@@ -147,7 +147,8 @@ struct NewsView: View {
     // MARK: 新聞中文化
 
     private func isImportant(_ n: NewsPage.Item) -> Bool {
-        translations[n.id]?.important ?? n.important ?? true
+        // 伺服器依目前選的代號算的值優先；翻譯結果不分代號，只在列表沒帶旗標時備用。
+        n.important ?? translations[n.id]?.important ?? true
     }
 
     private func newsButton(_ n: NewsPage.Item) -> some View {
@@ -166,6 +167,8 @@ struct NewsView: View {
         digestError = nil
         aiNotice = NewsText.aiNotice(p.ai)
         aiDisabled = aiNotice != nil
+        // 日曆段看不到新聞列，不預先翻譯；切回新聞時由各列 onAppear 排隊。
+        guard section == 0 else { return }
         for n in p.news.filter({ isImportant($0) }).prefix(20) { enqueue(n) }
     }
 

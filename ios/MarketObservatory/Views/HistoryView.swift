@@ -8,6 +8,8 @@ struct HistoryView: View {
     @State private var symbol = "SPX"
     @State private var months = 12
     @State private var loadTask: Task<Void, Never>?
+    // 選取的 checkmark 比 chevron 寬，固定寬度讓數字欄右緣對齊
+    @ScaledMetric(relativeTo: .caption) private var rowIconWidth: CGFloat = 14
 
     /// 換標的或區間後、新資料回來前：畫面上還是舊圖，要讓人看得出正在載入。
     private var busy: Bool {
@@ -163,6 +165,7 @@ struct HistoryView: View {
                                 Image(systemName: s.symbol == symbol ? "checkmark" : "chevron.right")
                                     .font(.caption.weight(.semibold))
                                     .foregroundStyle(.tertiary)
+                                    .frame(width: rowIconWidth, alignment: .trailing)
                             }
                             .contentShape(Rectangle())
                         }

@@ -28,7 +28,22 @@ struct HistoryView: View {
                     }
                 }
         }
-        .task { if state.value == nil { await load() } }
+        .task {
+            // 第一次切過來時標的已經放進 session，onChange 收不到。
+            if let s = session.historySymbol {
+                symbol = s
+                session.historySymbol = nil
+                await load()
+            } else if state.value == nil {
+                await load()
+            }
+        }
+        .onChange(of: session.historySymbol) { _, new in
+            guard let new else { return }
+            symbol = new
+            session.historySymbol = nil
+            Task { await load() }
+        }
     }
 
     private func load() async {

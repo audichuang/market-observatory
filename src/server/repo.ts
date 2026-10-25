@@ -49,7 +49,8 @@ export async function upsertBars(
     `INSERT INTO prices (symbol, date, open, high, low, close, volume, source, fetched_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(symbol, date) DO UPDATE SET
-       open = excluded.open, high = excluded.high, low = excluded.low, volume = excluded.volume,
+       open = COALESCE(excluded.open, prices.open), high = COALESCE(excluded.high, prices.high),
+       low = COALESCE(excluded.low, prices.low), volume = COALESCE(excluded.volume, prices.volume),
        source = excluded.source, fetched_at = excluded.fetched_at,
        check_status = CASE WHEN prices.close = excluded.close THEN prices.check_status ELSE NULL END,
        check_close = CASE WHEN prices.close = excluded.close THEN prices.check_close ELSE NULL END,
@@ -71,7 +72,8 @@ export async function upsertBars(
       if (!opts.allowRebase) continue;
     }
     for (const b of bars) {
-      if (existing.get(`${symbol}|${b.date}`) === b.close) continue;
+      const old = existing.get(`${symbol}|${b.date}`);
+      if (old !== undefined && sameClose(old, b.close)) continue;
       changed[symbol]++;
       stmts.push(stmt.bind(symbol, b.date, b.open, b.high, b.low, b.close, b.volume, source, fetchedAt));
     }
@@ -79,6 +81,12 @@ export async function upsertBars(
   await batchRun(db, stmts);
   return { changed, rebased };
 }
+
+/**
+ * 同一個收盤的兩種寫法：Yahoo spark 的收盤是單精度浮點（例如 6812.3457 vs chart 的 6812.35），
+ * 差在第 7 位有效數字。這種差異不算「收盤改了」，否則每天都會把整個月重寫一遍、清掉已做完的交叉核對。
+ */
+export const sameClose = (a: number, b: number) => Math.abs(a - b) <= Math.max(Math.abs(a), Math.abs(b)) * 1e-6;
 
 export const CHECK_ABS_TOLERANCE = 0.011;
 export const CHECK_REL_TOLERANCE = 0.0005;

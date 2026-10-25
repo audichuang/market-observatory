@@ -1,5 +1,5 @@
 import { unzipSync, strFromU8 } from "fflate";
-import { SourceError, fetchWithTimeout, parseLooseNumber } from "./http.ts";
+import { type Budget, SourceError, fetchWithTimeout, parseLooseNumber } from "./http.ts";
 
 export const SSGA_SOURCE = "ssga-spy-holdings";
 export const SSGA_SPY_URL =
@@ -76,8 +76,8 @@ export function parseSpyHoldings(rows: string[][]): HoldingsFile {
   return { asOf, holdings };
 }
 
-export async function fetchSpyHoldings(): Promise<HoldingsFile> {
-  const res = await fetchWithTimeout(SSGA_SOURCE, SSGA_SPY_URL, { timeoutMs: 30000 });
+export async function fetchSpyHoldings(budget?: Budget): Promise<HoldingsFile> {
+  const res = await fetchWithTimeout(SSGA_SOURCE, SSGA_SPY_URL, { timeoutMs: 30000, budget });
   const buf = new Uint8Array(await res.arrayBuffer());
   if (buf[0] !== 0x50 || buf[1] !== 0x4b) throw new SourceError(SSGA_SOURCE, "回應不是 xlsx（可能被導到網頁）");
   return parseSpyHoldings(readFirstSheet(buf));

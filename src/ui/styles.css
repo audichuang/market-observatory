@@ -338,3 +338,15 @@ button.chip:disabled { opacity: .5; }
   .watch-list li button { grid-column: 2; }
   .head-row .button { min-height: 40px; }
 }
+
+/* 新聞：利多紅、利空綠（紅漲綠跌） */
+.badge.tone-pos { background: var(--bad-bg); color: var(--up); border-color: transparent; }
+.badge.tone-neg { background: var(--ok-bg); color: var(--down); border-color: transparent; }
+.news-en { font-size: .8rem; }
+.news-points { margin: .35rem 0 0; padding-left: 1.2rem; font-size: .9rem; }
+.news-points li { border: 0; padding: .1rem 0; }
+.news-err { color: var(--warn); }
+.news-others { margin-top: .6rem; }
+.news-others summary { cursor: pointer; color: var(--muted); font-size: .88rem; margin-bottom: .4rem; }
+.digests { margin-bottom: .8rem; }
+.digest { background: color-mix(in srgb, var(--ink) 4%, transparent); border-radius: var(--radius); padding: .5rem .7rem; margin-bottom: .5rem; font-size: .9rem; }

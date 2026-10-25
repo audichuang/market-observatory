@@ -1,5 +1,6 @@
 import { Link } from "@void/react";
 import { dateWithWeekday, daysBetween } from "../src/ui/format.ts";
+import { NewsFeed } from "../src/ui/NewsFeed.tsx";
 import type { Props } from "./news.server";
 
 const STATUS: Record<string, [string, string]> = {
@@ -9,7 +10,7 @@ const STATUS: Record<string, [string, string]> = {
   tentative: ["warn", "官方暫定"],
 };
 
-export default function NewsPage({ symbol, keys, today, news, events }: Props) {
+export default function NewsPage({ symbol, keys, today, news, digests, ai, events }: Props) {
   const upcoming = events.filter((e) => e.date >= today);
   const past = events.filter((e) => e.date < today).reverse();
   return (
@@ -17,7 +18,7 @@ export default function NewsPage({ symbol, keys, today, news, events }: Props) {
       <div className="page-head">
         <div>
           <h1>新聞與事件日曆</h1>
-          <p className="sub">新聞每 4 小時從 Nasdaq 抓一次（觀察名單與 SPY）；財報日期每天更新，FOMC 依聯準會公布日程。</p>
+          <p className="sub">新聞每 4 小時從 Nasdaq 抓一次（觀察名單與 SPY），標題與重點在你打開時由 AI 翻成中文、全站共用；財報日期每天更新，FOMC 依聯準會公布日程。</p>
         </div>
       </div>
       <div className="grid two">
@@ -61,16 +62,7 @@ export default function NewsPage({ symbol, keys, today, news, events }: Props) {
             <Link href="/news" className={`chip ${symbol === null ? "active" : ""}`}>全部</Link>
             {keys.map((k) => <Link key={k} href={`/news?symbol=${k}`} className={`chip ${symbol === k ? "active" : ""}`}>{k}</Link>)}
           </div>
-          {news.length === 0 ? <p className="sub">還沒有新聞。</p> : (
-            <ul className="list">
-              {news.map((n) => (
-                <li key={n.id}>
-                  <a href={n.url} target="_blank" rel="noreferrer">{n.title}</a>
-                  <div className="meta">{n.symbols.replace(/,/g, " · ")} · {n.publisher ?? "Nasdaq"} · {n.published_at ?? "日期不明"}</div>
-                </li>
-              ))}
-            </ul>
-          )}
+          <NewsFeed news={news} digests={digests} ai={ai} date={today} />
         </div>
       </div>
     </>

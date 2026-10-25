@@ -2,9 +2,10 @@ import { Link, useRouter } from "@void/react";
 import type { Mag7Row } from "../src/lib/snapshot.ts";
 import { CenteredBar, CheckBadge, Delta } from "../src/ui/bits.tsx";
 import { dateWithWeekday, num, pctText, signed, taipeiTime } from "../src/ui/format.ts";
+import { NewsFeed } from "../src/ui/NewsFeed.tsx";
 import type { Props } from "./index.server";
 
-export default function Overview({ snapshot, revisions, dates, expectedClose, news, events, lastPriceRun, forecast, restCount, viewingLatest }: Props) {
+export default function Overview({ snapshot, revisions, dates, expectedClose, news, digests, ai, events, lastPriceRun, forecast, restCount, viewingLatest }: Props) {
   const router = useRouter();
   if (!snapshot) {
     return (
@@ -182,16 +183,7 @@ export default function Overview({ snapshot, revisions, dates, expectedClose, ne
       <div className="grid two section">
         <div className="panel">
           <h2>最新新聞</h2>
-          {news.length === 0 ? <p className="sub">還沒有新聞。</p> : (
-            <ul className="list">
-              {news.map((n) => (
-                <li key={n.url}>
-                  <a href={n.url} target="_blank" rel="noreferrer">{n.title}</a>
-                  <div className="meta">{n.symbols.replace(/,/g, " · ")} · {n.publisher ?? "Nasdaq"} · {n.published_at ?? ""}</div>
-                </li>
-              ))}
-            </ul>
-          )}
+          <NewsFeed news={news} digests={digests} ai={ai} date={snapshot?.tradeDate ?? ""} showOthers={false} />
           <p style={{ marginTop: ".5rem" }}><Link href="/news">全部新聞 →</Link></p>
         </div>
         <div className="panel">

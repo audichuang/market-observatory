@@ -10,6 +10,8 @@ struct Me: Decodable, Sendable {
     let email: String
     let name: String?
     let isOwner: Bool
+    /// 有綁 Apple 登入：刪帳號前要再跑一次 Apple 授權，讓後端撤銷 Apple 的 token。舊後端沒有這個欄位。
+    let hasApple: Bool?
 }
 
 // MARK: - 總覽

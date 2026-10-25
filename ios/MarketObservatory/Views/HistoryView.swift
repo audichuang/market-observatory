@@ -132,7 +132,7 @@ struct HistoryView: View {
                         StatCell(title: "交易日", value: "\(h.mainStats.points)", tone: nil)
                     }
                 } footer: {
-                    Text("日收盤（拆股調整、不含股息）。均線先用更早的資料暖機再截取，不受區間起點影響。")
+                    Text("日收盤，已調整拆股、不含股息。")
                 }
                 .listRowSeparator(.hidden)
 
@@ -187,8 +187,6 @@ struct HistoryView: View {
                     }
                 } header: {
                     Text("近 \(h.contribution.count) 個交易日：指數漲跌點數拆解")
-                } footer: {
-                    Text("名單貢獻 vs 其餘成分股，只加總你名單上的公司。")
                 }
                 .listRowSeparator(.hidden)
             }

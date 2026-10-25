@@ -7,10 +7,11 @@ struct OverviewView: View {
     @ScaledMetric(relativeTo: .subheadline) private var dateWidth: CGFloat = 82
     @State private var state: LoadState<Overview> = .idle
     @State private var date: String?
-    @State private var rev: Int?
     @State private var loadTask: Task<Void, Never>?
     @State private var loadID = 0
     @State private var showDates = false
+    @State private var showWatchlist = false
+    @AppStorage("overview.showIndicators") private var showIndicators = false
 
     var body: some View {
         NavigationStack {
@@ -24,39 +25,28 @@ struct OverviewView: View {
                     if isSwitching {
                         ToolbarItem(placement: .topBarTrailing) { ProgressView() }
                     } else {
-                        if o.revisions.count > 1 {
-                            ToolbarItem(placement: .topBarTrailing) {
-                                Menu {
-                                    Picker("版本", selection: Binding(get: { rev ?? o.snapshot?.revision ?? 0 }, set: { new in
-                                        rev = new == o.revisions.first?.revision ? nil : new
-                                        reload()
-                                    })) {
-                                        ForEach(o.revisions, id: \.revision) { r in
-                                            Text("第 \(r.revision) 版　\(r.reason)").tag(r.revision)
-                                        }
-                                    }
-                                } label: {
-                                    Label("版本", systemImage: "clock.arrow.circlepath")
-                                }
-                            }
-                        }
                         ToolbarItem(placement: .topBarTrailing) {
                             Button { showDates = true } label: {
                                 Label("其他交易日", systemImage: "calendar")
                             }
                         }
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button { showWatchlist = true } label: {
+                                Label("觀察名單", systemImage: "star")
+                            }
+                        }
                     }
                 }
             }
+            .sheet(isPresented: $showWatchlist) { WatchlistView() }
             .sheet(isPresented: $showDates) {
                 if let o = state.value {
                     DateListSheet(
                         dates: o.dates,
                         current: o.snapshot?.tradeDate,
-                        viewingLatest: date == nil && rev == nil,
+                        viewingLatest: date == nil,
                         pick: { picked in
                             date = picked == o.dates.first?.tradeDate ? nil : picked
-                            rev = nil
                             showDates = false
                             reload()
                         }
@@ -68,7 +58,6 @@ struct OverviewView: View {
             // 推播冷啟動：日期在這個畫面建立前就放進 session 了，onChange 收不到。
             if let d = session.overviewDate {
                 date = d
-                rev = nil
                 session.overviewDate = nil
                 await load()
             } else if state.value == nil {
@@ -79,7 +68,6 @@ struct OverviewView: View {
         .onChange(of: session.overviewDate) { _, new in
             guard let new else { return }
             date = new
-            rev = nil
             session.overviewDate = nil
             reload()
         }
@@ -95,7 +83,7 @@ struct OverviewView: View {
         return "S&P 500 \(Fmt.dateWithWeekday(t))"
     }
 
-    /// 換日期／版本：取消還在跑的請求，免得舊的回應蓋掉新的。
+    /// 換日期：取消還在跑的請求，免得舊的回應蓋掉新的。
     private func reload() {
         loadTask?.cancel()
         loadTask = Task { await load() }
@@ -106,10 +94,8 @@ struct OverviewView: View {
         let id = loadID
         let last = state.value
         state = .loading(last)
-        // 指定版本時一定要帶日期，否則伺服器會忽略 rev。
-        let queryDate = rev != nil ? (date ?? last?.snapshot?.tradeDate) : date
         do {
-            let o: Overview = try await API.get("/api/v1/overview", query: ["date": queryDate, "rev": rev.map(String.init)])
+            let o: Overview = try await API.get("/api/v1/overview", query: ["date": date])
             guard id == loadID, !Task.isCancelled else { return }
             if date != nil, date == o.dates.first?.tradeDate { date = nil }
             state = .loaded(o)
@@ -129,47 +115,20 @@ struct OverviewView: View {
     private func content(_ o: Overview) -> some View {
         if let row = o.snapshot {
             let s = row.data
-            let viewingOld = o.revisions.first.map { $0.revision != row.revision } ?? false
             List {
                 notices(o, s)
-                if viewingOld {
-                    HStack(spacing: 8) {
-                        Notice(kind: .info, text: "正在看第 \(row.revision) 版（\(row.reason)）")
-                        Button("看最新版") {
-                            rev = nil
-                            reload()
-                        }
-                        .font(.footnote)
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                    }
-                    .noticeRow()
-                }
 
                 Section {
                     IndexHero(s: s, createdAt: row.createdAt)
-                    kpis(s)
-                    maCard(s)
+                    indicatorsToggle(s)
+                    if showIndicators {
+                        kpis(s)
+                        maCard(s)
+                    }
                 }
                 .cardRow()
 
                 attribution(s, restCount: o.restCount, digests: o.digests ?? [])
-
-                Section {
-                    let shown = o.news.filter { $0.important ?? true }.prefix(5)
-                    if shown.isEmpty { Text("還沒有新聞。").foregroundStyle(.secondary) }
-                    ForEach(Array(shown)) { n in
-                        Button {
-                            if let u = URL(string: n.url) { openURL(u) }
-                        } label: {
-                            NewsRow(titleZh: n.titleZh, title: n.title, tone: nil, category: nil, symbols: n.symbols, publisher: n.publisher, publishedAt: n.publishedAt, titleLines: 2)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    Button("全部新聞 →") { session.newsSectionRequest = 0; session.tab = .news }.font(.subheadline)
-                } header: {
-                    Text("最新新聞")
-                }
 
                 Section("未來三週事件") {
                     if o.events.isEmpty {
@@ -251,6 +210,31 @@ struct OverviewView: View {
     private func lastRunText(_ run: PriceRun?) -> String {
         guard let run else { return "沒有紀錄" }
         return "\(run.summary ?? "—")（\(Fmt.taipeiTime(run.finishedAt))）"
+    }
+
+    /// 市場指標預設收起，只露一行摘要；展開狀態會記住。
+    private func indicatorsToggle(_ s: Snapshot) -> some View {
+        let trend = s.index.sma200.map { s.index.close >= $0 ? "站上 200 日線" : "跌破 200 日線" }
+        let summary = ["VIX \(Fmt.num(s.vix.close))", "距高 \(Fmt.pct(s.index.fromHighPct))", trend].compactMap { $0 }.joined(separator: " · ")
+        return Button {
+            withAnimation { showIndicators.toggle() }
+        } label: {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("市場指標").font(.subheadline.weight(.semibold))
+                    if !showIndicators { Text(summary).font(.caption).foregroundStyle(.secondary).monospacedDigit() }
+                }
+                Spacer()
+                Image(systemName: "chevron.down")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+                    .rotationEffect(.degrees(showIndicators ? 180 : 0))
+            }
+            .contentShape(Rectangle())
+            .cardBackground()
+        }
+        .buttonStyle(.plain)
+        .accessibilityValue(showIndicators ? "已展開" : "已收合")
     }
 
     @ViewBuilder
@@ -375,7 +359,7 @@ struct OverviewView: View {
                     if s.weights.method == "rolled", let a = s.weights.asOf { Text("權重由 \(Fmt.fullDate(a)) 的持股推算。") }
                     Text("其餘成分股 ＝ 指數減掉名單。")
                     ForEach(s.quality.notes, id: \.self) { Text($0) }
-                    if !s.quality.pendingChecks.isEmpty { Text("尚待第二來源核對：\(s.quality.pendingChecks.joined(separator: "、"))") }
+                    Text("貢獻點數 = 前一交易日指數 × 前一日權重 × 當日報酬。")
                 }
                 .font(.footnote)
                 .foregroundStyle(.secondary)
@@ -384,10 +368,8 @@ struct OverviewView: View {
             HStack {
                 Text("名單對指數的點數貢獻")
                 Spacer()
-                Button("編輯名單") { session.tab = .watchlist }.font(.caption)
+                Button("編輯名單") { showWatchlist = true }.font(.caption)
             }
-        } footer: {
-            Text("貢獻點數 = 前一交易日指數 × 前一日權重 × 當日報酬。")
         }
     }
 }
@@ -531,9 +513,6 @@ private struct DateListSheet: View {
                                 Button { pick(d.tradeDate) } label: {
                                     HStack {
                                         Text(d.tradeDate).monospacedDigit().foregroundStyle(.primary)
-                                        if d.revision > 1 {
-                                            Text("（\(d.revision) 版）").font(.caption).foregroundStyle(.secondary)
-                                        }
                                         Spacer()
                                         if d.tradeDate == current {
                                             Image(systemName: "checkmark").foregroundStyle(.tint)

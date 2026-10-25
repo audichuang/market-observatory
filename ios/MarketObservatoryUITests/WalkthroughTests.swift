@@ -92,13 +92,16 @@ final class WalkthroughTests: XCTestCase {
         sleep(1)
         snap("03c-history-contribution")
 
-        tab(app, "名單")
+        tab(app, "總覽")
+        app.buttons["觀察名單"].tap()
         sleep(4)
         snap("04-watchlist")
         app.buttons["加入"].tap()
         sleep(2)
         snap("04b-watchlist-add")
         app.buttons["取消"].tap()
+        sleep(1)
+        app.buttons["完成"].tap()
 
         tab(app, "新聞")
         sleep(4)

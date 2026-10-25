@@ -138,21 +138,18 @@ struct Delta: View {
     }
 }
 
+/// 收盤價核對：只有兩個來源對不上時才顯示，其餘狀態（一致、待核對、無第二來源）不必看。
 struct CheckBadge: View {
     let status: String
     var body: some View {
-        let (text, color): (String, Color) = switch status {
-        case "match": ("兩源一致", .down)
-        case "mismatch": ("來源不一致", .up)
-        case "pending": ("待核對", .orange)
-        default: ("無第二來源", .secondary)
+        if status == "mismatch" {
+            Text("來源不一致")
+                .font(.caption2.weight(.semibold))
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Color.up.opacity(0.12), in: Capsule())
+                .foregroundStyle(Color.up)
         }
-        Text(text)
-            .font(.caption2.weight(.semibold))
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(color.opacity(0.12), in: Capsule())
-            .foregroundStyle(color)
     }
 }
 

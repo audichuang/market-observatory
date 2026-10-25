@@ -1,6 +1,7 @@
-// 壓力測試共用：種子資料庫（含 0→12 家需要的成分股）、跑一次排程、檢查每次執行的額度與快照內容。
+// 壓力測試共用：種子資料庫（含 0→名單上限需要的成分股）、跑一次排程、檢查每次執行的額度與快照內容。
 import assert from "node:assert/strict";
 import { type FakeUpstream, fakeClose, migratedDb, weekdays } from "./fake-cloudflare.ts";
+import { SUBREQUEST_BUDGET } from "../../src/server/jobs.ts";
 
 export const NAMED: [string, string][] = [
   ["NVDA", "NVIDIA CORP"], ["AAPL", "APPLE INC"], ["MSFT", "MICROSOFT CORP"], ["AMZN", "AMAZON.COM INC"],
@@ -9,7 +10,10 @@ export const NAMED: [string, string][] = [
   ["FOXA", "FOX CORP CLASS A"], ["FOX", "FOX CORP CLASS B"], ["NWSA", "NEWS CORP CLASS A"], ["NWS", "NEWS CORP CLASS B"],
   ["JPM", "JPMORGAN CHASE + CO"],
 ];
-export const SEED_WEIGHT = new Map(NAMED.map(([t], i) => [t, 7 - i * 0.3]));
+const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+/** 填充成分股：QAA、QAB…，每檔是獨立的一家公司（FILLER i INC）。 */
+export const FILLERS = Array.from({ length: 480 }, (_, i) => `Q${LETTERS[Math.floor(i / 26) % 26]}${LETTERS[i % 26]}`);
+export const SEED_WEIGHT = new Map([...NAMED.map(([t], i): [string, number] => [t, 7 - i * 0.3]), ...FILLERS.map((t, i): [string, number] => [t, 0.1 - i * 0.0001])]);
 
 export type Sql = { prepare: (q: string) => { all: (...a: never[]) => unknown[]; get: (...a: never[]) => unknown; run: (...a: never[]) => unknown } };
 
@@ -21,8 +25,7 @@ export async function seededDb() {
   // 非股票列（含數字、權重 0）不能被加入
   ins.run(asOf, "2602335D", "CASH COLLATERAL", 0.01);
   ins.run(asOf, "ZERO", "ZERO WEIGHT INC", 0);
-  const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-  for (let i = 0; i < 480; i++) ins.run(asOf, `Q${letters[Math.floor(i / 26) % 26]}${letters[i % 26]}`, `FILLER ${i} INC`, 0.1 - i * 0.0001);
+  FILLERS.forEach((t, i) => ins.run(asOf, t, `FILLER ${i} INC`, SEED_WEIGHT.get(t)!));
   return { db, sql: sql as unknown as Sql };
 }
 
@@ -46,8 +49,8 @@ export async function invokeCron(upstream: FakeUpstream, file: string, db: D1Dat
 }
 
 export function assertInvocation(name: string, r: Awaited<ReturnType<typeof invokeCron>>, opts: { strictJobs?: boolean } = {}) {
-  assert.equal(r.overLimit, 0, `${name}：超過 50（${r.requests}）`);
-  assert.ok(r.requests <= 48, `${name}：${r.requests} > 48`);
+  assert.equal(r.overLimit, 0, `${name}：超過平台上限（${r.requests}）`);
+  assert.ok(r.requests <= SUBREQUEST_BUDGET, `${name}：${r.requests} > ${SUBREQUEST_BUDGET}`);
   assert.ok(r.maxInFlight <= 6, `${name}：同時 ${r.maxInFlight}`);
   const recorded = r.runs.reduce((a, x) => a + (JSON.parse(x.detail).subrequests as number), 0);
   assert.equal(recorded, r.requests, `${name}：記到 ${recorded}、實打 ${r.requests} ${JSON.stringify(r.hosts)}`);

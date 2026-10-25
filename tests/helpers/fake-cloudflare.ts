@@ -1,7 +1,8 @@
 // 模擬 Cloudflare 免費方案的執行環境，給「名單變大後排程會不會爆」的測試用：
 // - D1：node:sqlite 記憶體資料庫，套用 db/migrations 的完整 schema。
 // - 外部網路：假的 fetch，依網址回 Yahoo／Nasdaq／Cboe 格式的資料；
-//   每次執行（reset 之間）超過 50 個請求就丟出 Cloudflare 的錯誤，並記錄同時進行的請求數上限。
+//   每次執行（reset 之間）超過 limit 個請求就丟出 Cloudflare 的錯誤（預設 Workers Paid 的 10,000，免費方案是 50），
+//   並記錄同時進行的請求數上限。
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { addDays, latestExpectedClose } from "../../src/lib/calendar.ts";
@@ -82,6 +83,7 @@ const RANGE_DAYS: Record<string, number> = { "5d": 5, "1mo": 22, "10y": 260 };
 export type Rule = (url: URL, n: number) => Response | null | undefined;
 
 export class FakeUpstream {
+  limit = 10000;
   count = 0;
   inFlight = 0;
   maxInFlight = 0;
@@ -105,7 +107,7 @@ export class FakeUpstream {
       const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
       this.count++;
       this.hosts[url.host] = (this.hosts[url.host] ?? 0) + 1;
-      if (this.count > 50) {
+      if (this.count > this.limit) {
         this.overLimit++;
         // Cloudflare 超過子請求上限時的行為：fetch 直接丟錯。
         throw new Error("Too many subrequests.");

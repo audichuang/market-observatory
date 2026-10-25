@@ -96,7 +96,7 @@ export function parseYahooSpark(json: SparkJson): Map<string, DailyBar[]> {
 
 /**
  * 一次請求抓多檔的日收盤（Yahoo spark，每 20 檔一個請求），收盤值與單檔 chart 相同（浮點精度到小數第 4 位左右）。
- * 每天的收盤更新用這個：名單 12 家、連 ETF 約 30 檔只要 2 個請求，逐檔打 chart 要 30 個。
+ * 每天的收盤更新用這個：名單 30 家、連 ETF 約 50 檔只要 3 個請求，逐檔打 chart 要 50 個。
  * 某一批整個失敗不丟錯，該批代號就不在結果裡。
  */
 export async function fetchYahooSpark(providerSymbols: string[], range: string, budget?: Budget): Promise<{ bars: Map<string, DailyBar[]>; errors: string[] }> {

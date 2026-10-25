@@ -1,9 +1,11 @@
-// 名單加到上限（12 家、15 個代號）以後，每支排程在一次執行裡打出去的外部請求都不能超過 Cloudflare 免費方案的 50 個。
-// 用 tests/helpers/fake-cloudflare.ts 模擬 D1 與外部網路：超過 50 個就跟 Cloudflare 一樣丟錯。
+// 名單加到上限（30 家、33 個代號）以後，每支排程在一次執行裡打出去的外部請求都不能超過額度（SUBREQUEST_BUDGET），
+// 同時進行的請求不超過 Cloudflare 的 6 個；額度很緊時（例如換回免費方案的 48）照額度決定抓幾檔。
+// 用 tests/helpers/fake-cloudflare.ts 模擬 D1 與外部網路：超過平台上限就跟 Cloudflare 一樣丟錯。
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { CALENDAR_BRK_DATE, FakeUpstream, migratedDb, weekdays } from "./helpers/fake-cloudflare.ts";
 import { MAX_WATCH } from "../src/lib/watchlist.ts";
+import { SUBREQUEST_BUDGET } from "../src/server/jobs.ts";
 
 const upstream = new FakeUpstream();
 let restore: () => void;
@@ -12,8 +14,11 @@ before(() => {
 });
 after(() => restore());
 
-// 名單上限時代號最多的組合：三家有兩個股類（Alphabet、Fox、News Corp）。
-const ADDS = ["AVGO", "BRK-B", "FOXA", "NWSA", "LLY"];
+const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+const FILLER = (i: number) => `Q${LETTERS[Math.floor(i / 26) % 26]}${LETTERS[i % 26]}`;
+// 名單上限時代號最多的組合：三家有兩個股類（Alphabet、Fox、News Corp），其餘用填充成分股補到上限。
+const ADDS = ["AVGO", "BRK-B", "FOXA", "NWSA", "LLY", ...Array.from({ length: MAX_WATCH - 12 }, (_, i) => FILLER(i))];
+const TICKERS_AT_MAX = 15 + (MAX_WATCH - 12);
 const NAMED: [string, string][] = [
   ["NVDA", "NVIDIA CORP"], ["AAPL", "APPLE INC"], ["MSFT", "MICROSOFT CORP"], ["AMZN", "AMAZON.COM INC"],
   ["GOOGL", "ALPHABET INC CL A"], ["GOOG", "ALPHABET INC CL C"], ["META", "META PLATFORMS INC CLASS A"], ["TSLA", "TESLA INC"],
@@ -27,8 +32,7 @@ async function seededDb() {
   const asOf = weekdays(2)[0];
   const ins = sql.prepare("INSERT INTO weights (as_of, ticker, name, weight_pct, shares, fetched_at) VALUES (?, ?, ?, ?, 1, 'x')");
   NAMED.forEach(([t, n], i) => ins.run(asOf, t, n, 7 - i * 0.3));
-  const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-  for (let i = 0; i < 488; i++) ins.run(asOf, `Q${letters[Math.floor(i / 26) % 26]}${letters[i % 26]}`, `FILLER ${i} INC`, 0.1 - i * 0.0001);
+  for (let i = 0; i < 488; i++) ins.run(asOf, FILLER(i), `FILLER ${i} INC`, 0.1 - i * 0.0001);
   return { db, sql };
 }
 
@@ -45,8 +49,8 @@ async function invokeCron(file: string, db: D1Database, sql: { prepare: (q: stri
 }
 
 function assertWithinLimit(name: string, r: Awaited<ReturnType<typeof invokeCron>>) {
-  assert.equal(r.overLimit, 0, `${name}：超過 50 個請求（實際 ${r.requests}）`);
-  assert.ok(r.requests <= 48, `${name}：用了 ${r.requests} 個請求，超過預留餘裕的 48`);
+  assert.equal(r.overLimit, 0, `${name}：超過平台上限（實際 ${r.requests}）`);
+  assert.ok(r.requests <= SUBREQUEST_BUDGET, `${name}：用了 ${r.requests} 個請求，超過額度 ${SUBREQUEST_BUDGET}`);
   // Cloudflare 一次最多 6 個連線同時等回應；超過會排隊，這裡要求程式自己就不超過。
   assert.ok(r.maxInFlight <= 6, `${name}：同時 ${r.maxInFlight} 個請求`);
   // 每個請求都有被額度記到：runs 裡各工作記的用量加起來要等於實際打出去的數量（漏傳 budget 的抓取會讓這裡對不上）。
@@ -54,7 +58,7 @@ function assertWithinLimit(name: string, r: Awaited<ReturnType<typeof invokeCron
   assert.equal(recorded, r.requests, `${name}：額度記到 ${recorded} 個，實際打了 ${r.requests} 個 ${JSON.stringify(r.hosts)}`);
 }
 
-test("名單從 7 家加到 12 家：每次加入都在請求上限內，第 13 家被擋下", async (t) => {
+test("名單從 7 家加到上限：每次加入只打幾個請求，再多一家被擋下", async (t) => {
   const { db } = await seededDb();
   const { addWatchSymbol } = await import("../src/server/jobs.ts");
   const { loadWatchlist } = await import("../src/server/watchlist.ts");
@@ -67,10 +71,10 @@ test("名單從 7 家加到 12 家：每次加入都在請求上限內，第 13 
   }
   const list = await loadWatchlist(db);
   assert.equal(list.length, MAX_WATCH);
-  assert.equal(list.flatMap((m) => m.tickers).length, 15);
+  assert.equal(list.flatMap((m) => m.tickers).length, TICKERS_AT_MAX);
   upstream.reset();
-  const full = await addWatchSymbol(db, "QAA");
-  assert.ok(!full.ok && /最多 12 家/.test(full.error));
+  const full = await addWatchSymbol(db, FILLER(MAX_WATCH));
+  assert.ok(!full.ok && new RegExp(`最多 ${MAX_WATCH} 家`).test(full.error), JSON.stringify(full));
   assert.equal(upstream.count, 0, "名單滿了不該再打任何請求");
 });
 
@@ -84,7 +88,7 @@ async function fullListDb() {
   return { db, sql };
 }
 
-test("名單滿 12 家時，五支排程各自一次執行都不超過請求上限、工作都成功", async (t) => {
+test("名單滿上限時，五支排程各自一次執行都不超過額度、工作都成功", async (t) => {
   const { db, sql } = await fullListDb();
   for (const file of ["daily-reference", "prices", "crosscheck", "retry", "news"]) {
     const r = await invokeCron(file, db, sql);
@@ -96,48 +100,60 @@ test("名單滿 12 家時，五支排程各自一次執行都不超過請求上�
       assert.equal(run.status, "ok", `${file}/${run.job}: ${run.summary}`);
     }
   }
-  // 新聞一家一個請求（直接打 www.nasdaq.com，不經過 301 轉址）；Cboe 兩個檔各一個請求。
+  // 新聞一家一個請求＋SPY（直接打 www.nasdaq.com，不經過 301 轉址）；Cboe 兩個檔各一個請求。
   const runs = sql.prepare("SELECT job, detail FROM runs").all() as { job: string; detail: string }[];
   const newsRun = runs.filter((x) => x.job === "news").at(-1)!;
-  assert.equal(JSON.parse(newsRun.detail).subrequests, 13);
+  assert.equal(JSON.parse(newsRun.detail).subrequests, MAX_WATCH + 1);
+  const { yahooSymbols } = await import("../src/lib/universe.ts");
+  const { loadWatchlist } = await import("../src/server/watchlist.ts");
+  const yahooCount = Object.keys(yahooSymbols(await loadWatchlist(db))).length;
   const pricesRun = runs.filter((x) => x.job === "prices").at(-1)!;
-  assert.equal(JSON.parse(pricesRun.detail).subrequests, 4, "spark 2 ＋ Cboe 2");
+  assert.equal(JSON.parse(pricesRun.detail).subrequests, Math.ceil(yahooCount / 20) + 2, `spark 每 20 檔 1 個（${yahooCount} 檔）＋ Cboe 2`);
   // 股類代號（BRK-B）在 Nasdaq 要寫成 BRK.B：核對、新聞、財報日都要查得到。
   const brk = sql.prepare("SELECT date, status FROM events WHERE kind = 'earnings' AND symbol = 'BRK-B'").get() as { date: string; status: string } | undefined;
   assert.deepEqual(brk && [brk.date, brk.status], [CALENDAR_BRK_DATE, "confirmed"]);
   const brkCheck = sql.prepare("SELECT COUNT(*) AS n FROM prices WHERE symbol = 'BRK-B' AND check_status = 'match'").get() as { n: number };
   assert.ok(brkCheck.n > 0, "BRK-B 沒有被 Nasdaq 核對到");
-  // 01:10 那支：收盤＋核對在同一次執行，核對 27 檔要全部做完，不再因額度略過 ETF。
+  // 01:10 那支：收盤＋核對在同一次執行，核對要全部做完，不因額度略過 ETF。
   const retry = sql.prepare("SELECT summary FROM runs WHERE job = 'crosscheck' ORDER BY id DESC LIMIT 1").get() as { summary: string };
   assert.ok(!retry.summary.includes("略過"), retry.summary);
 });
 
-test("Yahoo spark 整個掛掉時改逐檔補抓，仍不超過上限；01:10 的核對只用剩下的額度", async () => {
+test("Yahoo spark 整個掛掉時改逐檔補抓：額度夠就全部做完；額度緊時 01:10 的核對只用剩下的額度", async () => {
   const { db, sql } = await fullListDb();
+  const { yahooSymbols, nasdaqCheckSymbols } = await import("../src/lib/universe.ts");
+  const { loadWatchlist } = await import("../src/server/watchlist.ts");
+  const { runJobs, SCHEDULES } = await import("../src/server/jobs.ts");
+  const { Budget } = await import("../src/lib/sources/http.ts");
+  const yahooCount = Object.keys(yahooSymbols(await loadWatchlist(db))).length;
   upstream.rules = [(u) => (u.pathname.startsWith("/v7/finance/spark") ? new Response("down", { status: 500 }) : null)];
   try {
     const prices = await invokeCron("prices", db, sql);
     assertWithinLimit("prices（spark 掛掉）", prices);
     const p = prices.runs[0];
     assert.equal(p.status, "ok", p.summary);
-    assert.equal(JSON.parse(p.detail).fallback.length, 29, "29 檔都要改逐檔補抓");
+    assert.equal(JSON.parse(p.detail).fallback.length, yahooCount, "每檔都要改逐檔補抓");
+    // 正常額度：01:10 那支收盤逐檔補抓完，核對也全部做完。
     const retry = await invokeCron("retry", db, sql);
     assertWithinLimit("retry（spark 掛掉）", retry);
-    const cc = retry.runs.find((x) => x.job === "crosscheck")!;
+    for (const run of retry.runs) assert.equal(run.status, "ok", `${run.job}: ${run.summary}`);
+    // 額度緊（80 個）：收盤先用，核對只拿剩下的，略過清單尾端並記成額度不足。
+    upstream.reset();
+    const [pr, cc] = await runJobs(db, "test", SCHEDULES.retry, new Budget(80));
+    assert.ok(upstream.count <= 80, String(upstream.count));
     assert.equal(cc.status, "partial");
     assert.match(cc.summary, /請求額度不足、這次略過/);
     // 略過的是排在最後的那一段（名單個股在前、ETF 在後），而且核對的檔數＝剩下的額度扣掉重試保留。
-    const { nasdaqCheckSymbols } = await import("../src/lib/universe.ts");
-    const { loadWatchlist } = await import("../src/server/watchlist.ts");
     const order = nasdaqCheckSymbols(await loadWatchlist(db)).map((x) => x.symbol);
-    const skipped = JSON.parse(cc.detail).skipped as string[];
+    const skipped = cc.detail.skipped as string[];
+    assert.ok(skipped.length > 0);
     assert.deepEqual(skipped, order.slice(order.length - skipped.length), "略過的應該是清單尾端");
-    const pricesUsed = JSON.parse(retry.runs[0].detail).subrequests as number;
-    assert.equal(order.length - skipped.length, 48 - pricesUsed - 2);
+    const pricesUsed = pr.detail.subrequests as number;
+    assert.equal(order.length - skipped.length, 80 - pricesUsed - 2);
   } finally {
     upstream.rules = [];
   }
-  // spark 恢復後，傍晚那支單獨的核對排程把全部 27 檔補齊。
+  // spark 恢復後，傍晚那支單獨的核對排程把全部補齊。
   const later = await invokeCron("crosscheck", db, sql);
   assertWithinLimit("crosscheck（隔天）", later);
   assert.equal(later.runs[0].status, "ok", later.runs[0].summary);
@@ -167,39 +183,41 @@ test("名單上每一檔同時偵測到分割：重抓十年歷史也在上限�
   // 上一輪留下的待修代號（這一輪沒有重新偵測到）也要能寫出摘要，不能讓整個工作失敗。
   assert.equal(r.runs[0].status, "ok", r.runs[0].summary);
   const pending = JSON.parse((sql.prepare("SELECT value FROM settings WHERE key = 'pending_rebase'").get() as { value: string }).value);
-  assert.deepEqual(pending, {}, "29 檔都重抓成功，待修清單應清空");
+  assert.deepEqual(pending, {}, "每檔都重抓成功，待修清單應清空");
 });
 
 test("額度很緊時：spark 掛掉的逐檔補抓與分割重抓都讓出 Cboe 的 2 個，其餘明確記成額度不足", async () => {
   const { db, sql } = await fullListDb();
   const { runJob } = await import("../src/server/jobs.ts");
   const { Budget } = await import("../src/lib/sources/http.ts");
+  const { yahooSymbols } = await import("../src/lib/universe.ts");
+  const { loadWatchlist } = await import("../src/server/watchlist.ts");
+  const all = Object.keys(yahooSymbols(await loadWatchlist(db)));
+  // 10 個額度：spark 每 20 檔 1 個，Cboe 2 個，剩下的才給逐檔補抓／分割重抓。
+  const sparkN = Math.ceil(all.length / 20);
+  const room = 10 - sparkN - 2;
   upstream.rules = [(u) => (u.pathname.startsWith("/v7/finance/spark") ? new Response("down", { status: 500 }) : null)];
   try {
     upstream.reset();
     const r = await runJob(db, "prices", "test", {}, new Budget(10));
     const failed = r.detail.failed as Record<string, string>;
-    // 2 個 spark ＋ 6 個逐檔補抓 ＋ VIX、SPX
     assert.equal(upstream.count, 10);
     assert.ok(!("VIX" in failed), JSON.stringify(failed));
     assert.ok(!r.detail.spxCheck, String(r.detail.spxCheck));
-    assert.equal(Object.values(failed).filter((m) => m.includes("請求額度不足")).length, 29 - 6);
+    assert.equal(Object.values(failed).filter((m) => m.includes("請求額度不足")).length, all.length - room);
   } finally {
     upstream.rules = [];
   }
-  // 全部偵測到分割、額度只剩 6 個：先重抓 6 檔，其餘留在待修清單、標明額度不足。
-  const { yahooSymbols } = await import("../src/lib/universe.ts");
-  const { loadWatchlist } = await import("../src/server/watchlist.ts");
-  const all = Object.keys(yahooSymbols(await loadWatchlist(db)));
+  // 全部偵測到分割、額度只剩 room 個：先重抓 room 檔，其餘留在待修清單、標明額度不足。
   sql.prepare("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('pending_rebase', ?, 'x')").run(JSON.stringify(Object.fromEntries(all.map((s) => [s, 2]))));
   upstream.reset();
   const r2 = await runJob(db, "prices", "test", {}, new Budget(10));
   assert.equal(upstream.count, 10);
   const pending = JSON.parse((sql.prepare("SELECT value FROM settings WHERE key = 'pending_rebase'").get() as { value: string }).value);
-  assert.equal(Object.keys(pending).length, 29 - 6);
+  assert.equal(Object.keys(pending).length, all.length - room);
   assert.ok(r2.detail.failed, JSON.stringify(r2).slice(0, 600));
   const msgs = Object.values(r2.detail.failed as Record<string, string>);
-  assert.equal(msgs.filter((m) => m.includes("這次請求額度不足")).length, 29 - 6, msgs.join("\n"));
+  assert.equal(msgs.filter((m) => m.includes("這次請求額度不足")).length, all.length - room, msgs.join("\n"));
 });
 
 test("分析師輪替只抓剩下額度付得起的檔數：全部成功，而不是抓到一半額度用完", async () => {
@@ -254,7 +272,7 @@ test("重算快照途中名單被改：存檔的快照用的是改完的名單",
   const latest = sql.prepare("SELECT data FROM snapshots ORDER BY trade_date DESC, revision DESC LIMIT 1").get() as { data: string };
   const keys = (JSON.parse(latest.data).mag7 as { key: string }[]).map((r) => r.key);
   assert.ok(!keys.includes("TSLA"), keys.join(","));
-  assert.equal(keys.length, 11);
+  assert.equal(keys.length, MAX_WATCH - 1);
 });
 
 test("財報日曆沒排到時改查推估日期：股類代號（BRK-B）也查得到", async () => {

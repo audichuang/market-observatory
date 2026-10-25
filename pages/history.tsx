@@ -5,6 +5,8 @@ import { num } from "../src/ui/format.ts";
 import type { Props } from "./history.server";
 
 const COLORS = ["#2456d6", "#d1343b", "#12884e", "#b26b00", "#7b3fd1", "#0f8a9d", "#c2417f", "#5c6b7a", "#8a6d00", "#333", "#e0662b", "#2a9d8f", "#9b5de5", "#6a994e"];
+/** 相對報酬圖最多畫名單前幾家：再多顏色會重複、線糊成一團；表格照樣列出全部。 */
+const CHART_MEMBERS = 10;
 
 export default function HistoryPage({ symbol, watch, months, ranges, symbols, priceLine, mainStats, rebased, stats, contribution }: Props) {
   const router = useRouter();
@@ -55,11 +57,14 @@ export default function HistoryPage({ symbol, watch, months, ranges, symbols, pr
           <h2>觀察名單 vs S&amp;P 500 相對報酬</h2>
           <Link href="/watchlist" className="button secondary small">編輯名單</Link>
         </div>
+        {watch.length > CHART_MEMBERS && <p className="sub">圖上畫 S&amp;P 500、RSP 與名單前 {CHART_MEMBERS} 家；下表列出全部 {watch.length} 家。</p>}
         <LineChart
           zeroLine
           suffix="%"
           digits={1}
-          lines={rebased.map((r, i) => ({ name: r.symbol === "SPX" ? "S&P 500" : r.symbol, color: COLORS[i % COLORS.length], dashed: r.symbol === "RSP", points: r.points }))}
+          lines={rebased
+            .filter((r) => !watch.includes(r.symbol) || watch.indexOf(r.symbol) < CHART_MEMBERS)
+            .map((r, i) => ({ name: r.symbol === "SPX" ? "S&P 500" : r.symbol, color: COLORS[i % COLORS.length], dashed: r.symbol === "RSP", points: r.points }))}
         />
         <div className="table-wrap" style={{ marginTop: "1rem" }}>
           <table>

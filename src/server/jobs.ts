@@ -29,10 +29,12 @@ export interface JobOptions {
 }
 
 /**
- * Cloudflare 免費方案每次執行最多 50 個外部子請求（轉址每一跳、重試每一次都算）；留 2 個餘裕。
+ * 每次執行的外部請求額度（轉址每一跳、重試每一次都算）。帳號是 Workers Paid（每次執行上限預設 10,000，
+ * 外部請求不計費）；名單 30 家時最多的一支排程約 90 個，這裡設 1000 只是防程式出錯無限重打。
+ * 免費方案上限是 50，換回免費方案要把這裡改回 48、名單上限改回 12（見 README）。
  * 同一次排程跑多個工作時共用同一個 Budget，見 runJobs。
  */
-export const SUBREQUEST_BUDGET = 48;
+export const SUBREQUEST_BUDGET = 1000;
 
 interface JobResult {
   status: "ok" | "partial" | "failed";
@@ -116,7 +118,7 @@ async function fetchYahooBatch(entries: [string, string][], range: string, upTo:
 
 /**
  * 多檔近期日線：先用 spark 一次 20 檔；spark 沒回來的代號改用單檔 chart 補，但只在額度扣掉 reserve 還夠時補，
- * 補不到的列為失敗（下一次排程再抓）。名單 12 家、連 ETF 約 30 檔時平常只要 2 個請求。
+ * 補不到的列為失敗（下一次排程再抓）。名單 30 家、連 ETF 約 50 檔時平常只要 3 個請求。
  */
 async function fetchRecentBars(entries: [string, string][], range: string, upTo: string, budget: Budget, reserve: number) {
   const { bars, errors } = await fetchYahooSpark(entries.map(([, p]) => p), range, budget);
@@ -538,7 +540,7 @@ export async function runJob(db: D1Database, job: JobName, trigger: string, opts
 
 /**
  * 每支排程在一次執行裡依序跑的工作（crons/*.ts 與手動觸發 /api/admin/cron 共用這份定義，
- * 正式站手動跑一次＝排程跑一次：同樣的工作、同樣共用一份 50 個請求的額度）。
+ * 正式站手動跑一次＝排程跑一次：同樣的工作、同樣共用一份請求額度）。
  */
 export const SCHEDULES = {
   prices: ["prices"],

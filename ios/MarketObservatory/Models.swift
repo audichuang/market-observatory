@@ -29,7 +29,8 @@ struct Overview: Decodable, Sendable {
     let viewingLatest: Bool
     /// 新聞中文化：舊後端沒有這兩個欄位。
     let digests: [NewsDigest]?
-    let ai: AIStatus?
+    /// 「今天為什麼漲跌」（排程寫的，沒寫到就是 nil）
+    let market: MarketDigest?
 }
 
 struct SnapshotRow: Decodable, Sendable {
@@ -166,10 +167,10 @@ struct NewsDigest: Decodable, Sendable, Identifiable, Hashable {
     let tone: String?
 }
 
-struct AIStatus: Decodable, Sendable, Hashable {
-    let enabled: Bool
-    let used: Int
-    let limit: Int
+struct MarketDigest: Decodable, Sendable, Hashable {
+    let date: String
+    let summary: String
+    let tone: String?
 }
 
 struct EventBrief: Decodable, Sendable, Identifiable {
@@ -301,13 +302,6 @@ struct NewsPage: Decodable, Sendable {
         let focus: String?
         let important: Bool?
         let pointsZh: [String]?
-
-        /// focus 為 nil 代表還沒分類，伺服器帶的 important 只是暫定值（一律 true），
-        /// 剛翻譯回來的分類要優先；已分類的項目則維持伺服器依代號算的值。
-        func resolvedImportant(translation: NewsTranslation?) -> Bool {
-            if focus == nil { return translation?.important ?? important ?? true }
-            return important ?? translation?.important ?? true
-        }
     }
 
     struct Event: Decodable, Sendable, Identifiable {
@@ -327,37 +321,6 @@ struct NewsPage: Decodable, Sendable {
     let news: [Item]
     let events: [Event]
     let digests: [NewsDigest]?
-    let ai: AIStatus?
-}
-
-/// POST /api/v1/news/translate 的回應項目。
-struct NewsTranslation: Decodable, Sendable {
-    let id: String
-    let titleZh: String?
-    let tone: String?
-    let category: String?
-    let focus: String?
-    let important: Bool?
-}
-
-struct NewsTranslateResponse: Decodable, Sendable {
-    let items: [NewsTranslation]
-    /// 別的請求正在翻、這次等不到的 id；過幾秒再送
-    let pending: [String]?
-    let ai: AIStatus?
-}
-
-struct NewsPointsResponse: Decodable, Sendable {
-    let id: String
-    let points: [String]
-    let tone: String?
-    let cached: Bool?
-    let ai: AIStatus?
-}
-
-struct DigestsResponse: Decodable, Sendable {
-    let digests: [NewsDigest]
-    let ai: AIStatus?
 }
 
 // MARK: - ETF 與定投

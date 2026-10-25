@@ -75,9 +75,9 @@ export async function dailyWork(db: Db, today: string) {
     .prepare(`SELECT ${COLS} FROM news WHERE published_at >= ? ORDER BY published_at DESC, fetched_at DESC LIMIT 300`)
     .bind(addDays(today, -POINTS_DAYS))
     .all<NewsRow>();
-  // 重點只寫已經翻過、AI 判定真的在講追蹤公司（或大盤總經）的
+  // 重點只寫已經翻過、AI 判定真的在講追蹤公司（或大盤總經）的；選股、「我會買哪檔」這類投資觀點文不寫
   const points = recent.results
-    .filter((n) => n.points_zh === null && n.focus !== null && isImportant(n, [...keys, "SPY"], tickers))
+    .filter((n) => n.points_zh === null && n.focus !== null && n.category !== "投資觀點" && isImportant(n, [...keys, "SPY"], tickers))
     .slice(0, POINTS_LIMIT)
     .map((n) => ({ id: n.id, title: n.title, url: n.url, summary: n.summary, symbols: n.symbols.split(",") }));
 

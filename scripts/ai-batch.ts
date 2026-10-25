@@ -2,6 +2,7 @@
 //   node scripts/ai-batch.ts pull <translate|daily>   從正式站拿待辦，寫出 .ai-batch/<kind>/tasks.md（沒事做就印「沒有待辦」）
 //   （agent 讀 tasks.md，把每個任務的答案寫進 .ai-batch/<kind>/answers.json）
 //   node scripts/ai-batch.ts push <translate|daily>   把答案送回正式站驗證、寫進 D1
+// pull 加 --check：沒有待辦時以結束碼 1 結束，給 Orca 的 precheck 用（沒事做就不叫 agent，不花訂閱額度）。
 // 提示詞用 src/lib/news-ai.ts 的同一套（用語規則一致）；伺服器端見 src/server/ai-batch.ts、routes/api/admin/ai.ts。
 // 帳密：MO_EMAIL／MO_PASSWORD，沒設就用 1Password 的 Agent vault（~/.config/op/agent-sa.env）。
 import { execFileSync } from "node:child_process";
@@ -156,6 +157,7 @@ if (cmd === "pull") {
   if (!tasks.length) {
     writeFileSync(join(dir, "tasks.md"), "沒有待辦。\n");
     console.log(`沒有待辦（${kind}），不用做任何事。`);
+    if (process.argv.includes("--check")) process.exitCode = 1;
   } else {
     writeFileSync(join(dir, "tasks.md"), render(tasks));
     console.log(`${tasks.length} 個任務，讀 ${join(dir, "tasks.md")}，答案寫進 ${join(dir, "answers.json")}，再執行 push。`);

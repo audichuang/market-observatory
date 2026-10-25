@@ -10,7 +10,7 @@ const STATUS: Record<string, [string, string]> = {
   tentative: ["warn", "官方暫定"],
 };
 
-export default function NewsPage({ symbol, keys, today, news, digests, ai, events }: Props) {
+export default function NewsPage({ symbol, keys, today, news, digests, events }: Props) {
   const upcoming = events.filter((e) => e.date >= today);
   const past = events.filter((e) => e.date < today).reverse();
   return (
@@ -62,7 +62,7 @@ export default function NewsPage({ symbol, keys, today, news, digests, ai, event
             <Link href="/news" className={`chip ${symbol === null ? "active" : ""}`}>全部</Link>
             {keys.map((k) => <Link key={k} href={`/news?symbol=${k}`} className={`chip ${symbol === k ? "active" : ""}`}>{k}</Link>)}
           </div>
-          <NewsFeed key={symbol ?? ""} news={news} digests={digests} ai={ai} date={today} symbol={symbol} />
+          <NewsFeed key={symbol ?? ""} news={news} digests={digests} />
         </div>
       </div>
     </>

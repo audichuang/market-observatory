@@ -10,8 +10,15 @@ struct LoginView: View {
     @State private var error: String?
     @State private var busy = false
     @State private var nonce = ""
+    @FocusState private var focus: Field?
 
     enum Mode { case signIn, signUp }
+    enum Field { case email, password }
+
+    /// 送出按鈕與鍵盤 Return 共用同一條規則。
+    private var canSubmit: Bool {
+        !busy && !email.isEmpty && password.count >= (mode == .signUp ? 8 : 1)
+    }
 
     var body: some View {
         ScrollView {
@@ -44,18 +51,35 @@ struct LoginView: View {
 
                 VStack(spacing: 12) {
                     TextField("Email", text: $email)
-                        .textContentType(.emailAddress)
+                        .textContentType(.username)
                         .keyboardType(.emailAddress)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .padding(12)
                         .background(.quaternary.opacity(0.6), in: RoundedRectangle(cornerRadius: 10))
+                        .focused($focus, equals: .email)
+                        .submitLabel(.next)
+                        .onSubmit { focus = .password }
                         .accessibilityIdentifier("email")
                     SecureField(mode == .signUp ? "密碼（至少 8 個字）" : "密碼", text: $password)
                         .textContentType(mode == .signUp ? .newPassword : .password)
                         .padding(12)
                         .background(.quaternary.opacity(0.6), in: RoundedRectangle(cornerRadius: 10))
+                        .focused($focus, equals: .password)
+                        .submitLabel(.go)
+                        .onSubmit {
+                            if canSubmit {
+                                focus = nil
+                                Task { await emailSubmit() }
+                            }
+                        }
                         .accessibilityIdentifier("password")
+                    if mode == .signUp {
+                        Text(password.isEmpty || password.count >= 8 ? "密碼至少 8 個字" : "密碼至少 8 個字（目前 \(password.count) 個）")
+                            .font(.caption)
+                            .foregroundStyle(!password.isEmpty && password.count < 8 ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
 
                 if let error {
@@ -63,16 +87,16 @@ struct LoginView: View {
                 }
 
                 Button {
+                    focus = nil
                     Task { await emailSubmit() }
                 } label: {
                     Group {
                         if busy { ProgressView() } else { Text(mode == .signIn ? "登入" : "建立帳號") }
                     }
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 30)
+                    .frame(maxWidth: .infinity, minHeight: 30)
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(busy || email.isEmpty || password.count < (mode == .signUp ? 8 : 1))
+                .disabled(!canSubmit)
                 .accessibilityIdentifier("submit")
 
                 Button(mode == .signIn ? "還沒有帳號？建立帳號" : "已有帳號，改為登入") {

@@ -40,18 +40,27 @@ struct EtfView: View {
     @State private var state: LoadState<Etfs> = .idle
     @State private var period = "1Y"
     @State private var editing = false
+    // 定投試算的條件：第一次載入後從 e.sim 帶入；之後改了只重新試算，不會動到存好的預設。
+    @State private var simEtf: String?
+    @State private var simYears: Int?
+    @State private var simMonthly: Int?
+    @State private var monthlyText = ""
+    @State private var loadSeq = 0
+    @State private var savingDefault = false
+    @State private var defaultError: String?
+    @FocusState private var monthlyFocused: Bool
 
     var body: some View {
         Loadable(state: state, retry: load) { e in content(e) }
             .navigationTitle("ETF 與定投")
             .toolbar {
                 if state.value != nil {
-                    Button("規劃") { editing = true }
+                    Button("我的規劃") { editing = true }
                 }
             }
             .sheet(isPresented: $editing) {
                 if let e = state.value {
-                    PlanEditor(plan: e.plan, etfs: e.rows.map(\.ticker)) { saved in
+                    PlanEditor(plan: e.plan) { saved in
                         editing = false
                         if saved { Task { await load() } }
                     }
@@ -61,34 +70,79 @@ struct EtfView: View {
     }
 
     private func load() async {
+        loadSeq += 1
+        let seq = loadSeq
         state = .loading(state.value)
         do {
-            state = .loaded(try await API.get("/api/v1/etfs"))
+            let e: Etfs = try await API.get("/api/v1/etfs", query: [
+                "etf": simEtf,
+                "years": simYears.map(String.init),
+                "monthly": simMonthly.map(String.init),
+            ])
+            // 連續切換時只採用最後一次的結果，避免舊的回應蓋掉新的。
+            guard seq == loadSeq else { return }
+            simEtf = e.sim.etf
+            simYears = e.sim.years
+            simMonthly = Int(e.sim.monthlyTwd)
+            monthlyText = String(Int(e.sim.monthlyTwd))
+            state = .loaded(e)
         } catch {
+            guard seq == loadSeq else { return }
             session.handle(error)
             state = .failed(error.localizedDescription, state.value)
         }
     }
 
+    private func isDefault(_ e: Etfs) -> Bool {
+        e.sim.etf == e.plan.etf && e.sim.years == e.plan.years && Int(e.sim.monthlyTwd) == e.plan.monthlyTwd
+    }
+
+    private func saveDefault(_ e: Etfs) async {
+        savingDefault = true
+        defer { savingDefault = false }
+        var p = e.plan
+        p.etf = e.sim.etf
+        p.years = e.sim.years
+        p.monthlyTwd = Int(e.sim.monthlyTwd)
+        do {
+            try await API.raw("PUT", "/api/v1/etfs", body: p)
+            defaultError = nil
+            await load()
+        } catch {
+            session.handle(error)
+            defaultError = error.localizedDescription
+        }
+    }
+
     private func content(_ e: Etfs) -> some View {
-        List {
+        let typedMonthly = Int(monthlyText.trimmingCharacters(in: .whitespaces))
+        let canSimulate = typedMonthly.map { $0 > 0 && $0 <= 10_000_000 && $0 != Int(e.sim.monthlyTwd) } ?? false
+        return List {
             Section {
                 Picker("期間", selection: $period) {
-                    ForEach(e.periods, id: \.self) { Text($0).tag($0) }
+                    ForEach(["YTD"] + e.periods, id: \.self) { Text($0).tag($0) }
                 }
                 .pickerStyle(.segmented)
                 ForEach(e.rows) { r in
-                    HStack {
+                    HStack(alignment: .top) {
                         VStack(alignment: .leading, spacing: 2) {
                             HStack(spacing: 6) {
                                 Text(r.ticker).font(.headline)
                                 if r.multiple != 1 { Text("\(r.multiple > 0 ? "" : "反向 ")\(Int(abs(r.multiple)))×").font(.caption2.weight(.semibold)).foregroundStyle(.orange) }
                             }
-                            Text("\(r.issuer) · 費用 \(Fmt.num(r.netFeePct, 2))%").font(.caption).foregroundStyle(.secondary)
+                            Text(r.name).font(.caption)
+                            Text("\(r.issuer) · 費用 \(Fmt.fee(r.netFeePct)) · AUM \(Fmt.compactUsd(r.aumUsd))").font(.caption).foregroundStyle(.secondary)
+                            if let d = r.drift1y?.drift {
+                                HStack(spacing: 4) {
+                                    Text("1Y 偏離").font(.caption2).foregroundStyle(.secondary)
+                                    Delta(value: d, digits: 1, percent: true).font(.caption)
+                                }
+                            }
+                            if let n = r.note, !n.isEmpty { Text(n).font(.caption2).foregroundStyle(.secondary) }
                         }
                         Spacer()
                         VStack(alignment: .trailing, spacing: 2) {
-                            let v = r.returns[period] ?? nil
+                            let v = period == "YTD" ? r.ytd : (r.returns[period] ?? nil)
                             Text(Fmt.pct(v)).foregroundStyle(Color.tone(v)).monospacedDigit()
                             Text("收 \(Fmt.num(r.close))").font(.caption).foregroundStyle(.secondary).monospacedDigit()
                         }
@@ -97,33 +151,81 @@ struct EtfView: View {
             } header: {
                 Text("報酬（資料到 \(e.asOf)）")
             } footer: {
-                Text("槓桿與反向 ETF 每日重設倍數，長期報酬會偏離「指數 × 倍數」。")
+                Text("報酬為價格報酬，不含配息。「1Y 偏離」是槓桿／反向 ETF 近一年實際報酬減去「倍數 × 指數報酬」；每日重設加上費用，通常為負，持有越久偏離越大。")
             }
 
             Section {
+                Picker("標的", selection: Binding(get: { simEtf ?? e.sim.etf }, set: { v in
+                    simEtf = v
+                    Task { await load() }
+                })) {
+                    ForEach(e.rows.map(\.ticker), id: \.self) { Text($0).tag($0) }
+                }
+                Picker("期間", selection: Binding(get: { simYears ?? e.sim.years }, set: { v in
+                    simYears = v
+                    Task { await load() }
+                })) {
+                    ForEach([1, 2, 3, 5], id: \.self) { Text("\($0) 年").tag($0) }
+                }
+                LabeledContent("每月投入") {
+                    HStack {
+                        TextField("台幣", text: $monthlyText)
+                            .keyboardType(.numberPad)
+                            .multilineTextAlignment(.trailing)
+                            .focused($monthlyFocused)
+                        Button("試算") {
+                            monthlyFocused = false
+                            simMonthly = typedMonthly
+                            Task { await load() }
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(!canSimulate)
+                    }
+                }
                 if let d = e.dca {
-                    LabeledContent("每月投入", value: Fmt.twd(e.sim.monthlyTwd))
                     LabeledContent("投入 \(d.months) 個月", value: Fmt.twd(d.invested))
                     LabeledContent("目前市值") { Text(Fmt.twd(d.value)).bold() }
                     LabeledContent("報酬率") { Delta(value: d.returnPct, percent: true) }
-                    LabeledContent("單筆投入對照") { Delta(value: d.lumpSumReturnPct, percent: true) }
+                    LabeledContent("同金額期初單筆") {
+                        VStack(alignment: .trailing, spacing: 2) {
+                            Text(Fmt.twd(d.lumpSumValue)).bold().monospacedDigit()
+                            Delta(value: d.lumpSumReturnPct, percent: true).font(.caption)
+                        }
+                    }
                     LabeledContent("最大帳面虧損") { Delta(value: d.maxDrawdownPct, percent: true) }
                     Chart {
                         ForEach(d.path) { p in
                             if let day = Fmt.day(p.date) {
-                                LineMark(x: .value("日期", day), y: .value("市值", p.value), series: .value("線", "市值")).foregroundStyle(Color.accentColor)
-                                LineMark(x: .value("日期", day), y: .value("投入", p.invested), series: .value("線", "投入")).foregroundStyle(.gray)
+                                LineMark(x: .value("日期", day), y: .value("金額", p.invested), series: .value("線", "累計投入"))
+                                    .foregroundStyle(by: .value("線", "累計投入"))
+                                    .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+                                LineMark(x: .value("日期", day), y: .value("金額", p.value), series: .value("線", "市值"))
+                                    .foregroundStyle(by: .value("線", "市值"))
+                                    .lineStyle(StrokeStyle(lineWidth: 2))
                             }
                         }
                     }
+                    .chartForegroundStyleScale(["市值": Color.up, "累計投入": Color(red: 0x5C / 255, green: 0x6B / 255, blue: 0x7A / 255)])
+                    .chartLegend(position: .top, alignment: .leading)
+                    .chartYAxis { AxisMarks { AxisGridLine(); AxisTick(); AxisValueLabel(format: FloatingPointFormatStyle<Double>.number.notation(.compactName)) } }
                     .frame(height: 180)
                 } else {
                     Text("資料不足，無法試算。").foregroundStyle(.secondary)
                 }
+                Button {
+                    Task { await saveDefault(e) }
+                } label: {
+                    HStack {
+                        Text(isDefault(e) ? "已是我的預設" : "設為我的預設")
+                        if savingDefault { Spacer(); ProgressView() }
+                    }
+                }
+                .disabled(isDefault(e) || savingDefault)
+                if let defaultError { Notice(kind: .bad, text: "沒有存到：\(defaultError)") }
             } header: {
                 Text("\(e.sim.etf) 定投 \(e.sim.years) 年（台幣計價）")
             } footer: {
-                Text("每月第一個交易日以收盤價買入，用當天 USD/TWD 換匯；不含配息、手續費與稅。\(e.fxLast.map { "最新匯率 \(Fmt.num($0.close, 3))（\($0.date)）。" } ?? "")")
+                Text("每月第一個交易日以收盤價買入，用當天 USD/TWD 換匯；不含配息、手續費與稅。改標的、期間或金額只是試算，按「設為我的預設」才會存起來。\(e.fxLast.map { "最新匯率 \(Fmt.num($0.close, 3))（\($0.date)）。" } ?? "")")
             }
 
             Section("我的規劃") {
@@ -135,30 +237,64 @@ struct EtfView: View {
         }
         .listStyle(.insetGrouped)
         .refreshable { await load() }
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("完成") { monthlyFocused = false }
+            }
+        }
     }
 }
 
+/// 資金規劃與備註。定投的標的、期間與每月金額在試算區按「設為我的預設」改，這裡原樣送回。
 private struct PlanEditor: View {
-    @State var plan: Plan
-    let etfs: [String]
+    let plan: Plan
     let done: (Bool) -> Void
+    @State private var notes: String
+    @State private var budgetText: String
+    @State private var trancheText: String
+    @State private var exitText: String
     @State private var error: String?
     @State private var saving = false
+    @FocusState private var focused: Bool
+
+    init(plan: Plan, done: @escaping (Bool) -> Void) {
+        self.plan = plan
+        self.done = done
+        _notes = State(initialValue: plan.notes)
+        _budgetText = State(initialValue: String(plan.researchBudgetTwd))
+        _trancheText = State(initialValue: String(plan.trancheTwd))
+        _exitText = State(initialValue: plan.exitConsiderationPct.formatted(.number.precision(.fractionLength(0 ... 2)).grouping(.never)))
+    }
+
+    /// 解析並檢查範圍（同後端 PlanSchema）；任何一格不合法就回 nil。
+    private var parsed: Plan? {
+        guard let budget = Int(budgetText.trimmingCharacters(in: .whitespaces)), (0 ... 1_000_000_000).contains(budget),
+              let tranche = Int(trancheText.trimmingCharacters(in: .whitespaces)), (0 ... 1_000_000_000).contains(tranche),
+              let exit = Double(exitText.trimmingCharacters(in: .whitespaces)), exit.isFinite, (0 ... 100).contains(exit),
+              notes.count <= 2000
+        else { return nil }
+        var p = plan
+        p.researchBudgetTwd = budget
+        p.trancheTwd = tranche
+        p.exitConsiderationPct = exit
+        p.notes = notes
+        return p
+    }
 
     var body: some View {
         NavigationStack {
             Form {
-                Section("定投試算") {
-                    Picker("ETF", selection: $plan.etf) { ForEach(etfs, id: \.self) { Text($0).tag($0) } }
-                    Picker("年數", selection: $plan.years) { ForEach([1, 2, 3, 5], id: \.self) { Text("\($0) 年").tag($0) } }
-                    LabeledContent("每月台幣") { TextField("金額", value: $plan.monthlyTwd, format: .number).keyboardType(.numberPad).multilineTextAlignment(.trailing) }
+                Section {
+                    LabeledContent("研究預算") { TextField("金額", text: $budgetText).keyboardType(.numberPad).multilineTextAlignment(.trailing).focused($focused) }
+                    LabeledContent("每批投入") { TextField("金額", text: $trancheText).keyboardType(.numberPad).multilineTextAlignment(.trailing).focused($focused) }
+                    LabeledContent("考慮出場漲幅 %") { TextField("%", text: $exitText).keyboardType(.decimalPad).multilineTextAlignment(.trailing).focused($focused) }
+                } header: {
+                    Text("資金規劃")
+                } footer: {
+                    if parsed == nil { Text("金額要是 0 到 10 億的整數，出場漲幅 0–100%，備註最多 2000 字。").foregroundStyle(Color.up) }
                 }
-                Section("資金規劃") {
-                    LabeledContent("研究預算") { TextField("金額", value: $plan.researchBudgetTwd, format: .number).keyboardType(.numberPad).multilineTextAlignment(.trailing) }
-                    LabeledContent("每批投入") { TextField("金額", value: $plan.trancheTwd, format: .number).keyboardType(.numberPad).multilineTextAlignment(.trailing) }
-                    LabeledContent("考慮出場漲幅 %") { TextField("%", value: $plan.exitConsiderationPct, format: .number).keyboardType(.decimalPad).multilineTextAlignment(.trailing) }
-                }
-                Section("備註") { TextEditor(text: $plan.notes).frame(minHeight: 100) }
+                Section("備註") { TextEditor(text: $notes).frame(minHeight: 100).focused($focused) }
                 if let error { Section { Notice(kind: .bad, text: error) } }
             }
             .navigationTitle("我的規劃")
@@ -166,19 +302,30 @@ private struct PlanEditor: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("取消") { done(false) } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("儲存") { Task { await save() } }.disabled(saving)
+                    if saving {
+                        ProgressView()
+                    } else {
+                        Button("儲存") { Task { await save() } }.disabled(parsed == nil)
+                    }
+                }
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("完成") { focused = false }
                 }
             }
         }
     }
 
     private func save() async {
+        focused = false
+        guard let p = parsed else { return }
         saving = true
         defer { saving = false }
         do {
-            try await API.raw("PUT", "/api/v1/etfs", body: plan)
+            try await API.raw("PUT", "/api/v1/etfs", body: p)
             done(true)
         } catch {
+            SessionStore.shared.handle(error)
             self.error = error.localizedDescription
         }
     }
@@ -188,6 +335,7 @@ private struct PlanEditor: View {
 
 struct OutlookView: View {
     @Environment(SessionStore.self) private var session
+    @Environment(\.dynamicTypeSize) private var dts
     @State private var state: LoadState<OutlookPage> = .idle
 
     var body: some View {
@@ -207,7 +355,8 @@ struct OutlookView: View {
     }
 
     private func content(_ p: OutlookPage) -> some View {
-        List {
+        let minN = p.minN ?? 30
+        return List {
             if let o = p.outlook {
                 Section {
                     VStack(alignment: .leading, spacing: 6) {
@@ -217,28 +366,31 @@ struct OutlookView: View {
                     }
                     .padding(.vertical, 6)
                     LabeledContent("資料日", value: o.asOf)
-                    LabeledContent("收盤 / 200 日線", value: "\(Fmt.num(o.close)) / \(Fmt.num(o.sma200))")
-                    LabeledContent("VIX", value: Fmt.num(o.vix))
+                    LabeledContent("S&P 500 vs 200 日線") {
+                        VStack(alignment: .trailing, spacing: 1) {
+                            Delta(value: o.sma200.map { (o.close / $0 - 1) * 100 }, digits: 2, percent: true)
+                            let side = o.regime.map { $0.aboveSma200 ? "站上" : "跌破" } ?? (o.sma200.map { o.close >= $0 ? "站上" : "跌破" } ?? "—")
+                            Text("\(side) · 均線 \(Fmt.num(o.sma200, 0))").font(.caption2).foregroundStyle(.secondary)
+                        }
+                    }
+                    LabeledContent("VIX") {
+                        VStack(alignment: .trailing, spacing: 1) {
+                            Text(Fmt.num(o.vix)).monospacedDigit()
+                            if let r = o.regime {
+                                Text(r.vixStress ? "≥ 30（恐慌區）" : "< 30").font(.caption2).foregroundStyle(r.vixStress ? Color.up : .secondary)
+                            }
+                        }
+                    }
                 } footer: {
                     VStack(alignment: .leading, spacing: 4) { ForEach(o.reasons, id: \.self) { Text("・\($0)") } }
                 }
 
-                Section("各條件下的歷史上漲比例") {
-                    ForEach(p.cells) { c in
-                        HStack {
-                            Text(c.label).font(.subheadline).fontWeight(c.current ? .semibold : .regular)
-                            if c.current { Image(systemName: "checkmark.circle.fill").font(.caption).foregroundStyle(.tint) }
-                            Spacer()
-                            if let r = c.rate {
-                                VStack(alignment: .trailing, spacing: 1) {
-                                    Text(Fmt.plainPct(r.p * 100)).monospacedDigit()
-                                    Text("\(Fmt.plainPct(r.low * 100, 0))–\(Fmt.plainPct(r.high * 100, 0)) · 樣本 \(Int(r.nEff))").font(.caption2).foregroundStyle(.secondary)
-                                }
-                            } else {
-                                Text("—").foregroundStyle(.secondary)
-                            }
-                        }
-                    }
+                Section {
+                    ForEach(p.cells) { c in cellRow(c, minN: minN) }
+                } header: {
+                    Text("各條件下的歷史上漲比例")
+                } footer: {
+                    Text("重疊的 \(p.horizon) 日窗口不是獨立樣本，有效樣本以天數 ÷ \(p.horizon) 計；有效樣本少於 \(minN) 的條件不採用（灰字）。")
                 }
                 if let t = p.track {
                     Section("實際發出的預測對帳") {
@@ -261,18 +413,71 @@ struct OutlookView: View {
                 }
             }
             if let s = p.strategists {
+                let horizons = Set(s.list.compactMap(\.horizon))
+                let common = horizons.count == 1 ? horizons.first : nil
                 Section {
-                    LabeledContent("中位數", value: "\(Fmt.num(s.median, 0))（\(Fmt.pct(s.medianUpsidePct, 1))）")
+                    if let close = p.outlook?.close {
+                        Text("中位數 \(Fmt.num(s.median, 0))，相對目前 \(Fmt.num(close, 0)) 為 \(Fmt.pct(s.medianUpsidePct, 1))").font(.subheadline)
+                    } else {
+                        Text("中位數 \(Fmt.num(s.median, 0))（相對目前 \(Fmt.pct(s.medianUpsidePct, 1))）").font(.subheadline)
+                    }
                     ForEach(s.list) { t in
-                        LabeledContent(t.firm, value: "\(Fmt.num(t.target, 0))\(t.horizon.map { " · \($0)" } ?? "")")
+                        HStack(alignment: .firstTextBaseline) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                if let u = t.sourceUrl.flatMap({ URL(string: $0) }) {
+                                    Link(t.firm, destination: u)
+                                } else {
+                                    Text(t.firm)
+                                }
+                                let meta = [t.horizon == common ? nil : t.horizon, t.asOf, t.note]
+                                    .compactMap { $0 }
+                                    .filter { !$0.isEmpty }
+                                    .joined(separator: " · ")
+                                if !meta.isEmpty { Text(meta).font(.caption).foregroundStyle(.secondary) }
+                            }
+                            Spacer()
+                            Text(Fmt.num(t.target, 0)).bold().monospacedDigit()
+                        }
                     }
                 } header: {
-                    Text("策略師年底目標")
+                    Text(common.map { "策略師\($0)目標" } ?? "策略師年底目標")
                 }
             }
         }
         .listStyle(.insetGrouped)
         .refreshable { await load() }
+    }
+
+    /// 一般字級左右排；無障礙大字級改成上下排，避免條件名稱與信賴區間互相擠壓。
+    private func cellRow(_ c: OutlookPage.Cell, minN: Int) -> some View {
+        let weak = (c.rate?.nEff ?? 0) < Double(minN)
+        let stacked = dts.isAccessibilitySize
+        let layout = stacked ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4)) : AnyLayout(HStackLayout())
+        return layout {
+            HStack(spacing: 6) {
+                Text(c.label).font(.subheadline).fontWeight(c.current ? .semibold : .regular)
+                if c.current {
+                    Text("目前")
+                        .font(.caption2.weight(.semibold))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(.tint.opacity(0.15), in: Capsule())
+                        .foregroundStyle(.tint)
+                }
+            }
+            if !stacked { Spacer() }
+            if let r = c.rate {
+                VStack(alignment: stacked ? .leading : .trailing, spacing: 1) {
+                    Text(Fmt.plainPct(r.p * 100)).monospacedDigit()
+                    Text("\(Fmt.plainPct(r.low * 100, 0))–\(Fmt.plainPct(r.high * 100, 0)) · 有效樣本 \(Int(r.nEff.rounded())) 個月").font(.caption2).foregroundStyle(.secondary)
+                    if weak { Text("樣本不足").font(.caption2).foregroundStyle(.secondary) }
+                }
+            } else {
+                Text("—").foregroundStyle(.secondary)
+            }
+        }
+        .opacity(weak ? 0.45 : 1)
+        .accessibilityElement(children: .combine)
     }
 
     private func callText(_ call: String) -> String {
@@ -286,10 +491,48 @@ struct OutlookView: View {
 
 // MARK: - 推播設定
 
+/// 裝置環境：sandbox 是 Xcode／開發版安裝，其餘是 TestFlight／App Store。
+private func envText(_ environment: String) -> String {
+    environment == "sandbox" ? "開發版" : "正式版"
+}
+
+/// 把伺服器回的推播結果（"ok"、"gone" 或 APNs 錯誤，例如 `apns: HTTP 400 {"reason":"BadDeviceToken"}`）翻成中文。
+private func pushResultText(_ raw: String) -> String {
+    switch raw {
+    case "ok": return "已送出"
+    case "gone": return "裝置已失效，已從伺服器移除"
+    default: break
+    }
+    let known: [(reasons: [String], text: String)] = [
+        (["BadDeviceToken"], "裝置權杖無效（開發版／正式版環境不符？）"),
+        (["DeviceTokenNotForTopic", "TopicDisallowed"], "權杖不屬於這個 App（Bundle ID 不符）"),
+        (["Unregistered", "ExpiredToken"], "App 已移除或權杖過期"),
+        (["TooManyRequests"], "推播太頻繁，稍後再試"),
+        (["ExpiredProviderToken", "InvalidProviderToken", "MissingProviderToken"], "伺服器 APNs 金鑰設定有誤"),
+    ]
+    let reason = raw.firstMatch(of: #/"reason"\s*:\s*"(\w+)"/#).map { String($0.output.1) }
+    if let reason, let hit = known.first(where: { $0.reasons.contains(reason) }) { return hit.text }
+    if reason == nil, let hit = known.first(where: { $0.reasons.contains(where: { raw.contains($0) }) }) { return hit.text }
+    if raw.firstMatch(of: #/HTTP 5\d\d/#) != nil { return "Apple 推播服務暫時無法使用" }
+    let lower = raw.lowercased()
+    if lower.contains("timeout") || lower.contains("aborted") { return "連線逾時" }
+    if raw.unicodeScalars.contains(where: { (0x4E00 ... 0x9FFF).contains($0.value) || (0x3400 ... 0x4DBF).contains($0.value) }) { return raw }
+    return "送出失敗（\(raw)）"
+}
+
+private struct PushPrefsEnvelope: Decodable, Sendable {
+    let prefs: PushPrefs
+}
+
 struct PushSettingsView: View {
     @Environment(SessionStore.self) private var session
+    @Environment(\.scenePhase) private var scenePhase
     @State private var state: LoadState<PushStatus> = .idle
     @State private var prefs = PushPrefs(daily: true, moves: true, moveThresholdPct: 5, events: true)
+    /// 伺服器上目前存的設定；prefs 跟它不同才需要送出。
+    @State private var saved: PushPrefs?
+    @State private var saving = false
+    @State private var debounce: Task<Void, Never>?
     @State private var saveError: String?
     @State private var testResult: String?
     @State private var testing = false
@@ -302,12 +545,19 @@ struct PushSettingsView: View {
                 if state.value == nil { await load() }
                 authorization = await UNAuthorizationStatusText.current()
             }
+            // 從系統設定回來時重新檢查通知權限。
+            .onChange(of: scenePhase) { _, p in
+                if p == .active { Task { authorization = await UNAuthorizationStatusText.current() } }
+            }
+            // 裝置向伺服器註冊成功後，重新載入裝置清單（測試推播按鈕才會啟用）。
+            .onChange(of: session.deviceRegistrations) { _, _ in Task { await load() } }
     }
 
     private func load() async {
         state = .loading(state.value)
         do {
             let s: PushStatus = try await API.get("/api/v1/push")
+            saved = s.prefs
             prefs = s.prefs
             state = .loaded(s)
         } catch {
@@ -316,12 +566,24 @@ struct PushSettingsView: View {
         }
     }
 
-    private func save() async {
-        do {
-            try await API.raw("PUT", "/api/v1/push", body: prefs)
-            saveError = nil
-        } catch {
-            saveError = error.localizedDescription
+    /// 一次只送一個 PUT；送出期間又有改動，就在這個迴圈裡依序再送，最後一定是最新的值落地。
+    private func flush() async {
+        guard !saving else { return }
+        saving = true
+        defer { saving = false }
+        while prefs != saved {
+            let want = prefs
+            do {
+                let r: PushPrefsEnvelope = try await API.send("PUT", "/api/v1/push", body: want)
+                saved = r.prefs
+                saveError = nil
+                if prefs == want { prefs = r.prefs }
+            } catch {
+                session.handle(error)
+                saveError = error.localizedDescription
+                if let saved { prefs = saved }
+                break
+            }
         }
     }
 
@@ -330,9 +592,12 @@ struct PushSettingsView: View {
         defer { testing = false }
         do {
             let r: PushTestResult = try await API.send("POST", "/api/v1/push", body: Empty())
-            testResult = r.results.map { "\($0.environment) \($0.device)…：\($0.result == "ok" ? "已送出" : $0.result)" }.joined(separator: "\n")
+            testResult = r.results.enumerated()
+                .map { i, item in "\(envText(item.environment)) 裝置 \(i + 1)：\(pushResultText(item.result))" }
+                .joined(separator: "\n")
             await load()
         } catch {
+            session.handle(error)
             testResult = error.localizedDescription
         }
     }
@@ -360,11 +625,22 @@ struct PushSettingsView: View {
                 }
                 Toggle("財報與 FOMC 當天提醒", isOn: $prefs.events)
             } header: {
-                Text("通知內容")
+                HStack {
+                    Text("通知內容")
+                    if saving { Spacer(); ProgressView().controlSize(.mini) }
+                }
             } footer: {
-                Text("收盤摘要與大漲大跌在美股收盤後約 40 分鐘（台灣清晨）發；事件提醒在美東早上（台灣晚上 7:30）發。設定套用到這個帳號的所有裝置。")
+                Text("收盤摘要與大漲大跌在台灣時間清晨 5:40 左右發（美股收盤後）；事件提醒在美東早上（台灣晚上 7:30）發。設定套用到這個帳號的所有裝置。")
             }
-            .onChange(of: prefs) { _, _ in Task { await save() } }
+            .onChange(of: prefs) { _, new in
+                guard new != saved else { return }
+                debounce?.cancel()
+                debounce = Task {
+                    try? await Task.sleep(for: .milliseconds(400))
+                    guard !Task.isCancelled else { return }
+                    await flush()
+                }
+            }
             if let saveError { Section { Notice(kind: .bad, text: "設定沒有存到：\(saveError)") } }
 
             Section {
@@ -377,17 +653,28 @@ struct PushSettingsView: View {
                     }
                 }
                 .disabled(testing || s.devices.isEmpty || !s.configured)
+                if s.configured && s.devices.isEmpty {
+                    Text(authorization == .denied ? "需要先在系統設定允許通知"
+                        : session.pushError != nil ? "這台裝置還沒註冊成功，無法送測試推播"
+                        : "需要先註冊這台裝置（允許通知後會自動註冊）")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
                 if let testResult { Text(testResult).font(.footnote).foregroundStyle(.secondary) }
                 if !s.configured { Text("伺服器還沒設定推播金鑰。").font(.footnote).foregroundStyle(.secondary) }
             }
 
             Section("已註冊的裝置") {
-                if s.devices.isEmpty { Text("還沒有裝置。允許通知後會自動註冊。").foregroundStyle(.secondary) }
+                if s.devices.isEmpty {
+                    Text(session.pushError != nil ? "這台裝置註冊失敗（見上方說明）"
+                        : authorization == .allowed ? "註冊中…"
+                        : "還沒有裝置。允許通知後會自動註冊。")
+                        .foregroundStyle(.secondary)
+                }
                 ForEach(s.devices) { d in
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("\(d.environment == "sandbox" ? "開發版" : "正式版") \(d.appVersion ?? "")")
+                        Text("\(envText(d.environment)) \(d.appVersion ?? "")")
                         Text("更新於 \(Fmt.taipeiTime(d.updatedAt))").font(.caption).foregroundStyle(.secondary)
-                        if let e = d.lastError { Text("上次失敗：\(e)").font(.caption).foregroundStyle(Color.up) }
+                        if let e = d.lastError { Text("上次失敗：\(pushResultText(e))").font(.caption).foregroundStyle(Color.up) }
                     }
                 }
             }
@@ -430,12 +717,15 @@ struct AccountView: View {
             Section {
                 Button("登出") { Task { await session.signOut() } }
             }
-            Section {
-                Button("刪除帳號", role: .destructive) { confirmDelete = true }
-                    .disabled(busy)
-                if let error { Notice(kind: .bad, text: error) }
-            } footer: {
-                Text("刪除後名單、定投規劃、推播設定與登入資料都會移除，無法復原。")
+            // 站長帳號伺服器一律拒絕刪除（403），不顯示這個按鈕。
+            if session.me?.isOwner != true {
+                Section {
+                    Button("刪除帳號", role: .destructive) { confirmDelete = true }
+                        .disabled(busy)
+                    if let error { Notice(kind: .bad, text: error) }
+                } footer: {
+                    Text("刪除後名單、定投規劃、推播設定與登入資料都會移除，無法復原。")
+                }
             }
             #if DEBUG
             Section {
@@ -461,12 +751,10 @@ struct AccountView: View {
         }
     }
 
+    /// 只呼叫 DELETE /api/v1/me：伺服器在同一批次裡移除這個帳號的所有裝置，失敗時推播註冊維持原狀。
     private func deleteAccount() async {
         busy = true
         defer { busy = false }
-        if let token = session.deviceToken {
-            _ = try? await API.raw("DELETE", "/api/v1/devices", body: ["token": token])
-        }
         do {
             try await API.raw("DELETE", "/api/v1/me", body: Optional<Empty>.none)
             session.accountDeleted()

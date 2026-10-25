@@ -2,9 +2,10 @@ import { type Budget, type DailyBar, SourceError, fetchWithTimeout, mdyToIso, pa
 
 export const CBOE_SOURCE = "cboe";
 
+// cdn.cboe.com 會 307 轉到 cdn-api.cboe.com：直接打最終網址，一次省一個請求額度。
 export const CBOE_URLS = {
-  VIX: "https://cdn.cboe.com/api/global/us_indices/daily_prices/VIX_History.csv",
-  SPX: "https://cdn.cboe.com/api/global/us_indices/daily_prices/SPX_History.csv",
+  VIX: "https://cdn-api.cboe.com/api/global/us_indices/daily_prices/VIX_History.csv",
+  SPX: "https://cdn-api.cboe.com/api/global/us_indices/daily_prices/SPX_History.csv",
 } as const;
 
 /**

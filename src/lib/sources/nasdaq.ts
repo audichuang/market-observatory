@@ -122,7 +122,8 @@ export function parseNasdaqNews(rows: NewsRow[]): NewsItem[] {
 
 export async function fetchNasdaqNews(symbol: string, limit = 8, budget?: Budget): Promise<NewsItem[]> {
   const data = await getJson<{ rows?: NewsRow[] }>(
-    `https://api.nasdaq.com/api/news/topic/articlebysymbol?q=${encodeURIComponent(nasdaqSymbol(symbol))}|stocks&offset=0&limit=${limit}`,
+    // 新聞在 api.nasdaq.com 會 301 轉到 www.nasdaq.com：直接打最終網址，每家省一個請求額度（名單滿時一次省 13 個）。
+    `https://www.nasdaq.com/api/news/topic/articlebysymbol?q=${encodeURIComponent(nasdaqSymbol(symbol))}|stocks&offset=0&limit=${limit}`,
     budget,
   );
   return parseNasdaqNews(data.rows ?? []);

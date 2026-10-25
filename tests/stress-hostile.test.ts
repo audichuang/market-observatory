@@ -167,7 +167,7 @@ test("Cboe 與 spark 第一次 503、之後 OK：prices 成功", async () => {
   const { db, sql } = await fullListDb();
   const hits = new Map<string, number>();
   upstream.rules = [(u) => {
-    if (u.host !== "cdn.cboe.com" && !isSpark(u)) return null;
+    if (u.host !== "cdn-api.cboe.com" && !isSpark(u)) return null;
     const n = (hits.get(u.href) ?? 0) + 1;
     hits.set(u.href, n);
     return n === 1 ? new Response("busy", { status: 503, headers: { "retry-after": "0" } }) : null;
@@ -178,7 +178,7 @@ test("Cboe 與 spark 第一次 503、之後 OK：prices 成功", async () => {
 });
 
 const cboeHops = (hops: number): Rule => (u) => {
-  if (u.host !== "cdn.cboe.com") return null;
+  if (u.host !== "cdn-api.cboe.com") return null;
   const h = Number(u.searchParams.get("hop") ?? 0);
   if (h < hops) return new Response(null, { status: 302, headers: { location: `${u.pathname}?hop=${h + 1}` } });
   return null;
@@ -215,7 +215,7 @@ test("Cboe 3 跳轉址＋spark 掛掉：VIX 仍應抓得到（逐檔補抓要讓
 
 test("Cboe 轉址迴圈：最多 6 跳就放棄，不吃光額度", async () => {
   const { db, sql } = await fullListDb();
-  upstream.rules = [(u) => (u.host === "cdn.cboe.com" ? new Response(null, { status: 301, headers: { location: u.pathname } }) : null)];
+  upstream.rules = [(u) => (u.host === "cdn-api.cboe.com" ? new Response(null, { status: 301, headers: { location: u.pathname } }) : null)];
   const p = await invokeCron(upstream, "prices", db, sql);
   assertInvocation("prices（迴圈）", p, { strictJobs: false });
   assert.equal(p.requests, 2 + 6 + 6);

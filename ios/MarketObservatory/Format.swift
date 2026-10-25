@@ -65,6 +65,12 @@ enum Fmt {
         return cal.date(from: DateComponents(year: parts[0], month: parts[1], day: parts[2], hour: 12))
     }
 
+    /// 兩個「YYYY-MM-DD」相差幾天（b − a），跟網頁的 daysBetween 一致。
+    static func daysBetween(_ a: String, _ b: String) -> Int? {
+        guard let da = day(a), let db = day(b) else { return nil }
+        return Int((db.timeIntervalSince(da) / 86400).rounded())
+    }
+
     /// ISO 時間戳 → 台北時間「10/24 05:41」
     static func taipeiTime(_ iso: String?) -> String {
         guard let iso else { return "—" }

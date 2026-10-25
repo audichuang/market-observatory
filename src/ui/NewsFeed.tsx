@@ -72,6 +72,9 @@ export function ToneBadge({ tone }: { tone: string | null }) {
 }
 
 /** 新聞列表＋每日重點：中文標題為主、英文原文小字；進頁面時把還沒翻的標題送去翻；每則可點「AI 重點」。 */
+/** 所有 NewsFeed 共用：正在翻的新聞 id → 那次請求。換篩選時新元件靠它避免同一則重送、重複付費。 */
+const translating = new Map<string, Promise<unknown>>();
+
 export function NewsFeed({ news: initial, digests: initialDigests, ai: initialAi, date, symbol = null, showOthers = true, showDigests = true }: {
   news: NewsItem[];
   digests: DigestItem[];
@@ -96,7 +99,7 @@ export function NewsFeed({ news: initial, digests: initialDigests, ai: initialAi
   const inflight = useRef(false);
   const mounted = useRef(true);
   const symbolRef = useRef(symbol);
-  // 丟掉過期的翻譯回應後 news 沒變，effect 不會再跑；遞增它讓新篩選的標題接著送。
+  // 別的篩選（上一個元件）還在翻的 id 結束後，遞增它讓這個篩選接著送。
   const [retryTick, setRetryTick] = useState(0);
   symbolRef.current = symbol;
   useEffect(() => {
@@ -118,14 +121,24 @@ export function NewsFeed({ news: initial, digests: initialDigests, ai: initialAi
   // 同時只送一批，這批回來更新 news 後 effect 會再接著送下一批。
   useEffect(() => {
     if (!ai.enabled || ai.used >= ai.limit || inflight.current) return;
-    const pending = pendingTranslateIds(news, { showOthers, othersOpen, tried: tried.current, max: MAX_TRANSLATE });
+    const wanted = pendingTranslateIds(news, { showOthers, othersOpen, tried: tried.current, max: MAX_TRANSLATE * 2 });
+    // 換篩選時元件會重建：上一個篩選送出的同一批還沒回來，這裡再送就會付兩次費。先等它，回來後伺服器已有快取，重送不呼叫模型。
+    const busyElsewhere = wanted.filter((id) => translating.has(id));
+    if (busyElsewhere.length) {
+      void Promise.allSettled(busyElsewhere.map((id) => translating.get(id))).then(() => {
+        if (mounted.current) setRetryTick((t) => t + 1);
+      });
+    }
+    const pending = wanted.filter((id) => !translating.has(id)).slice(0, MAX_TRANSLATE);
     if (pending.length === 0) return;
     for (const id of pending) tried.current.add(id);
     inflight.current = true;
-    void postJson<{ items: TranslateOut[]; ai: AiInfo }>("/api/v1/news/translate", { ids: pending, ...(symbol ? { symbol } : {}) }).then((r) => {
+    const req = postJson<{ items: TranslateOut[]; ai: AiInfo }>("/api/v1/news/translate", { ids: pending, ...(symbol ? { symbol } : {}) });
+    for (const id of pending) translating.set(id, req);
+    void req.then((r) => {
+      for (const id of pending) if (translating.get(id) === req) translating.delete(id);
       inflight.current = false;
       if (!mounted.current) return;
-      // 請求期間換了代號篩選：這批 important 是照舊篩選算的，丟掉；已送過的標記拿掉，新畫面可重送
       if (isStaleTranslate(symbol, symbolRef.current)) {
         for (const id of pending) tried.current.delete(id);
         setRetryTick((t) => t + 1);

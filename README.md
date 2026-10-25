@@ -61,4 +61,6 @@ MO_URL=https://<worker>.workers.dev MO_EMAIL=… MO_PASSWORD=… node scripts/ba
 
 ## 免費方案的限制
 
-每次 Worker 呼叫的子請求約 50 個、Cron Trigger 最多 5 組，所以抓價、補抓、核對、權重＋日曆、新聞拆成五個 cron 檔；資料庫寫入一律「一次查詢＋分塊 batch」，查詢次數不隨標的數量增加。
+每次 Worker 呼叫的外部子請求最多 50 個（轉址每一跳、重試每一次都算）、Cron Trigger 最多 5 組，所以抓價、補抓、核對、權重＋日曆、新聞拆成五個 cron 檔；資料庫寫入一律「一次查詢＋分塊 batch」，查詢次數不隨標的數量增加。
+
+請求額度：每次執行有一份 48 個的額度（`Budget`，`src/lib/sources/http.ts`），每個外部請求打出去前先扣；同一支排程的幾個工作共用一份（`SCHEDULES`＋`runJobs`）。逐檔請求的工作照剩下的額度決定抓幾檔，抓不到的記在 runs 的摘要（「請求額度不足、這次略過」），下一輪補上。每天的收盤用 Yahoo spark 一次 20 檔。名單滿 12 家時各排程的用量（正式站實測）：收盤 4、核對 27、隔天補抓＋核對 31、權重＋財報日＋FactSet 17、新聞＋分析師 46。每次用量記在 runs 的 `detail.subrequests`；`POST /api/admin/cron?name=<排程>` 可手動跑一支排程驗證。

@@ -8,13 +8,18 @@ struct WatchlistView: View {
     @State private var adding = false
     @State private var pendingRemoval: Watchlist.Member?
     @Environment(\.dynamicTypeSize) private var dts
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         NavigationStack {
             Loadable(state: state, retry: load) { w in content(w) }
                 .navigationTitle("觀察名單")
+                .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("完成") { dismiss() }
+                    }
+                    ToolbarItem(placement: .topBarLeading) {
                         Button { adding = true } label: { Label("加入", systemImage: "plus") }
                             .disabled(busy != nil || (state.value.map { $0.members.count >= $0.max } ?? true))
                     }
@@ -42,7 +47,7 @@ struct WatchlistView: View {
     }
 
     private func add(_ c: Watchlist.Candidate) async {
-        busy = c.tracked == true ? "正在加入 \(c.name)…" : "正在加入 \(c.name)…（全站第一次追蹤，要抓十年股價，約十幾秒）"
+        busy = c.tracked == true ? "正在加入 \(c.name)…" : "正在加入 \(c.name)…（第一次追蹤，約需十幾秒）"
         message = nil
         defer { busy = nil }
         struct Body: Encodable, Sendable { let symbol: String }
@@ -119,7 +124,7 @@ struct WatchlistView: View {
             } header: {
                 Text("\(w.members.count)/\(w.max) 家 · 合計權重 \(Fmt.num(w.totalWeight, 2))%")
             } footer: {
-                Text("點一下看走勢，左滑可移除。權重取自 \(w.asOf.map(Fmt.fullDate) ?? "—") 的 SPY 持股；改名單後，近 45 個交易日的貢獻會用新名單重算。")
+                Text("權重取自 \(w.asOf.map(Fmt.fullDate) ?? "—") 的 SPY 持股。")
             }
         }
         .listStyle(.insetGrouped)

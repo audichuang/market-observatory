@@ -19,7 +19,7 @@ struct MarketObservatoryApp: App {
 }
 
 enum AppTab: Hashable {
-    case overview, history, watchlist, news, more
+    case overview, history, news, more
 }
 
 /// 登入狀態、目前的分頁（推播點進來要切換）與推播註冊。
@@ -261,7 +261,6 @@ struct RootView: View {
             TabView(selection: $session.tab) {
                 Tab("總覽", systemImage: "chart.bar.xaxis", value: AppTab.overview) { OverviewView() }
                 Tab("走勢", systemImage: "chart.xyaxis.line", value: AppTab.history) { HistoryView() }
-                Tab("名單", systemImage: "star", value: AppTab.watchlist) { WatchlistView() }
                 Tab("新聞", systemImage: "newspaper", value: AppTab.news) { NewsView() }
                 Tab("更多", systemImage: "ellipsis.circle", value: AppTab.more) { MoreView() }
             }

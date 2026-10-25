@@ -145,7 +145,7 @@ test("Yahoo spark 整個掛掉時改逐檔補抓：額度夠就全部做完；�
     assert.match(cc.summary, /請求額度不足、這次略過/);
     // 略過的是排在最後的那一段（名單個股在前、ETF 在後），而且核對的檔數＝剩下的額度扣掉重試保留。
     const order = nasdaqCheckSymbols(await loadWatchlist(db)).map((x) => x.symbol);
-    const skipped = cc.detail.skipped as string[];
+    const skipped = (cc.detail as Record<string, unknown>).skipped as string[];
     assert.ok(skipped.length > 0);
     assert.deepEqual(skipped, order.slice(order.length - skipped.length), "略過的應該是清單尾端");
     const pricesUsed = pr.detail.subrequests as number;
@@ -200,10 +200,11 @@ test("額度很緊時：spark 掛掉的逐檔補抓與分割重抓都讓出 Cboe
   try {
     upstream.reset();
     const r = await runJob(db, "prices", "test", {}, new Budget(10));
-    const failed = r.detail.failed as Record<string, string>;
+    const detail = r.detail as Record<string, unknown>;
+    const failed = detail.failed as Record<string, string>;
     assert.equal(upstream.count, 10);
     assert.ok(!("VIX" in failed), JSON.stringify(failed));
-    assert.ok(!r.detail.spxCheck, String(r.detail.spxCheck));
+    assert.ok(!detail.spxCheck, String(detail.spxCheck));
     assert.equal(Object.values(failed).filter((m) => m.includes("請求額度不足")).length, all.length - room);
   } finally {
     upstream.rules = [];
@@ -215,8 +216,9 @@ test("額度很緊時：spark 掛掉的逐檔補抓與分割重抓都讓出 Cboe
   assert.equal(upstream.count, 10);
   const pending = JSON.parse((sql.prepare("SELECT value FROM settings WHERE key = 'pending_rebase'").get() as { value: string }).value);
   assert.equal(Object.keys(pending).length, all.length - room);
-  assert.ok(r2.detail.failed, JSON.stringify(r2).slice(0, 600));
-  const msgs = Object.values(r2.detail.failed as Record<string, string>);
+  const detail2 = r2.detail as Record<string, unknown>;
+  assert.ok(detail2.failed, JSON.stringify(r2).slice(0, 600));
+  const msgs = Object.values(detail2.failed as Record<string, string>);
   assert.equal(msgs.filter((m) => m.includes("這次請求額度不足")).length, all.length - room, msgs.join("\n"));
 });
 

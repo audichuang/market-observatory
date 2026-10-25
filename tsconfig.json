@@ -23,6 +23,8 @@
     "middleware",
     "crons",
     "queues",
-    "db"
+    "db",
+    "tests",
+    "scripts"
   ]
 }

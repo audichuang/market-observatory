@@ -38,7 +38,9 @@ test("Nasdaq：歷史行情、Zacks 推估與財報日曆", () => {
   const est = parseEarningsDate("NVDA", { announcement: "Earnings announcement* for NVDA: Nov 18, 2026", reportText: "is estimated to report earnings on 11/18/2026. derived from an algorithm ... the consensus EPS forecast for the quarter is $2.49." })!;
   assert.equal(est.date, "2026-11-18");
   assert.equal(est.status, "estimated");
-  assert.match(est.detail, /2\.49/);
+  assert.equal(est.detail, "市場預估 EPS $2.49");
+  const both = parseEarningsDate("NVDA", { announcement: "Earnings announcement* for NVDA: Nov 18, 2026", reportText: "the consensus EPS forecast for the quarter is $2.49. The reported EPS for the same quarter last year was $1.24." })!;
+  assert.equal(both.detail, "市場預估 EPS $2.49，去年同季 $1.24");
   assert.equal(parseEarningsDate("META", { announcement: "Earnings announcement* for META: ", reportText: "hasn't provided" }), null);
 
   const cal = parseEarningsCalendar("2026-10-29", [{ symbol: "AMZN", time: "time-after-hours" }, { symbol: "LLY" }], ["AMZN", "AAPL"]);

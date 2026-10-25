@@ -64,8 +64,8 @@ export function parseEarningsDate(symbol: string, data: { announcement?: string;
   const m = /([A-Z][a-z]{2}) (\d{1,2}), (\d{4})/.exec(data.announcement ?? "");
   if (!m || !MONTHS[m[1]]) return null;
   const text = (data.reportText ?? "").replace(/\s+/g, " ").trim();
-  const eps = /consensus EPS forecast for the quarter is \$?(-?[\d.]+)/i.exec(text)?.[1];
-  const lastYear = /reported EPS for the same quarter last year was \$?(-?[\d.]+)/i.exec(text)?.[1];
+  const eps = /consensus EPS forecast for the quarter is \$?(-?\d+(?:\.\d+)?)/i.exec(text)?.[1];
+  const lastYear = /reported EPS for the same quarter last year was \$?(-?\d+(?:\.\d+)?)/i.exec(text)?.[1];
   const parts = [eps ? `市場預估 EPS $${eps}` : null, lastYear ? `去年同季 $${lastYear}` : null].filter(Boolean);
   return {
     symbol,

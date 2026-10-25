@@ -38,18 +38,18 @@ export interface PushMessage {
 const signed = (v: number, digits = 2) => `${v > 0 ? "+" : v < 0 ? "−" : ""}${Math.abs(v).toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
 const md = (date: string) => `${Number(date.slice(5, 7))}/${Number(date.slice(8, 10))}`;
 
-/** 收盤摘要：指數點數與漲跌、名單合計貢獻、貢獻最大的一家、VIX。快照算不出當日漲跌（缺前一日）就不發。 */
+/** 收盤摘要：指數點數與漲跌、VIX、名單合計貢獻（占比）、貢獻最大的一家。橫幅只顯示兩行，重要的放前面，被截掉的只會是最後的個股。快照算不出當日漲跌（缺前一日）就不發。 */
 export function dailySummary(s: Snapshot): PushMessage | null {
   const { index } = s;
   if (index.changePts === null || index.returnPct === null) return null;
   const parts = [`${index.close.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}（${signed(index.changePts)} 點）`];
-  if (s.mag7.length && s.mag7Total.contributionPts !== null) {
-    const share = s.mag7Total.shareOfMovePct === null ? "" : `，占 ${Math.round(s.mag7Total.shareOfMovePct)}%`;
-    parts.push(`名單合計 ${signed(s.mag7Total.contributionPts, 1)} 點${share}`);
-    const top = [...s.mag7].filter((r) => r.contributionPts !== null).sort((a, b) => Math.abs(b.contributionPts!) - Math.abs(a.contributionPts!))[0];
-    if (top) parts.push(`最大 ${top.key} ${signed(top.contributionPts!, 1)} 點`);
-  }
   if (s.vix.close !== null) parts.push(`VIX ${s.vix.close.toFixed(1)}`);
+  if (s.mag7.length && s.mag7Total.contributionPts !== null) {
+    const share = s.mag7Total.shareOfMovePct === null ? "" : `（${Math.round(s.mag7Total.shareOfMovePct)}%）`;
+    parts.push(`名單 ${signed(s.mag7Total.contributionPts, 1)} 點${share}`);
+    const top = [...s.mag7].filter((r) => r.contributionPts !== null).sort((a, b) => Math.abs(b.contributionPts!) - Math.abs(a.contributionPts!))[0];
+    if (top) parts.push(`${top.key} ${signed(top.contributionPts!, 1)}`);
+  }
   return {
     kind: "daily",
     title: `S&P 500 ${md(s.tradeDate)} 收盤 ${signed(index.returnPct)}%`,

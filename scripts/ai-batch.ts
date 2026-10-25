@@ -117,8 +117,10 @@ async function buildTasks(cookie: string): Promise<Task[]> {
       meta: { type: "digest", key: d.key, date: d.date, newsIds: d.news.map((n) => n.id) },
     }),
   );
+  // 抓不到原文（Nasdaq 對機器回 403）就不寫：只靠標題寫出的重點等於把標題換句話說
   const bodies = await Promise.all(work.points.map((p) => article(p.url)));
   work.points.forEach((p, i) =>
+    bodies[i] &&
     tasks.push({
       id: `p${i + 1}`,
       title: `文章重點：${p.title}`,

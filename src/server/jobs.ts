@@ -12,7 +12,7 @@ import { rotationPicks } from "../lib/consensus.ts";
 import { easternDate } from "../lib/calendar.ts";
 import { EQUAL_WEIGHT_SYMBOL, FX_SYMBOL, INDEX_SYMBOL, VIX_SYMBOL, nasdaqCheckSymbols, watchTickers, yahooSymbols } from "../lib/universe.ts";
 import { addToWatchlist, removeFromWatchlist } from "../lib/watchlist.ts";
-import { latestHoldings, loadWatchlist, saveWatchlist } from "./watchlist.ts";
+import { latestHoldings, loadWatchlist, updateWatchlist } from "./watchlist.ts";
 import { type BarBatch, applyCrossChecks, finishRun, insertWeights, loadPrices, getSetting, loadWeightAnchors, nowIso, putSetting, saveSnapshots, startRun, upsertBars, weightsNear } from "./repo.ts";
 
 export type JobName = "prices" | "crosscheck" | "weights" | "news" | "events" | "analysts" | "factset" | "forecast" | "snapshots" | "backfill-prices" | "backfill-checks";
@@ -25,6 +25,18 @@ export interface JobOptions {
   sessions?: number;
   /** snapshots：重算到這一天（含）為止 */
   upTo?: string;
+  /** crosscheck：最多核對幾檔（同一次排程裡跟別的工作分外部請求額度時用） */
+  maxSymbols?: number;
+}
+
+/** Cloudflare 免費方案每次執行最多 50 個外部子請求；留 2 個給意外重試。 */
+export const SUBREQUEST_BUDGET = 48;
+
+/** prices 工作沒回報用量時的估計：Yahoo 每檔 1 個、Cboe VIX 與 SPX 各 1 個、待修分割每檔再 1 個。 */
+export async function estimatePricesSubrequests(db: D1Database): Promise<number> {
+  const symbols = yahooSymbols(await loadWatchlist(db));
+  const pending = await getSetting<Record<string, number>>(db, PENDING_REBASE_KEY, {});
+  return Object.keys(symbols).length + 2 + Object.keys(pending).filter((s) => s in symbols).length;
 }
 
 interface JobResult {
@@ -111,20 +123,22 @@ async function jobPrices(db: D1Database): Promise<JobResult> {
     failed[VIX_SYMBOL] = errText(e);
   }
   // 待修清單上的代號（之前偵測到分割、但完整歷史還沒重抓成功）不寫一個月資料，避免新舊基準混用。
-  const pending = await getSetting<Record<string, number>>(db, PENDING_REBASE_KEY, {});
+  // 已從名單移除的代號不再追（之前偵測到分割、還沒重抓成功的也一樣）。
+  const pending = Object.fromEntries(Object.entries(await getSetting<Record<string, number>>(db, PENDING_REBASE_KEY, {})).filter(([s]) => s in symbols));
   const { changed, rebased } = await upsertBars(db, ok.filter((b) => !(b.symbol in pending)));
   detail.changed = changed;
   // 分割後 Yahoo 改寫了整段歷史：偵測到（或還在待修清單上）就重抓這幾檔的十年日線。
   const rebasedSymbols = Object.keys({ ...pending, ...rebased });
   if (rebasedSymbols.length) {
-    // 已經從名單移除的代號就不再重抓（provider 代號與內部代號相同，名單外的直接用原代號）。
-    const full = await fetchYahooBatch(rebasedSymbols.map((s) => [s, symbols[s] ?? s] as [string, string]), "10y", expected);
+    const full = await fetchYahooBatch(rebasedSymbols.map((s) => [s, symbols[s]] as [string, string]), "10y", expected);
     await upsertBars(db, full.ok, { allowRebase: true });
     const stillPending = nextPendingRebase(pending, rebased, full.ok.map((b) => b.symbol));
     await putSetting(db, PENDING_REBASE_KEY, stillPending);
     for (const [s, err] of Object.entries(full.failed)) failed[s] = `分割後重抓歷史失敗，已列入待修、下次重試：${err}`;
     detail.rebased = { factors: { ...pending, ...rebased }, refetchFailed: full.failed, pending: stillPending };
   }
+  // 實際打出去的外部請求數（Yahoo 一個月＋十年重抓＋Cboe 兩個），同一次排程後面的工作據此分剩下的額度。
+  detail.subrequests = entries.length + rebasedSymbols.length + 2;
   const stale = ok.filter((b) => b.symbol !== FX_SYMBOL && b.bars.at(-1)?.date !== expected).map((b) => b.symbol);
   try {
     const checked = await applyCrossChecks(db, [{ symbol: INDEX_SYMBOL, source: CBOE_SOURCE, bars: await fetchCboeDaily("SPX", since) }]);
@@ -157,16 +171,19 @@ async function crossCheckNasdaq(db: D1Database, list: ReturnType<typeof nasdaqCh
   return { failed, checked, mismatches: checked.filter((c) => c.status === "mismatch") };
 }
 
-async function jobCrosscheck(db: D1Database): Promise<JobResult> {
-  const list = nasdaqCheckSymbols(await loadWatchlist(db));
+async function jobCrosscheck(db: D1Database, opts: JobOptions): Promise<JobResult> {
+  // 額度不夠時先核對名單上的個股，ETF 排後面（隔天傍晚的核對排程會補）。
+  const full = nasdaqCheckSymbols(await loadWatchlist(db));
+  const list = opts.maxSymbols !== undefined ? full.slice(0, Math.max(0, opts.maxSymbols)) : full;
+  const skipped = full.slice(list.length).map((s) => s.symbol);
   const { failed, checked, mismatches } = await crossCheckNasdaq(db, list, addDays(latestExpectedClose(), -14), 40);
   const snaps = await rebuildSnapshots(db, "Nasdaq 交叉核對");
   const failedNames = Object.keys(failed);
   const mismatched = [...new Set(mismatches.map((m) => m.symbol))];
   return {
     status: failedNames.length === 0 ? "ok" : failedNames.length === list.length ? "failed" : "partial",
-    summary: `核對 ${list.length - failedNames.length} 檔、${checked.length} 筆；不一致 ${mismatched.join(",") || "無"}；失敗 ${failedNames.join(",") || "無"}`,
-    detail: { failed, mismatches, snapshots: snaps.created },
+    summary: `核對 ${list.length - failedNames.length} 檔、${checked.length} 筆；不一致 ${mismatched.join(",") || "無"}；失敗 ${failedNames.join(",") || "無"}${skipped.length ? `；請求額度不足、這次略過 ${skipped.join(",")}` : ""}`,
+    detail: { failed, mismatches, snapshots: snaps.created, skipped },
   };
 }
 
@@ -470,17 +487,24 @@ export async function addWatchSymbol(db: D1Database, input: string): Promise<Wat
   await upsertBars(db, ok, { allowRebase: true });
   // Nasdaq 核對最近兩個月；失敗不擋（之後的排程會再核對）。
   await crossCheckNasdaq(db, member.tickers.map((t) => ({ symbol: t, assetClass: "stocks" as const })), addDays(expected, -60), 60).catch(() => null);
-  await saveWatchlist(db, res.list);
+  // 抓價花了幾秒，這段時間名單可能被別的裝置改過：存檔時重讀、重新套用。
+  const saved = await updateWatchlist(db, (current) => {
+    const again = addToWatchlist(current, input, holdings);
+    return again.ok ? again.list : again.error;
+  });
+  if (!saved.ok) return saved;
   await rebuildSnapshots(db, `觀察名單加入 ${member.company}`, WATCHLIST_REBUILD_SESSIONS);
   await bumpDataVersion(db);
   return { ok: true, summary: `已加入 ${member.company}（${member.tickers.join("＋")}），補了 ${ok.reduce((a, b) => a + b.bars.length, 0)} 筆日線` };
 }
 
 export async function removeWatchSymbol(db: D1Database, key: string): Promise<WatchChange> {
-  const list = await loadWatchlist(db);
-  const target = list.find((m) => m.key === key);
+  const target = (await loadWatchlist(db)).find((m) => m.key === key);
   if (!target) return { ok: false, error: `${key} 不在名單裡` };
-  await saveWatchlist(db, removeFromWatchlist(list, key));
+  const saved = await updateWatchlist(db, (current) => (current.some((m) => m.key === key) ? removeFromWatchlist(current, key) : `${key} 已經不在名單裡`));
+  if (!saved.ok) return saved;
+  // 移除的公司不再更新財報日：清掉它未來的事件，總覽與日曆才不會留著過時的日期。
+  await db.prepare("DELETE FROM events WHERE kind = 'earnings' AND symbol = ? AND date >= ?").bind(key, easternDate()).run();
   await rebuildSnapshots(db, `觀察名單移除 ${target.company}`, WATCHLIST_REBUILD_SESSIONS);
   await bumpDataVersion(db);
   return { ok: true, summary: `已移除 ${target.company}` };

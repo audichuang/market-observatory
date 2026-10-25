@@ -165,7 +165,9 @@ export async function loadWeightAnchors(db: Db, tickers: string[]): Promise<Weig
     .prepare(`SELECT as_of, ticker, weight_pct FROM weights WHERE ticker IN (${tickers.map(() => "?").join(",")}) ORDER BY as_of`)
     .bind(...tickers)
     .all<{ as_of: string; ticker: string; weight_pct: number }>();
-  const byDate = new Map<string, Map<string, number>>();
+  // 日期取所有持股檔（名單清空或某檔已調出指數時，仍知道有哪幾份持股檔）。
+  const dates = await db.prepare("SELECT DISTINCT as_of FROM weights ORDER BY as_of").all<{ as_of: string }>();
+  const byDate = new Map<string, Map<string, number>>(dates.results.map((d) => [d.as_of, new Map()]));
   for (const r of rows.results) {
     if (!byDate.has(r.as_of)) byDate.set(r.as_of, new Map());
     byDate.get(r.as_of)!.set(r.ticker, r.weight_pct);

@@ -154,6 +154,11 @@ export function buildSnapshot(input: SnapshotInput): Snapshot | null {
       let w: number | null = null;
       const anchorW = input.weights?.byTicker.get(t);
       if (anchorW !== undefined && s && weightTarget) w = rollWeight(anchorW, s, spx, input.weights!.asOf, weightTarget);
+      else if (anchorW === undefined && input.weights && weightTarget) {
+        // 持股檔裡沒有這檔：已調出 S&P 500（或還沒納入），對指數沒有貢獻，權重以 0 計，不讓整張歸因表變空白。
+        w = 0;
+        quality.notes.push(`${t} 不在 ${input.weights.asOf} 的 SPY 持股裡（可能已調出 S&P 500），權重以 0 計`);
+      }
       perTicker.push({ w, r });
       if (m.tickers.length === 1 || t === m.tickers[0]) {
         closeSum = c;

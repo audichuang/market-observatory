@@ -2,18 +2,17 @@ import { defineHandler, defineHead, type InferProps } from "void";
 import { z } from "zod";
 import { MAX_WATCH, displayName, isConstituent } from "../src/lib/watchlist.ts";
 import { addWatchSymbol, removeWatchSymbol } from "../src/server/jobs.ts";
-import { readDb } from "../src/server/page-cache.ts";
 import { latestHoldings, loadWatchlist } from "../src/server/watchlist.ts";
 
 export type Props = InferProps<typeof loader>;
 
-// 名單頁不走頁面快取：內容小，而且改完要立刻看到。
+// 名單頁不走頁面快取、也不讀讀取副本：內容小，而且改完要立刻看到（副本可能慢半拍）。
 export const loader = defineHandler(async (c) => {
-  const db = readDb(c.env);
+  const db = c.env.DB;
   const [list, { asOf, holdings }] = await Promise.all([loadWatchlist(db), latestHoldings(db)]);
   const weight = new Map(holdings.map((h) => [h.ticker, h.weightPct]));
   const inList = new Set(list.flatMap((m) => m.tickers));
-  const members = list.map((m) => ({ ...m, weightPct: m.tickers.reduce((a, t) => a + (weight.get(t) ?? 0), 0) }));
+  const members = list.map((m) => ({ ...m, weightPct: m.tickers.reduce((a, t) => a + (weight.get(t) ?? 0), 0), outOfIndex: holdings.length ? m.tickers.filter((t) => !weight.has(t)) : [] }));
   // 可加入的成分股：權重由大到小，給搜尋框的建議清單用。
   const candidates = holdings
     .filter((h) => isConstituent(h) && !inList.has(h.ticker))

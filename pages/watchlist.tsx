@@ -8,7 +8,10 @@ type Status = { kind: "idle" } | { kind: "busy"; text: string } | { kind: "ok"; 
 const errorText = (e: unknown) => {
   const body = (e as { body?: unknown })?.body;
   if (body && typeof body === "object" && "error" in body) return String((body as { error: unknown }).error);
-  return e instanceof Error ? e.message : "操作失敗";
+  if (body && typeof body === "object" && "errors" in body) return "輸入格式不對，請輸入股票代號";
+  const status = (e as { status?: number })?.status;
+  if (status && status >= 500) return `伺服器錯誤（HTTP ${status}），名單沒有變更，請稍後再試`;
+  return e instanceof Error && e.message ? `操作失敗：${e.message}` : "操作失敗，請檢查網路後再試";
 };
 
 export default function WatchlistPage({ members, candidates, asOf, totalWeight, max }: Props) {
@@ -20,7 +23,13 @@ export default function WatchlistPage({ members, candidates, asOf, totalWeight, 
 
   async function run(data: { op: "add"; symbol: string } | { op: "remove"; key: string }, busyText: string, okText: string) {
     setStatus({ kind: "busy", text: busyText });
-    const res = await action("/watchlist", { data });
+    let res: Awaited<ReturnType<typeof action>>;
+    try {
+      res = await action("/watchlist", { data });
+    } catch (e) {
+      // 5xx 與網路錯誤不會變成 ok:false 而是直接丟出來：一樣要解除「處理中」，按鈕才能再按。
+      return setStatus({ kind: "error", text: errorText(e) });
+    }
     if (!res.ok) return setStatus({ kind: "error", text: errorText(res.error) });
     setStatus({ kind: "ok", text: okText });
     if (data.op === "add") setSymbol("");
@@ -109,6 +118,7 @@ export default function WatchlistPage({ members, candidates, asOf, totalWeight, 
                 <div className="watch-name">
                   <strong>{m.company}</strong>
                   <span className="meta mono">{m.tickers.join("＋")}</span>
+                  {m.outOfIndex.length > 0 && <span className="badge warn">{m.outOfIndex.join("、")} 已不在最新 SPY 持股（可能調出 S&amp;P 500）</span>}
                 </div>
                 <span className="num">{num(m.weightPct, 2)}%</span>
                 <Link href={`/history?symbol=${m.key}`} className="button secondary small">走勢</Link>

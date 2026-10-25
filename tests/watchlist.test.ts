@@ -103,3 +103,88 @@ test("設定值是陣列時原樣讀回，不會跟預設值合併成物件", as
   assert.deepEqual(await getSetting(db, "obj", { a: 1, b: 1 }), { a: 2, b: 1 });
   assert.equal(await getSetting(db, "missing", null), null);
 });
+
+test("名單上的公司已不在持股檔（調出指數）：權重以 0 計，合計與其餘照算，並加註", () => {
+  const D1 = "2026-10-22";
+  const D2 = "2026-10-23";
+  const series: Record<string, Series> = {
+    SPX: new Series([{ date: D1, close: 7600 }, { date: D2, close: 7676 }]),
+    AVGO: new Series([{ date: D1, close: 100 }, { date: D2, close: 105 }]),
+    XYZ: new Series([{ date: D1, close: 50 }, { date: D2, close: 40 }]),
+  };
+  const members = [
+    { key: "AVGO", company: "Broadcom", tickers: ["AVGO"] },
+    { key: "XYZ", company: "Gone", tickers: ["XYZ"] },
+  ];
+  const s = buildSnapshot({ tradeDate: D2, series, checks: {}, weights: { asOf: D1, byTicker: new Map([["AVGO", 3]]) }, members })!;
+  assert.equal(s.mag7.find((r) => r.key === "XYZ")!.weightPct, 0);
+  assert.equal(s.mag7Total.weightPct, 3);
+  assert.notEqual(s.rest.contributionPts, null);
+  assert.ok(s.quality.notes.some((n) => n.includes("XYZ") && n.includes("權重以 0 計")));
+  // 還沒有任何持股檔時不能當成 0（那是「不知道」，不是「沒有」）
+  const none = buildSnapshot({ tradeDate: D2, series, checks: {}, weights: null, members })!;
+  assert.equal(none.mag7Total.weightPct, null);
+});
+
+// node:sqlite 模擬 D1：prepare/bind 之後 first/all/run，run 回傳 meta.changes。
+async function sqliteDb() {
+  const { DatabaseSync } = await import("node:sqlite");
+  const sql = new DatabaseSync(":memory:");
+  sql.exec("CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)");
+  sql.exec("CREATE TABLE weights (as_of TEXT, ticker TEXT, name TEXT, weight_pct REAL, shares REAL, fetched_at TEXT)");
+  const stmt = (q: string, args: unknown[]) => ({
+    first: async () => (sql.prepare(q).get(...(args as never[])) ?? null),
+    all: async () => ({ results: sql.prepare(q).all(...(args as never[])) }),
+    run: async () => ({ meta: { changes: Number(sql.prepare(q).run(...(args as never[])).changes) } }),
+  });
+  const db = { prepare: (q: string) => ({ ...stmt(q, []), bind: (...args: unknown[]) => stmt(q, args) }), batch: async () => [] };
+  return { db: db as never, sql };
+}
+
+test("兩個裝置同時改名單：先寫的不會被後寫的蓋掉", async () => {
+  const { updateWatchlist, loadWatchlist } = await import("../src/server/watchlist.ts");
+  const { db, sql } = await sqliteDb();
+  // 已經存過名單（走「比對舊值才更新」那條路；沒存過的「新增」路徑在下一段測）
+  sql.prepare("INSERT INTO settings VALUES ('watchlist', ?, 'x')").run(JSON.stringify(DEFAULT_WATCHLIST));
+  // 裝置 A 讀到名單後，存檔前裝置 B 先移除了 TSLA。
+  let interleaved = false;
+  const res = await updateWatchlist(db, (list) => {
+    if (!interleaved) {
+      interleaved = true;
+      // 在 A 的 edit 裡同步插入 B 的寫入（模擬 A 抓價那幾秒內 B 完成）
+      void updateWatchlist(db, (l) => l.filter((m) => m.key !== "TSLA"));
+    }
+    return [...list, { key: "AVGO", company: "Broadcom", tickers: ["AVGO"] }];
+  });
+  // 讓 B 的非同步寫入先完成，再看 A 的結果
+  await new Promise((r) => setTimeout(r, 10));
+  assert.ok(res.ok);
+  const keys = (await loadWatchlist(db)).map((m) => m.key);
+  assert.ok(keys.includes("AVGO"), keys.join(","));
+  assert.ok(!keys.includes("TSLA"), keys.join(","));
+});
+
+test("第一次存名單（設定表還沒有這列）時兩邊同時寫，也不會互相蓋掉", async () => {
+  const { updateWatchlist, loadWatchlist } = await import("../src/server/watchlist.ts");
+  const { db } = await sqliteDb();
+  let interleaved = false;
+  await updateWatchlist(db, (list) => {
+    if (!interleaved) {
+      interleaved = true;
+      void updateWatchlist(db, (l) => l.filter((m) => m.key !== "TSLA"));
+    }
+    return [...list, { key: "AVGO", company: "Broadcom", tickers: ["AVGO"] }];
+  });
+  await new Promise((r) => setTimeout(r, 10));
+  const keys = (await loadWatchlist(db)).map((m) => m.key);
+  assert.ok(keys.includes("AVGO") && !keys.includes("TSLA"), keys.join(","));
+});
+
+test("名單清空時仍找得到持股檔日期（快照不會誤報「尚未取得權重」）", async () => {
+  const { loadWeightAnchors, weightsNear } = await import("../src/server/repo.ts");
+  const { db, sql } = await sqliteDb();
+  sql.exec("INSERT INTO weights VALUES ('2026-10-22', 'NVDA', 'NVIDIA CORP', 7.7, 1, 'x')");
+  const anchors = await loadWeightAnchors(db, []);
+  assert.deepEqual(anchors.dates, ["2026-10-22"]);
+  assert.equal(weightsNear(anchors, "2026-10-23")?.asOf, "2026-10-22");
+});

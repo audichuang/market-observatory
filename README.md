@@ -12,6 +12,8 @@
 | 財報日期 | Nasdaq 財報日曆（已排定），沒有時用 Zacks 推估 | 推估日期在畫面上標「推估」 | 每天 UTC 11:30 |
 | FOMC | 聯準會公布的日程（`src/lib/calendar.ts` 人工維護） | 2027 年標「暫定」 | 靜態 |
 | 新聞 | Nasdaq 個股新聞（觀察名單＋SPY） | — | 每 4 小時 |
+| 分析師目標價與 EPS 預估 | Nasdaq analyst API（權重前 200 檔，每次輪替 16 檔） | — | 每 4 小時，跟新聞同一支排程 |
+| 由下而上的指數目標價 | FactSet Earnings Insight 週報（每週五） | — | 每天 UTC 11:30 檢查有沒有新的一期 |
 
 Yahoo 與 Nasdaq 是非官方端點、沒有授權保證；兩源收盤差距超過 max(0.011, 0.05%) 會標成「來源不一致」，畫面上直接顯示，不會靜默挑一個。實際抓到過一次：Nasdaq 在 2026-04-20 對 8 檔 ETF 回傳前一個交易日的收盤。
 
@@ -43,6 +45,7 @@ npm run typecheck
 ## 部署
 
 ```sh
+cd web
 npx void deploy --platform cloudflare          # 建置、建 D1、套 migration、註冊 cron
 printf 'you@example.com' | npx void secret put OWNER_EMAIL
 # iOS App：Apple 登入與推播
@@ -58,7 +61,7 @@ npx void secret put SIWA_PRIVATE_KEY < AuthKey_<Key ID>.p8
 - APNs 金鑰（Sandbox & Production、Team Scoped）只能下載一次，備份在 1Password `Agent` vault。
 
 - 部署時不要同時開著 `npm run dev`：dev server 會動到 `.wrangler/`，部署會因找不到建置設定而中止。
-- 改了 `db/schema.ts` 要先 `npx void db generate` 產生 migration 並提交。
+- 改了 `db/schema.ts` 要先 `npx void db generate` 產生 migration 並提交。刪表或刪欄位的 migration，要在檔案第一行加上 `-- void:allow-destructive`，否則部署會擋下。
 - `BETTER_AUTH_SECRET` 由 Void 第一次部署時自動建立。
 
 ### 歷史回補
@@ -81,7 +84,7 @@ node scripts/ai-batch.ts pull translate   # 或 daily；寫出 .ai-batch/<kind>/
 node scripts/ai-batch.ts push translate
 ```
 
-帳密用 `MO_EMAIL`／`MO_PASSWORD`，沒設就讀 1Password 的 Agent vault。格式不對的答案會略過，下次排程再給一次。
+文章重點要有原文才寫：Nasdaq 文章頁會擋機器，所以 pull 時在本機用代號搜 Yahoo 新聞、以標題對回同一篇轉載文章抓正文，對不到的（例如 Zacks）就不寫。帳密用 `MO_EMAIL`／`MO_PASSWORD`，沒設就讀 1Password 的 Agent vault。格式不對的答案會略過，下次排程再給一次。
 
 ## Cloudflare 方案與請求額度
 

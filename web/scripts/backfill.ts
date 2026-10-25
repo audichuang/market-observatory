@@ -3,7 +3,7 @@
 // 每段都寫進 runs 表；只補不存在或收盤有變的列，不會覆蓋排程寫入的核對結果。
 export {};
 
-const base = (process.env.MO_URL ?? "http://localhost:5180").replace(/\/$/, "");
+const base = (process.env.MO_URL ?? "http://localhost:5173").replace(/\/$/, "");
 const email = process.env.MO_EMAIL;
 const password = process.env.MO_PASSWORD;
 if (!email || !password) throw new Error("需要 MO_EMAIL 與 MO_PASSWORD");

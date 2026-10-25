@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { mergeTranslated, pendingTranslateIds } from "./news-feed-logic.ts";
+import { isStaleTranslate, mergeTranslated, pendingTranslateIds } from "./news-feed-logic.ts";
 
 export interface NewsItem {
   id: string;
@@ -95,6 +95,8 @@ export function NewsFeed({ news: initial, digests: initialDigests, ai: initialAi
   const tried = useRef(new Set<string>());
   const inflight = useRef(false);
   const mounted = useRef(true);
+  const symbolRef = useRef(symbol);
+  symbolRef.current = symbol;
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -121,6 +123,11 @@ export function NewsFeed({ news: initial, digests: initialDigests, ai: initialAi
     void postJson<{ items: TranslateOut[]; ai: AiInfo }>("/api/v1/news/translate", { ids: pending, ...(symbol ? { symbol } : {}) }).then((r) => {
       inflight.current = false;
       if (!mounted.current) return;
+      // 請求期間換了代號篩選：這批 important 是照舊篩選算的，丟掉；已送過的標記拿掉，新畫面可重送
+      if (isStaleTranslate(symbol, symbolRef.current)) {
+        for (const id of pending) tried.current.delete(id);
+        return;
+      }
       if (!r.ok) {
         setNotice(r.status === 429 || r.status === 503 ? r.error : "標題暫時無法翻成中文，先顯示英文原文。");
         return;

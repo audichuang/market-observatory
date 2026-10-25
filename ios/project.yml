@@ -35,6 +35,18 @@ targets:
         CODE_SIGN_ENTITLEMENTS: MarketObservatory/MarketObservatory.entitlements
         SWIFT_STRICT_CONCURRENCY: complete
         ENABLE_PREVIEWS: YES
+  MarketObservatoryTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - MarketObservatoryTests
+    dependencies:
+      - target: MarketObservatory
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.audichuang.observatory.tests
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_STRICT_CONCURRENCY: complete
   MarketObservatoryUITests:
     type: bundle.ui-testing
     platform: iOS
@@ -54,6 +66,7 @@ schemes:
         MarketObservatory: all
     test:
       targets:
+        - MarketObservatoryTests
         - MarketObservatoryUITests
     run:
       config: Debug

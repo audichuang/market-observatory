@@ -10,7 +10,9 @@ import { YAHOO_SOURCE, fetchYahooDaily, fetchYahooLastCloses } from "../lib/sour
 import { buildOutlook } from "../lib/forecast.ts";
 import { rotationPicks } from "../lib/consensus.ts";
 import { easternDate } from "../lib/calendar.ts";
-import { EQUAL_WEIGHT_SYMBOL, FX_SYMBOL, INDEX_SYMBOL, MAG7, MAG7_TICKERS, NASDAQ_CHECK_SYMBOLS, VIX_SYMBOL, YAHOO_SYMBOLS } from "../lib/universe.ts";
+import { EQUAL_WEIGHT_SYMBOL, FX_SYMBOL, INDEX_SYMBOL, VIX_SYMBOL, nasdaqCheckSymbols, watchTickers, yahooSymbols } from "../lib/universe.ts";
+import { addToWatchlist, removeFromWatchlist } from "../lib/watchlist.ts";
+import { latestHoldings, loadWatchlist, saveWatchlist } from "./watchlist.ts";
 import { type BarBatch, applyCrossChecks, finishRun, insertWeights, loadPrices, getSetting, loadWeightAnchors, nowIso, putSetting, saveSnapshots, startRun, upsertBars, weightsNear } from "./repo.ts";
 
 export type JobName = "prices" | "crosscheck" | "weights" | "news" | "events" | "analysts" | "factset" | "forecast" | "snapshots" | "backfill-prices" | "backfill-checks";
@@ -34,7 +36,6 @@ interface JobResult {
 /** settings 表裡的分割待修清單（代號 → 偵測到的比值） */
 export const PENDING_REBASE_KEY = "pending_rebase";
 
-const SNAPSHOT_SYMBOLS = [INDEX_SYMBOL, VIX_SYMBOL, EQUAL_WEIGHT_SYMBOL, ...MAG7_TICKERS];
 
 /** 一次只跑有限並行，避免同時打太多連線給同一個來源。 */
 async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<PromiseSettledResult<R>[]> {
@@ -62,6 +63,8 @@ const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
  * 查詢次數固定（不隨天數增加），一次可以重算幾十天。
  */
 export async function rebuildSnapshots(db: D1Database, reason: string, sessions = 5, upTo?: string) {
+  const members = await loadWatchlist(db);
+  const tickers = watchTickers(members);
   const end = upTo ?? "9999-12-31";
   const dates = await db
     .prepare("SELECT date FROM prices WHERE symbol = ? AND date <= ? ORDER BY date DESC LIMIT ?")
@@ -69,14 +72,14 @@ export async function rebuildSnapshots(db: D1Database, reason: string, sessions 
     .all<{ date: string }>();
   const targets = dates.results.map((r) => r.date).reverse();
   if (!targets.length) return { built: [] as string[], created: [] as string[] };
-  const anchors = await loadWeightAnchors(db, MAG7_TICKERS);
+  const anchors = await loadWeightAnchors(db, tickers);
   const window = snapshotLoadWindow(targets, anchors.dates);
-  const loaded = await loadPrices(db, SNAPSHOT_SYMBOLS, window.from, window.to);
+  const loaded = await loadPrices(db, [INDEX_SYMBOL, VIX_SYMBOL, EQUAL_WEIGHT_SYMBOL, ...tickers], window.from, window.to);
   const snaps: Snapshot[] = [];
   for (const tradeDate of targets) {
     const prev = loaded.series[INDEX_SYMBOL].previous(tradeDate);
     const weights = prev ? weightsNear(anchors, prev.date) : null;
-    const snap = buildSnapshot({ tradeDate, series: loaded.series, checks: loaded.checks, weights });
+    const snap = buildSnapshot({ tradeDate, series: loaded.series, checks: loaded.checks, weights, members });
     if (snap) snaps.push(snap);
   }
   return { built: targets, created: await saveSnapshots(db, snaps, reason) };
@@ -96,7 +99,8 @@ async function fetchYahooBatch(entries: [string, string][], range: string, upTo:
 
 async function jobPrices(db: D1Database): Promise<JobResult> {
   const expected = latestExpectedClose();
-  const entries = Object.entries(YAHOO_SYMBOLS);
+  const symbols = yahooSymbols(await loadWatchlist(db));
+  const entries = Object.entries(symbols);
   const { ok, failed } = await fetchYahooBatch(entries, "1mo", expected);
   const detail: Record<string, unknown> = { expected, failed };
   // VIX 以 Cboe 為主來源；SPX 用 Cboe 交叉核對 Yahoo。
@@ -113,7 +117,8 @@ async function jobPrices(db: D1Database): Promise<JobResult> {
   // 分割後 Yahoo 改寫了整段歷史：偵測到（或還在待修清單上）就重抓這幾檔的十年日線。
   const rebasedSymbols = Object.keys({ ...pending, ...rebased });
   if (rebasedSymbols.length) {
-    const full = await fetchYahooBatch(rebasedSymbols.map((s) => [s, YAHOO_SYMBOLS[s]] as [string, string]), "10y", expected);
+    // 已經從名單移除的代號就不再重抓（provider 代號與內部代號相同，名單外的直接用原代號）。
+    const full = await fetchYahooBatch(rebasedSymbols.map((s) => [s, symbols[s] ?? s] as [string, string]), "10y", expected);
     await upsertBars(db, full.ok, { allowRebase: true });
     const stillPending = nextPendingRebase(pending, rebased, full.ok.map((b) => b.symbol));
     await putSetting(db, PENDING_REBASE_KEY, stillPending);
@@ -143,7 +148,7 @@ async function jobPrices(db: D1Database): Promise<JobResult> {
   };
 }
 
-async function crossCheckNasdaq(db: D1Database, list: typeof NASDAQ_CHECK_SYMBOLS, from: string, limit: number) {
+async function crossCheckNasdaq(db: D1Database, list: ReturnType<typeof nasdaqCheckSymbols>, from: string, limit: number) {
   const results = await mapLimit(list, 4, async ({ symbol, assetClass }) => ({ symbol, source: NASDAQ_SOURCE, bars: await fetchNasdaqHistorical(symbol, assetClass, from, limit) }) as BarBatch);
   const ok: BarBatch[] = [];
   const failed: Record<string, string> = {};
@@ -153,13 +158,14 @@ async function crossCheckNasdaq(db: D1Database, list: typeof NASDAQ_CHECK_SYMBOL
 }
 
 async function jobCrosscheck(db: D1Database): Promise<JobResult> {
-  const { failed, checked, mismatches } = await crossCheckNasdaq(db, NASDAQ_CHECK_SYMBOLS, addDays(latestExpectedClose(), -14), 40);
+  const list = nasdaqCheckSymbols(await loadWatchlist(db));
+  const { failed, checked, mismatches } = await crossCheckNasdaq(db, list, addDays(latestExpectedClose(), -14), 40);
   const snaps = await rebuildSnapshots(db, "Nasdaq 交叉核對");
   const failedNames = Object.keys(failed);
   const mismatched = [...new Set(mismatches.map((m) => m.symbol))];
   return {
-    status: failedNames.length === 0 ? "ok" : failedNames.length === NASDAQ_CHECK_SYMBOLS.length ? "failed" : "partial",
-    summary: `核對 ${NASDAQ_CHECK_SYMBOLS.length - failedNames.length} 檔、${checked.length} 筆；不一致 ${mismatched.join(",") || "無"}；失敗 ${failedNames.join(",") || "無"}`,
+    status: failedNames.length === 0 ? "ok" : failedNames.length === list.length ? "failed" : "partial",
+    summary: `核對 ${list.length - failedNames.length} 檔、${checked.length} 筆；不一致 ${mismatched.join(",") || "無"}；失敗 ${failedNames.join(",") || "無"}`,
     detail: { failed, mismatches, snapshots: snaps.created },
   };
 }
@@ -169,7 +175,7 @@ async function jobWeights(db: D1Database): Promise<JobResult> {
   const existed = await db.prepare("SELECT COUNT(*) AS n FROM weights WHERE as_of = ?").bind(file.asOf).first<{ n: number }>();
   await insertWeights(db, file.asOf, file.holdings);
   const snaps = await rebuildSnapshots(db, `SPY 持股 ${file.asOf}`);
-  const mag = MAG7_TICKERS.map((t) => `${t} ${file.holdings.find((h) => h.ticker === t)?.weightPct.toFixed(2) ?? "?"}%`);
+  const mag = watchTickers(await loadWatchlist(db)).map((t) => `${t} ${file.holdings.find((h) => h.ticker === t)?.weightPct.toFixed(2) ?? "?"}%`);
   return {
     status: "ok",
     summary: `持股日期 ${file.asOf}（${file.holdings.length} 檔${existed?.n ? "，已存在、覆寫" : ""}）；${mag.join("、")}`,
@@ -179,14 +185,14 @@ async function jobWeights(db: D1Database): Promise<JobResult> {
 
 // 回補分段：每段 4 檔 Yahoo 十年日線（讓 5 年報酬與 5 年定投有完整資料）；最後一段補 Cboe VIX 並用 Cboe 核對 SPX。
 const BACKFILL_CHUNK = 4;
-export const BACKFILL_PRICE_PARTS = Math.ceil(Object.keys(YAHOO_SYMBOLS).length / BACKFILL_CHUNK) + 1;
 const CHECK_CHUNK = 5;
-export const BACKFILL_CHECK_PARTS = Math.ceil(NASDAQ_CHECK_SYMBOLS.length / CHECK_CHUNK);
 
 async function jobBackfillPrices(db: D1Database, opts: JobOptions): Promise<JobResult> {
   const part = opts.part ?? 0;
   const since = addDays(latestExpectedClose(), -3660);
-  const entries = Object.entries(YAHOO_SYMBOLS);
+  const entries = Object.entries(yahooSymbols(await loadWatchlist(db)));
+  // 段數跟著名單長度變：每段 4 檔，最後一段補 VIX／SPX。
+  const BACKFILL_PRICE_PARTS = Math.ceil(entries.length / BACKFILL_CHUNK) + 1;
   if (part === BACKFILL_PRICE_PARTS - 1) {
     const vix = await fetchCboeDaily("VIX", since);
     const { changed } = await upsertBars(db, [{ symbol: VIX_SYMBOL, source: CBOE_SOURCE, bars: vix }]);
@@ -211,7 +217,9 @@ async function jobBackfillPrices(db: D1Database, opts: JobOptions): Promise<JobR
 
 async function jobBackfillChecks(db: D1Database, opts: JobOptions): Promise<JobResult> {
   const part = opts.part ?? 0;
-  const slice = NASDAQ_CHECK_SYMBOLS.slice(part * CHECK_CHUNK, (part + 1) * CHECK_CHUNK);
+  const list = nasdaqCheckSymbols(await loadWatchlist(db));
+  const BACKFILL_CHECK_PARTS = Math.ceil(list.length / CHECK_CHUNK);
+  const slice = list.slice(part * CHECK_CHUNK, (part + 1) * CHECK_CHUNK);
   if (!slice.length) return { status: "failed", summary: `沒有第 ${part} 段`, detail: {} };
   const { failed, checked, mismatches } = await crossCheckNasdaq(db, slice, addDays(latestExpectedClose(), -1840), 9999);
   const failedNames = Object.keys(failed);
@@ -223,7 +231,7 @@ async function jobBackfillChecks(db: D1Database, opts: JobOptions): Promise<JobR
 }
 
 async function jobNews(db: D1Database): Promise<JobResult> {
-  const symbols = [...MAG7.map((m) => m.key), "SPY"];
+  const symbols = [...(await loadWatchlist(db)).map((m) => m.key), "SPY"];
   const results = await mapLimit(symbols, 3, (s) => fetchNasdaqNews(s, 8));
   const stmt = db.prepare(
     `INSERT INTO news (id, symbols, title, url, publisher, published_at, source, fetched_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -259,7 +267,8 @@ async function jobEvents(db: D1Database): Promise<JobResult> {
     const wd = new Date(`${d}T12:00:00Z`).getUTCDay();
     if (wd !== 0 && wd !== 6) days.push(d);
   }
-  const keys = MAG7.map((m) => m.key);
+  const members = await loadWatchlist(db);
+  const keys = members.map((m) => m.key);
   const calendar = await mapLimit(days, 3, (d) => fetchEarningsCalendar(d, keys));
   const byKey = new Map<string, EarningsDate>();
   const failed: string[] = [];
@@ -267,7 +276,7 @@ async function jobEvents(db: D1Database): Promise<JobResult> {
     if (r.status === "rejected") failed.push(`日曆 ${days[i]}: ${errText(r.reason)}`);
     else for (const e of r.value) if (!byKey.has(e.symbol)) byKey.set(e.symbol, e);
   });
-  const rest = MAG7.filter((m) => !byKey.has(m.key));
+  const rest = members.filter((m) => !byKey.has(m.key));
   const estimates = await mapLimit(rest, 3, (m) => fetchEarningsDate(m.key));
   const unknown: string[] = [];
   estimates.forEach((r, i) => {
@@ -277,7 +286,7 @@ async function jobEvents(db: D1Database): Promise<JobResult> {
   });
   const found: string[] = [];
   const clearFuture = db.prepare("DELETE FROM events WHERE kind = 'earnings' AND symbol = ? AND date >= ?");
-  for (const m of MAG7) {
+  for (const m of members) {
     const e = byKey.get(m.key);
     if (!e) continue;
     // 推估日期可能改到別的月份：先清掉這家公司未來的舊事件，再寫新的。
@@ -435,4 +444,44 @@ export async function runJob(db: D1Database, job: JobName, trigger: string, opts
     await bumpDataVersion(db);
     return { id, status: "failed" as const, summary, detail: {} };
   }
+}
+
+// ── 觀察名單變更 ───────────────────────────────────────────────
+
+/** 名單變更後重算的交易日數：總覽讀最新一天、走勢頁的貢獻圖讀最近 40 天。更早的快照保留當時的名單。 */
+export const WATCHLIST_REBUILD_SESSIONS = 45;
+
+export type WatchChange = { ok: true; summary: string } | { ok: false; error: string };
+
+/**
+ * 加入一家公司：先抓它的十年日線（新代號在資料庫裡一筆都沒有，沒有價格就算不出權重與貢獻），
+ * 抓不到就整個不加，不留半套；成功才存名單、重算最近的快照。
+ */
+export async function addWatchSymbol(db: D1Database, input: string): Promise<WatchChange> {
+  const list = await loadWatchlist(db);
+  const { holdings } = await latestHoldings(db);
+  const res = addToWatchlist(list, input, holdings);
+  if (!res.ok) return res;
+  const { member } = res;
+  const expected = latestExpectedClose();
+  const { ok, failed } = await fetchYahooBatch(member.tickers.map((t) => [t, t] as [string, string]), "10y", expected);
+  const failedNames = Object.keys(failed);
+  if (failedNames.length) return { ok: false, error: `抓不到 ${failedNames.join(",")} 的歷史股價（${Object.values(failed)[0]}），稍後再試` };
+  await upsertBars(db, ok, { allowRebase: true });
+  // Nasdaq 核對最近兩個月；失敗不擋（之後的排程會再核對）。
+  await crossCheckNasdaq(db, member.tickers.map((t) => ({ symbol: t, assetClass: "stocks" as const })), addDays(expected, -60), 60).catch(() => null);
+  await saveWatchlist(db, res.list);
+  await rebuildSnapshots(db, `觀察名單加入 ${member.company}`, WATCHLIST_REBUILD_SESSIONS);
+  await bumpDataVersion(db);
+  return { ok: true, summary: `已加入 ${member.company}（${member.tickers.join("＋")}），補了 ${ok.reduce((a, b) => a + b.bars.length, 0)} 筆日線` };
+}
+
+export async function removeWatchSymbol(db: D1Database, key: string): Promise<WatchChange> {
+  const list = await loadWatchlist(db);
+  const target = list.find((m) => m.key === key);
+  if (!target) return { ok: false, error: `${key} 不在名單裡` };
+  await saveWatchlist(db, removeFromWatchlist(list, key));
+  await rebuildSnapshots(db, `觀察名單移除 ${target.company}`, WATCHLIST_REBUILD_SESSIONS);
+  await bumpDataVersion(db);
+  return { ok: true, summary: `已移除 ${target.company}` };
 }

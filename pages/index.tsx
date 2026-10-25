@@ -77,7 +77,7 @@ export default function Overview({ snapshot, revisions, dates, expectedClose, ne
           <div className="delta sub">RSP {pctText(s.breadth.rspReturnPct)} vs SPX {pctText(s.breadth.spxReturnPct)}</div>
         </div>
         <div className="panel kpi">
-          <div className="label">七巨頭合計貢獻</div>
+          <div className="label">觀察名單合計貢獻</div>
           <div className="value"><Delta value={s.mag7Total.contributionPts} /> 點</div>
           <div className="delta sub">
             占指數漲跌 {s.mag7Total.shareOfMovePct === null ? "—（平盤）" : `${num(s.mag7Total.shareOfMovePct, 0)}%`} · 權重 {num(s.mag7Total.weightPct, 1)}%
@@ -122,7 +122,10 @@ export default function Overview({ snapshot, revisions, dates, expectedClose, ne
       </div>
 
       <div className="panel section">
-        <h2>七巨頭，拆開來看</h2>
+        <div className="head-row">
+          <h2>觀察名單，拆開來看</h2>
+          <Link href="/watchlist" className="button secondary small">編輯名單</Link>
+        </div>
         <p className="sub">
           貢獻點數 = 前一交易日指數 × 前一交易日權重 × 當日報酬。{s.weights.method === "rolled" ? `權重由 ${s.weights.asOf} SPY 持股依價格推算。` : s.weights.asOf ? `權重來自 ${s.weights.asOf} SPY 持股。` : ""}
         </p>

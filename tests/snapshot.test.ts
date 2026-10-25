@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Series } from "../src/lib/analytics.ts";
 import { type PriceCheck, buildSnapshot, contributionPoints } from "../src/lib/snapshot.ts";
-import { MAG7_TICKERS } from "../src/lib/universe.ts";
+import { DEFAULT_WATCHLIST, watchTickers } from "../src/lib/universe.ts";
+const MAG7_TICKERS = watchTickers(DEFAULT_WATCHLIST);
 
 const D0 = "2026-10-21";
 const D1 = "2026-10-22";
@@ -21,7 +22,7 @@ function input(overrides: { weightsAsOf?: string; mismatch?: string } = {}) {
   }
   const checks: Record<string, Map<string, PriceCheck>> = {};
   if (overrides.mismatch) checks[overrides.mismatch] = new Map([[D2, { status: "mismatch", source: "nasdaq", close: 1 }]]);
-  return { tradeDate: D2, series, checks, weights: { asOf: overrides.weightsAsOf ?? D1, byTicker: weights } };
+  return { tradeDate: D2, series, checks, weights: { asOf: overrides.weightsAsOf ?? D1, byTicker: weights }, members: DEFAULT_WATCHLIST };
 }
 
 test("貢獻點數 = 前日指數 × 前日權重 × 當日報酬", () => {

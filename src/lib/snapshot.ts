@@ -1,6 +1,6 @@
 import { Series, pct, periodReturn, range52w, rollWeight, round, smaAt } from "./analytics.ts";
 import { addDays, isNyseSession, previousExpectedSession } from "./calendar.ts";
-import { EQUAL_WEIGHT_SYMBOL, INDEX_SYMBOL, MAG7, VIX_SYMBOL } from "./universe.ts";
+import { EQUAL_WEIGHT_SYMBOL, INDEX_SYMBOL, VIX_SYMBOL, type WatchMember } from "./universe.ts";
 
 export const SNAPSHOT_VERSION = 1;
 
@@ -12,6 +12,7 @@ export interface PriceCheck {
   close: number | null;
 }
 
+/** 觀察名單裡一家公司的當日歸因（欄位名沿用最初的「七巨頭」，存好的快照 JSON 才讀得回來）。 */
 export interface Mag7Row {
   key: string;
   company: string;
@@ -58,7 +59,9 @@ export interface Snapshot {
     rspMonthPct: number | null;
     spxMonthPct: number | null;
   };
+  /** 觀察名單各家（建快照當時的名單） */
   mag7: Mag7Row[];
+  /** 觀察名單合計 */
   mag7Total: { weightPct: number | null; contributionPts: number | null; shareOfMovePct: number | null };
   rest: { contributionPts: number | null; impliedReturnPct: number | null };
   weights: { asOf: string | null; method: "file" | "rolled" | null; note: string };
@@ -77,6 +80,8 @@ export interface SnapshotInput {
   checks: Record<string, Map<string, PriceCheck>>;
   /** 最接近 tradeDate 前一日的 SSGA 持股（ticker → 權重 %） */
   weights: { asOf: string; byTicker: Map<string, number> } | null;
+  /** 觀察名單 */
+  members: WatchMember[];
 }
 
 const r2 = (v: number | null) => round(v, 2);
@@ -126,7 +131,7 @@ export function buildSnapshot(input: SnapshotInput): Snapshot | null {
   const weightTarget = prev?.date ?? null;
   const weightMethod: "file" | "rolled" | null = !input.weights || !weightTarget ? null : input.weights.asOf === weightTarget ? "file" : "rolled";
 
-  const mag7: Mag7Row[] = MAG7.map((m) => {
+  const mag7: Mag7Row[] = input.members.map((m) => {
     let weightPct: number | null = 0;
     let contribution: number | null = 0;
     let closeSum: number | null = null;

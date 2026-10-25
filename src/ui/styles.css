@@ -312,3 +312,29 @@ body::before {
   .tabbar.compact { transform: none; }
   .tabbar a:active { transform: none; }
 }
+
+/* 觀察名單 */
+.head-row { display: flex; align-items: center; justify-content: space-between; gap: .6rem; margin-bottom: .5rem; }
+.head-row h2 { margin: 0; }
+.button.secondary, a.button.secondary { background: transparent; color: var(--accent); border: 1px solid var(--line); display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
+button.small, .button.small { padding: .3rem .7rem; font-size: .85rem; }
+button.danger { color: var(--up); }
+button.chip { background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 999px; padding: .3rem .8rem; }
+button.chip:disabled { opacity: .5; }
+.watch-add { display: flex; gap: .6rem; }
+.watch-add input { flex: 1; text-transform: uppercase; }
+.watch-add input::placeholder { text-transform: none; }
+.watch-list li { display: grid; grid-template-columns: 1fr auto auto auto; align-items: center; gap: .6rem; }
+.watch-name { display: flex; flex-direction: column; min-width: 0; }
+.watch-list .num { font-variant-numeric: tabular-nums; }
+.spinner { display: inline-block; width: .9em; height: .9em; margin-right: .4em; vertical-align: -.1em; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
+@media (max-width: 640px) {
+  .watch-list li { grid-template-columns: 1fr auto; }
+  .watch-list li .num { grid-column: 2; grid-row: 1; }
+  .watch-list li .button, .watch-list li button { grid-row: 2; min-height: 44px; }
+  .watch-list li .button { grid-column: 1; justify-self: start; }
+  .watch-list li button { grid-column: 2; }
+  .head-row .button { min-height: 40px; }
+}

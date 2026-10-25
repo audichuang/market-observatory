@@ -3,7 +3,8 @@ import { defineHandler, defineHead, type InferProps } from "void";
 import { NYSE_CALENDAR, addDays, latestExpectedClose } from "../src/lib/calendar.ts";
 import { CBOE_URLS } from "../src/lib/sources/cboe.ts";
 import { SSGA_DISPLAY_URL } from "../src/lib/sources/ssga.ts";
-import { YAHOO_SYMBOLS, VIX_SYMBOL } from "../src/lib/universe.ts";
+import { VIX_SYMBOL, yahooSymbols } from "../src/lib/universe.ts";
+import { loadWatchlist } from "../src/server/watchlist.ts";
 import { yahooDisplayUrl } from "../src/lib/sources/yahoo.ts";
 import { JOB_NAMES } from "../src/server/jobs.ts";
 import { CHECK_ABS_TOLERANCE, CHECK_REL_TOLERANCE } from "../src/server/repo.ts";
@@ -30,11 +31,13 @@ export const loader = defineHandler(async (c) => {
       db.prepare("SELECT as_of, COUNT(*) AS n, ROUND(SUM(weight_pct), 2) AS total, MAX(fetched_at) AS fetched_at FROM weights GROUP BY as_of ORDER BY as_of DESC LIMIT 10").all<{ as_of: string; n: number; total: number; fetched_at: string }>(),
       db.prepare("SELECT (SELECT COUNT(*) FROM prices) AS prices, (SELECT COUNT(*) FROM snapshots) AS snapshots, (SELECT COUNT(DISTINCT trade_date) FROM snapshots) AS days, (SELECT COUNT(*) FROM news) AS news, (SELECT COUNT(*) FROM events) AS events").first<Record<string, number>>(),
     ]);
-    const sourceLinks: Record<string, string> = Object.fromEntries(Object.entries(YAHOO_SYMBOLS).map(([s, p]) => [s, yahooDisplayUrl(p)]));
+    const tracked = yahooSymbols(await loadWatchlist(db));
+    const sourceLinks: Record<string, string> = Object.fromEntries(Object.entries(tracked).map(([s, p]) => [s, yahooDisplayUrl(p)]));
     sourceLinks[VIX_SYMBOL] = CBOE_URLS.VIX;
     return {
       expected,
-      freshness: freshness.results.map((f) => ({ ...f, link: sourceLinks[f.symbol] ?? null })),
+      // 只列目前追蹤的標的；從觀察名單移除的代號舊資料還在，但不再更新，不列入「是否過期」。
+      freshness: freshness.results.filter((f) => f.symbol in sourceLinks).map((f) => ({ ...f, link: sourceLinks[f.symbol] })),
       mismatches: mismatches.results,
       runs: runs.results,
       weights: weights.results,

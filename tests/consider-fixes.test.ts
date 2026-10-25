@@ -5,7 +5,8 @@ import { Series } from "../src/lib/analytics.ts";
 import { latestExpectedClose, previousExpectedSession } from "../src/lib/calendar.ts";
 import { nextPendingRebase } from "../src/lib/rebase.ts";
 import { buildSnapshot, type Snapshot } from "../src/lib/snapshot.ts";
-import { MAG7_TICKERS } from "../src/lib/universe.ts";
+import { DEFAULT_WATCHLIST, watchTickers } from "../src/lib/universe.ts";
+const MAG7_TICKERS = watchTickers(DEFAULT_WATCHLIST);
 import { saveSnapshots } from "../src/server/repo.ts";
 
 test("冬令與夏令：美東 16:30 之後就算當天收盤", () => {
@@ -32,7 +33,7 @@ test("指數缺前一交易日：當日漲跌與歸因不算，列入缺資料",
     series[t] = new Series([{ date: "2026-10-21", close: 100 }, { date: "2026-10-23", close: 96 }]);
     weights.set(t, 4);
   }
-  const s = buildSnapshot({ tradeDate: "2026-10-23", series, checks: {}, weights: { asOf: "2026-10-21", byTicker: weights } })!;
+  const s = buildSnapshot({ tradeDate: "2026-10-23", series, checks: {}, weights: { asOf: "2026-10-21", byTicker: weights }, members: DEFAULT_WATCHLIST })!;
   assert.equal(s.index.returnPct, null);
   assert.equal(s.index.changePts, null);
   assert.equal(s.mag7Total.contributionPts, null);
@@ -43,6 +44,7 @@ test("指數缺前一交易日：當日漲跌與歸因不算，列入缺資料",
     series: { SPX: new Series([{ date: "2026-10-23", close: 7400 }, { date: "2026-10-26", close: 7474 }]) },
     checks: {},
     weights: null,
+    members: DEFAULT_WATCHLIST,
   })!;
   assert.equal(monday.index.changePts, 74);
 });

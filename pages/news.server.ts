@@ -1,7 +1,7 @@
 import { cachedPage, readDb } from "../src/server/page-cache.ts";
 import { defineHandler, defineHead, type InferProps } from "void";
 import { addDays } from "../src/lib/calendar.ts";
-import { MAG7 } from "../src/lib/universe.ts";
+import { loadWatchlist } from "../src/server/watchlist.ts";
 
 export type Props = InferProps<typeof loader>;
 
@@ -9,7 +9,7 @@ export const loader = defineHandler(async (c) => {
   const db = readDb(c.env);
   // 頁面資料依資料版本快取，見 src/server/page-cache.ts。
   return cachedPage(c, db, `news?${new URL(c.req.url).search}&today=${new Date().toISOString().slice(0, 10)}`, async () => {
-    const keys = [...MAG7.map((m) => m.key), "SPY"];
+    const keys = [...(await loadWatchlist(db)).map((m) => m.key), "SPY"];
     const symbol = keys.includes(c.req.query("symbol") ?? "") ? (c.req.query("symbol") as string) : null;
     const news = symbol
       ? await db.prepare("SELECT * FROM news WHERE ',' || symbols || ',' LIKE ? ORDER BY published_at DESC, fetched_at DESC LIMIT 60").bind(`%,${symbol},%`).all()

@@ -2,24 +2,27 @@ import { cachedPage, readDb } from "../src/server/page-cache.ts";
 import { defineHandler, defineHead, type InferProps } from "void";
 import { maxDrawdown, periodReturn, smaSeries } from "../src/lib/analytics.ts";
 import { addDays } from "../src/lib/calendar.ts";
-import { ETFS, EQUAL_WEIGHT_SYMBOL, INDEX_SYMBOL, MAG7, VIX_SYMBOL } from "../src/lib/universe.ts";
+import { ETFS, EQUAL_WEIGHT_SYMBOL, INDEX_SYMBOL, VIX_SYMBOL, type WatchMember } from "../src/lib/universe.ts";
+import { loadWatchlist } from "../src/server/watchlist.ts";
 import { loadPrices } from "../src/server/repo.ts";
 
 export type Props = InferProps<typeof loader>;
 
 const RANGES = [1, 3, 6, 12, 36, 60];
-export const SYMBOL_LABELS: Record<string, string> = {
+const symbolLabels = (members: WatchMember[]): Record<string, string> => ({
   [INDEX_SYMBOL]: "S&P 500",
   [VIX_SYMBOL]: "VIX",
   [EQUAL_WEIGHT_SYMBOL]: "RSP 等權重",
-  ...Object.fromEntries(MAG7.map((m) => [m.key, m.company])),
+  ...Object.fromEntries(members.map((m) => [m.key, m.company])),
   ...Object.fromEntries(ETFS.map((e) => [e.ticker, e.ticker])),
-};
+});
 
 export const loader = defineHandler(async (c) => {
   const db = readDb(c.env);
   // 頁面資料依資料版本快取，見 src/server/page-cache.ts。
   return cachedPage(c, db, `history?${new URL(c.req.url).search}`, async () => {
+    const members = await loadWatchlist(db);
+    const SYMBOL_LABELS = symbolLabels(members);
     const symbol = SYMBOL_LABELS[c.req.query("symbol") ?? ""] ? (c.req.query("symbol") as string) : INDEX_SYMBOL;
     const months = RANGES.includes(Number(c.req.query("months"))) ? Number(c.req.query("months")) : 12;
     const last = await db.prepare("SELECT MAX(date) AS d FROM prices WHERE symbol = ?").bind(INDEX_SYMBOL).first<{ d: string | null }>();
@@ -27,7 +30,7 @@ export const loader = defineHandler(async (c) => {
     const start = addDays(end, -Math.round(months * 30.44));
 
     // 均線先用更早的資料暖機，再截到顯示區間，避免圖的開頭均線是錯的。
-    const compareSymbols = [INDEX_SYMBOL, ...MAG7.map((m) => m.key), EQUAL_WEIGHT_SYMBOL];
+    const compareSymbols = [INDEX_SYMBOL, ...members.map((m) => m.key), EQUAL_WEIGHT_SYMBOL];
     const loaded = await loadPrices(db, [...new Set([symbol, ...compareSymbols])], addDays(start, -320), end);
     const main = loaded.series[symbol];
     const sma20 = smaSeries(main.points, 20);
@@ -77,7 +80,7 @@ export const loader = defineHandler(async (c) => {
     const contribution = contrib.results.map((r) => ({ date: r.date, index: r.idx, mag7: r.mag7, rest: r.rest }));
 
     const mainStats = { ret: periodReturn(main, start, end), mdd: maxDrawdown(main.points.filter((p) => p.date >= start)), points: visible.length, first: visible[0]?.date ?? null, last: visible.at(-1)?.date ?? null };
-    return { symbol, months, ranges: RANGES, symbols: Object.entries(SYMBOL_LABELS), priceLine, mainStats, rebased, stats, contribution };
+    return { symbol, label: SYMBOL_LABELS[symbol], watch: members.map((m) => m.key), months, ranges: RANGES, symbols: Object.entries(SYMBOL_LABELS), priceLine, mainStats, rebased, stats, contribution };
   });
 });
 
@@ -89,5 +92,5 @@ function annualVol(closes: number[]): number | null {
   return Math.sqrt(variance * 252) * 100;
 }
 
-export const head = defineHead<Props>((_c, p) => ({ title: `${SYMBOL_LABELS[p.symbol]} 走勢` }));
+export const head = defineHead<Props>((_c, p) => ({ title: `${p.label} 走勢` }));
 

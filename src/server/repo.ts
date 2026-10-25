@@ -266,7 +266,10 @@ export async function getSetting<T>(db: Db, key: string, fallback: T): Promise<T
   const row = await db.prepare("SELECT value FROM settings WHERE key = ?").bind(key).first<{ value: string }>();
   if (!row) return fallback;
   try {
-    return { ...fallback, ...(JSON.parse(row.value) as T) };
+    const value = JSON.parse(row.value) as T;
+    // 物件設定：缺的欄位用預設值補（舊版存的設定少了新欄位時）。陣列或其他型別原樣回傳，不能展開成物件。
+    const isPlain = (v: unknown) => typeof v === "object" && v !== null && !Array.isArray(v);
+    return isPlain(fallback) && isPlain(value) ? { ...fallback, ...value } : value;
   } catch {
     return fallback;
   }

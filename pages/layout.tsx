@@ -10,6 +10,7 @@ const NAV = [
   { href: "/outlook", label: "下月展望", short: "展望", icon: "M12 3a9 9 0 1 0 9 9M12 3v9l6-6M12 3a9 9 0 0 1 9 9h-9" },
   { href: "/etfs", label: "ETF 與定投", short: "ETF", icon: "M4 20V10M10 20V4M16 20v-7M22 20H2" },
   { href: "/news", label: "新聞與日曆", short: "新聞", icon: "M4 5h16v14H4zM4 9h16M9 3v4M15 3v4" },
+  { href: "/watchlist", label: "觀察名單", short: "名單", icon: "M12 3l2.6 5.6 6.1.7-4.5 4.2 1.2 6L12 16.6 6.6 19.5l1.2-6L3.3 9.3l6.1-.7z" },
   { href: "/sources", label: "資料來源", short: "資料", icon: "M4 6c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3zM4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6" },
 ] as const;
 
@@ -18,7 +19,8 @@ const PREFETCH = ["mount", "hover", "click"] as const;
 const CACHE_FOR: [string, string] = ["1m", "30m"];
 
 const isActive = (href: string, path: string) => (href === "/" ? path === "/" : path.startsWith(href));
-const TABS = NAV.filter((n) => n.href !== "/sources");
+// 手機底部分頁最多 5 格：觀察名單從總覽的「編輯名單」進，資料來源在頂列。
+const TABS = NAV.filter((n) => n.href !== "/sources" && n.href !== "/watchlist");
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const shared = useShared();

@@ -2,7 +2,6 @@ import { cachedPage, readDb } from "../src/server/page-cache.ts";
 import { defineHandler, defineHead, type InferProps } from "void";
 import { addDays, latestExpectedClose } from "../src/lib/calendar.ts";
 import { getSnapshot, listRevisions, listSnapshotDates } from "../src/server/repo.ts";
-import { MAG7_TICKERS } from "../src/lib/universe.ts";
 
 export type Props = InferProps<typeof loader>;
 
@@ -26,8 +25,8 @@ export const loader = defineHandler(async (c) => {
       // 持股檔與這一天相差超過 7 天（看舊日期、權重是從後來的持股推回去的）就不寫檔數，當時的名單不一定一樣。
       snapshot?.data.weights.asOf && Math.abs(Date.parse(snapshot.data.weights.asOf) - Date.parse(snapshot.tradeDate)) <= 7 * 86400000
         ? db
-            .prepare(`SELECT COUNT(*) AS n FROM weights WHERE as_of = ? AND weight_pct > 0 AND ticker NOT GLOB '*[0-9]*' AND ticker NOT IN (${MAG7_TICKERS.map(() => "?").join(",")})`)
-            .bind(snapshot.data.weights.asOf, ...MAG7_TICKERS)
+            .prepare(`SELECT COUNT(*) AS n FROM weights WHERE as_of = ? AND weight_pct > 0 AND ticker NOT GLOB '*[0-9]*' AND ticker NOT IN (${snapshot.data.mag7.flatMap((m) => m.tickers).map(() => "?").join(",")})`)
+            .bind(snapshot.data.weights.asOf, ...snapshot.data.mag7.flatMap((m) => m.tickers))
             .first<{ n: number }>()
         : Promise.resolve(null),
     ]);

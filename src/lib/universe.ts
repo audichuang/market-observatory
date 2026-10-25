@@ -5,14 +5,15 @@ export const VIX_SYMBOL = "VIX"; // Cboe 官方 VIX_History
 export const EQUAL_WEIGHT_SYMBOL = "RSP";
 export const FX_SYMBOL = "USDTWD"; // Yahoo TWD=X，定投試算換匯用
 
-export interface Mag7Member {
-  /** 顯示用的公司代號；Alphabet 合併 GOOGL＋GOOG 兩個股類 */
+export interface WatchMember {
+  /** 顯示用的公司代號；同一家公司有多個股類時（Alphabet 的 GOOGL＋GOOG）合併成一列 */
   key: string;
   company: string;
   tickers: string[];
 }
 
-export const MAG7: Mag7Member[] = [
+// 觀察名單的預設值（第一次使用、或設定還沒存過時）。實際名單存在 D1 settings，使用者可自行增減，見 src/server/watchlist.ts。
+export const DEFAULT_WATCHLIST: WatchMember[] = [
   { key: "NVDA", company: "NVIDIA", tickers: ["NVDA"] },
   { key: "AAPL", company: "Apple", tickers: ["AAPL"] },
   { key: "MSFT", company: "Microsoft", tickers: ["MSFT"] },
@@ -22,7 +23,7 @@ export const MAG7: Mag7Member[] = [
   { key: "TSLA", company: "Tesla", tickers: ["TSLA"] },
 ];
 
-export const MAG7_TICKERS = MAG7.flatMap((m) => m.tickers);
+export const watchTickers = (list: WatchMember[]) => list.flatMap((m) => m.tickers);
 
 export interface EtfProduct {
   ticker: string;
@@ -55,20 +56,22 @@ export const ETFS: EtfProduct[] = [
   { ticker: "SPXS", name: "Direxion Daily S&P 500 Bear 3X", issuer: "Direxion", multiple: -3, grossFeePct: 1.04, netFeePct: 1.04, aumUsd: null, aumAsOf: null, sourceUrl: "https://www.direxion.com/product/daily-sp-500-bull-bear-3x-etfs", note: "" },
 ];
 
-/** 每日從 Yahoo chart 抓的標的（不含 VIX，VIX 走 Cboe）。 */
-export const YAHOO_SYMBOLS: Record<string, string> = {
-  [INDEX_SYMBOL]: "^GSPC",
-  [EQUAL_WEIGHT_SYMBOL]: "RSP",
-  [FX_SYMBOL]: "TWD=X",
-  ...Object.fromEntries(MAG7_TICKERS.map((t) => [t, t])),
-  ...Object.fromEntries(ETFS.map((e) => [e.ticker, e.ticker])),
-};
+/** 每日從 Yahoo chart 抓的標的（不含 VIX，VIX 走 Cboe）。成分股代號與 SSGA 持股檔同為 Yahoo 格式（BRK-B）。 */
+export function yahooSymbols(list: WatchMember[]): Record<string, string> {
+  return {
+    [INDEX_SYMBOL]: "^GSPC",
+    [EQUAL_WEIGHT_SYMBOL]: "RSP",
+    [FX_SYMBOL]: "TWD=X",
+    ...Object.fromEntries(watchTickers(list).map((t) => [t, t])),
+    ...Object.fromEntries(ETFS.map((e) => [e.ticker, e.ticker])),
+  };
+}
 
 /** Nasdaq 交叉核對：指數與匯率 Nasdaq 沒有，SPX 改由 Cboe 核對。 */
-export const NASDAQ_CHECK_SYMBOLS: { symbol: string; assetClass: "stocks" | "etf" }[] = [
-  ...MAG7_TICKERS.map((t) => ({ symbol: t, assetClass: "stocks" as const })),
-  { symbol: EQUAL_WEIGHT_SYMBOL, assetClass: "etf" },
-  ...ETFS.map((e) => ({ symbol: e.ticker, assetClass: "etf" as const })),
-];
-
-export const CHART_SYMBOLS = [INDEX_SYMBOL, ...MAG7.map((m) => m.key), EQUAL_WEIGHT_SYMBOL, VIX_SYMBOL];
+export function nasdaqCheckSymbols(list: WatchMember[]): { symbol: string; assetClass: "stocks" | "etf" }[] {
+  return [
+    ...watchTickers(list).map((t) => ({ symbol: t, assetClass: "stocks" as const })),
+    { symbol: EQUAL_WEIGHT_SYMBOL, assetClass: "etf" },
+    ...ETFS.map((e) => ({ symbol: e.ticker, assetClass: "etf" as const })),
+  ];
+}

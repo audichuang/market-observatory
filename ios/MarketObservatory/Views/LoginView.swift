@@ -21,8 +21,10 @@ struct LoginView: View {
     }
 
     var body: some View {
+        GeometryReader { geo in
         ScrollView {
             VStack(spacing: 20) {
+                Spacer(minLength: 0)
                 VStack(spacing: 8) {
                     Image(systemName: "chart.line.uptrend.xyaxis")
                         .font(.system(size: 44, weight: .semibold))
@@ -30,7 +32,6 @@ struct LoginView: View {
                     Text("市場觀測室").font(.largeTitle.bold())
                     Text("S&P 500、名單歸因、ETF 與收盤推播").font(.subheadline).foregroundStyle(.secondary)
                 }
-                .padding(.top, 48)
 
                 SignInWithAppleButton(mode == .signUp ? .signUp : .signIn) { request in
                     nonce = Self.randomNonce()
@@ -109,10 +110,13 @@ struct LoginView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .padding(.top, 12)
+                Spacer(minLength: 0)
             }
             .padding(.horizontal, 24)
-            .frame(maxWidth: 480)
-            .frame(maxWidth: .infinity)
+            .padding(.vertical, 24)
+            .frame(maxWidth: 420)
+            .frame(maxWidth: .infinity, minHeight: geo.size.height)
+        }
         }
         .scrollDismissesKeyboard(.interactively)
     }
@@ -139,11 +143,16 @@ struct LoginView: View {
         }
     }
 
+    /// 不把 AuthenticationServices 的英文錯誤直接給使用者。
+    private static func appleMessage(_ err: Error) -> String {
+        "無法使用 Apple 登入（模擬器或未登入 Apple 帳號時會發生），請改用 Email 登入"
+    }
+
     private func apple(_ result: Result<ASAuthorization, Error>) async {
         switch result {
         case let .failure(err):
             if (err as? ASAuthorizationError)?.code == .canceled { return }
-            error = "Apple 登入失敗：\(err.localizedDescription)"
+            error = Self.appleMessage(err)
         case let .success(auth):
             guard let cred = auth.credential as? ASAuthorizationAppleIDCredential,
                   let tokenData = cred.identityToken,
@@ -167,7 +176,7 @@ struct LoginView: View {
                 try await API.raw("POST", "/api/auth/sign-in/social", body: Body(provider: "apple", idToken: IdToken(token: token, nonce: nonce, user: user)))
                 await session.signedIn()
             } catch {
-                self.error = "Apple 登入失敗：\(error.localizedDescription)"
+                self.error = "Apple 登入失敗，請稍後再試"
             }
         }
     }

@@ -12,8 +12,6 @@ struct NewsView: View {
     @State private var translationsBy: [String: [String: NewsTranslation]] = [:]
     @State private var requestedBy: [String: Set<String>] = [:]
     @State private var pending: [(filter: String?, id: String)] = []
-    /// 正在翻的 id（不分篩選）：同一則同時只送一次，免得伺服器兩邊都呼叫模型、扣兩次額度。
-    @State private var inflight: Set<String> = []
     @State private var flushTask: Task<Void, Never>?
     @State private var aiNotice: String?
     @State private var aiDisabled = false
@@ -181,7 +179,7 @@ struct NewsView: View {
 
     /// 列出現在畫面上才排進佇列；300ms 內的合併成一次請求（一次最多 20 則）。
     private func enqueue(_ n: NewsPage.Item) {
-        guard !aiDisabled, n.titleZh == nil, translations[n.id] == nil, !inflight.contains(n.id), !(requestedBy[filterKey]?.contains(n.id) ?? false) else { return }
+        guard !aiDisabled, n.titleZh == nil, translations[n.id] == nil, !(requestedBy[filterKey]?.contains(n.id) ?? false) else { return }
         requestedBy[filterKey, default: []].insert(n.id)
         pending.append((symbol, n.id))
         flushTask?.cancel()
@@ -203,20 +201,14 @@ struct NewsView: View {
     private struct TranslateBody: Encodable, Sendable { let ids: [String]; let symbol: String? }
 
     private func translate(_ ids: [String], filter: String?) async {
-        inflight.formUnion(ids)
+        // 不同篩選同時送到同一則也沒關係：伺服器會認領，只有一邊呼叫模型、扣額度。
         do {
             let r: NewsTranslateResponse = try await API.send("POST", "/api/v1/news/translate", body: TranslateBody(ids: ids, symbol: filter))
-            inflight.subtract(ids)
             // 存回送出時的篩選；重要與否是照那個篩選算的。
             for t in r.items where t.titleZh != nil { translationsBy[filter ?? "", default: [:]][t.id] = t }
-            // 回來前已換了代號：畫面上同一批的列改用現在的篩選再排（伺服器已有快取，不再呼叫模型）。
-            if filter != symbol, let p = state.value, p.symbol == symbol {
-                for n in p.news where ids.contains(n.id) { enqueue(n) }
-            }
             if let ai = r.ai { aiStatus = ai }
             if let note = NewsText.aiNotice(r.ai) { aiNotice = note; aiDisabled = true }
         } catch {
-            inflight.subtract(ids)
             if case APIError.unauthorized = error { session.handle(error) }
             aiNotice = NewsText.aiNotice(error)
             // 額度用完／沒設 key 就別再送了；其他錯誤等下拉重新整理再試。

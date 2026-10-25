@@ -3,18 +3,20 @@
 // 或把名單放進快取鍵，不會把甲的名單快取給乙看。
 import { maxDrawdown, periodReturn, smaSeries, Series, leverageDrift, simulateDca } from "../lib/analytics.ts";
 import { addDays, latestExpectedClose } from "../lib/calendar.ts";
+import { isImportant } from "../lib/news-ai.ts";
 import { viewForMembers } from "../lib/snapshot.ts";
 import { ETFS, ETF_CATALOG_AS_OF, EQUAL_WEIGHT_SYMBOL, FX_SYMBOL, INDEX_SYMBOL, VIX_SYMBOL, type WatchMember } from "../lib/universe.ts";
 import { MAX_WATCH, displayName, isConstituent } from "../lib/watchlist.ts";
 import { z } from "zod";
 import { type Viewer, getViewerSetting, settingKey, viewerWatchlist } from "./account.ts";
 import { rebuildSnapshots, WATCHLIST_REBUILD_SESSIONS } from "./jobs.ts";
+import { aiState, latestDigests } from "./news-ai.ts";
 import { bumpDataVersion, cachedPage, readDb } from "./page-cache.ts";
 import { getSnapshot, listRevisions, listSnapshotDates, loadPrices, putSetting } from "./repo.ts";
 import { latestHoldings, loadTrackedMembers } from "./watchlist.ts";
 
 export interface ViewCtx {
-  env: { DB: D1Database };
+  env: { DB: D1Database; ANTHROPIC_API_KEY?: string };
   req: { query(key: string): string | undefined; url: string };
   executionCtx?: { waitUntil(p: Promise<unknown>): void };
 }
@@ -53,17 +55,18 @@ export async function overviewView(c: ViewCtx, v: Viewer) {
   const shared = await cachedPage(cacheCtx(c), db, `index?date=${date ?? ""}&rev=${rev ?? ""}&close=${latestExpectedClose()}&today=${today}`, async () => {
     const snapshot = await getSnapshot(db, date, rev);
     const tradeDate = snapshot?.tradeDate ?? null;
-    const [revisions, dates, news, events, lastPriceRun, forecast] = await Promise.all([
+    const [revisions, dates, events, lastPriceRun, forecast] = await Promise.all([
       tradeDate ? listRevisions(db, tradeDate) : Promise.resolve([]),
       listSnapshotDates(db, 400),
-      db.prepare("SELECT title, title_zh, tone, category, focus, url, publisher, published_at, symbols FROM news WHERE symbols != 'SPY' ORDER BY published_at DESC, fetched_at DESC LIMIT 120").all<{ title: string; title_zh: string | null; tone: string | null; category: string | null; focus: string | null; url: string; publisher: string | null; published_at: string | null; symbols: string }>(),
       db.prepare("SELECT date, kind, symbol, title, status FROM events WHERE date >= ? AND date <= ? ORDER BY date LIMIT 60").bind(today, addDays(today, 21)).all<{ date: string; kind: string; symbol: string | null; title: string; status: string }>(),
       db.prepare("SELECT status, summary, finished_at FROM runs WHERE job = 'prices' ORDER BY id DESC LIMIT 1").first<{ status: string; summary: string; finished_at: string | null }>(),
       db.prepare("SELECT trade_date, probability, base_rate, call FROM forecasts ORDER BY trade_date DESC LIMIT 1").first<{ trade_date: string; probability: number; base_rate: number; call: string }>(),
     ]);
-    return { snapshot, revisions, dates, news: news.results, events: events.results, lastPriceRun, forecast };
+    return { snapshot, revisions, dates, events: events.results, lastPriceRun, forecast };
   });
   const mine = new Set(members.map((m) => m.key));
+  // 新聞的 AI 欄位會在使用者點開時才補上、全站共用：不放進頁面快取（快取只在資料版本變時更新），每次讀最新的。
+  const newsRows = await c.env.DB.prepare(`SELECT ${NEWS_COLS} FROM news WHERE symbols != 'SPY' ORDER BY published_at DESC, fetched_at DESC LIMIT 120`).all<NewsRow>();
   const snapshot = shared.snapshot ? { ...shared.snapshot, data: viewForMembers(shared.snapshot.data, members) } : null;
   // 「其餘」幾檔：用快照所依據那天的 SPY 持股實算。持股檔偶爾夾帶非股票列（例如 2602335D、權重近 0），含數字的代號不算。
   // 持股檔與這一天相差超過 7 天（看舊日期、權重是從後來的持股推回去的）就不寫檔數，當時的名單不一定一樣。
@@ -81,15 +84,16 @@ export async function overviewView(c: ViewCtx, v: Viewer) {
     revisions: shared.revisions,
     dates: shared.dates,
     expectedClose: latestExpectedClose(),
-    // 只列真的在講自己名單公司的新聞（AI 判斷；還沒加工的用掛在哪些代號底下判斷）
-    news: shared.news.filter((n) => (n.focus === null ? n.symbols.split(",") : n.focus.split(",")).some((k) => mine.has(k))).slice(0, 5),
+    // 只列真的在講自己名單公司的新聞（AI 判過的照 AI；還沒判的用免費規則，見 isImportant）
+    news: newsRows.results.map((n) => newsOut(n, isImportant(n, [...mine], members.flatMap((m) => m.tickers)))).filter((n) => n.important).slice(0, 5),
     events: shared.events.filter((e) => e.kind !== "earnings" || (e.symbol !== null && mine.has(e.symbol))).slice(0, 8),
     lastPriceRun: shared.lastPriceRun,
     forecast: shared.forecast,
     restCount: rest?.n ?? null,
     viewingLatest: !date,
     // 名單公司在這個交易日（或之後一天，盤後新聞）的 AI 新聞重點
-    digests: s ? (await latestDigests(db, s.mag7.map((m) => m.key), s.tradeDate)).filter((d) => d.date <= addDays(s.tradeDate, 1)) : [],
+    digests: s ? await latestDigests(c.env.DB, members, s.tradeDate, addDays(s.tradeDate, 1)) : [],
+    ai: await aiState(c.env.DB, v, Boolean(c.env.ANTHROPIC_API_KEY)),
   };
 }
 
@@ -273,6 +277,9 @@ export async function etfsView(c: ViewCtx, v: Viewer) {
 
 // ── 新聞與日曆 ───────────────────────────────────────────
 
+/** `news` 表裡 API 與頁面會用到的欄位（primary_symbol 與 points_zh 只在伺服器內部／轉成陣列後輸出） */
+export const NEWS_COLS = "id, symbols, title, url, publisher, published_at, fetched_at, primary_symbol, title_zh, tone, category, focus, points_zh";
+
 export interface NewsRow {
   id: string;
   symbols: string;
@@ -281,32 +288,26 @@ export interface NewsRow {
   publisher: string | null;
   published_at: string | null;
   fetched_at: string;
+  primary_symbol: string | null;
   title_zh: string | null;
   tone: string | null;
   category: string | null;
   /** AI 判斷這則真正在講的代號；null＝還沒加工 */
   focus: string | null;
+  /** AI 重點（JSON 字串陣列）；null＝還沒產生 */
+  points_zh: string | null;
 }
 
-/**
- * 這則對這個人重不重要：真的在講他名單上的公司，或是大盤總經新聞。還沒經過 AI 加工的先當重要（不會因為排程還沒跑就藏起來）。
- * 其餘（選股標題黨、只順帶提到、別家公司的債券目標價）收在「其他」。
- */
-export function newsMatters(n: Pick<NewsRow, "focus" | "category">, keys: string[]): boolean {
-  if (n.focus === null) return true;
-  const focus = n.focus.split(",").filter(Boolean);
-  return focus.some((f) => f !== "SPY" && keys.includes(f)) || (focus.includes("SPY") && n.category === "總經與市場");
-}
-
-/** 名單公司最近幾天的 AI 重點（每家只取最新一天）。 */
-export async function latestDigests(db: Pick<D1Database, "prepare">, keys: string[], since: string) {
-  if (!keys.length) return [];
-  const rows = await db
-    .prepare(`SELECT symbol, date, summary, tone FROM news_digests WHERE date >= ? AND symbol IN (${keys.map(() => "?").join(",")}) ORDER BY date DESC`)
-    .bind(since, ...keys)
-    .all<{ symbol: string; date: string; summary: string; tone: string }>();
-  const seen = new Set<string>();
-  return rows.results.filter((r) => (seen.has(r.symbol) ? false : (seen.add(r.symbol), true)));
+/** 輸出給網頁與 App 的新聞：primary_symbol 不外露，points_zh 轉成陣列。 */
+export function newsOut(n: NewsRow, important: boolean) {
+  const { primary_symbol: _p, points_zh, ...rest } = n;
+  let points: string[] | null = null;
+  try {
+    points = points_zh ? (JSON.parse(points_zh) as string[]) : null;
+  } catch {
+    points = null;
+  }
+  return { ...rest, points_zh: points, important };
 }
 
 export async function newsView(c: ViewCtx, v: Viewer) {
@@ -315,29 +316,34 @@ export async function newsView(c: ViewCtx, v: Viewer) {
   const keys = [...members.map((m) => m.key), "SPY"];
   const symbol = keys.includes(c.req.query("symbol") ?? "") ? (c.req.query("symbol") as string) : null;
   const today = new Date().toISOString().slice(0, 10);
-  return cachedPage(cacheCtx(c), db, `news2?symbol=${symbol ?? ""}&keys=${keys.join(",")}&today=${today}`, async () => {
-    // 不指定代號時只列自己名單上（與大盤 SPY）的新聞。
-    const like = keys.map(() => "',' || symbols || ',' LIKE ?").join(" OR ");
-    const cols = "id, symbols, title, url, publisher, published_at, fetched_at, title_zh, tone, category, focus";
-    const news = symbol
-      ? await db.prepare(`SELECT ${cols} FROM news WHERE ',' || symbols || ',' LIKE ? ORDER BY published_at DESC, fetched_at DESC LIMIT 60`).bind(`%,${symbol},%`).all<NewsRow>()
-      : await db.prepare(`SELECT ${cols} FROM news WHERE ${like} ORDER BY published_at DESC, fetched_at DESC LIMIT 120`).bind(...keys.map((k) => `%,${k},%`)).all<NewsRow>();
-    const events = await db
-      .prepare("SELECT * FROM events WHERE date >= ? AND date <= ? ORDER BY date, kind")
-      .bind(addDays(today, -30), addDays(today, 120))
-      .all<{ id: string; date: string; kind: string; symbol: string | null; title: string; detail: string | null; status: string; source_url: string; fetched_at: string }>();
-    // 指定代號時，「重要」是這則真的在講那家公司
-    const wanted = symbol ? [symbol] : keys;
-    const company = Object.fromEntries(members.map((m) => [m.key, m.company]));
-    return {
-      symbol,
-      keys,
-      today,
-      news: news.results.map((n) => ({ ...n, important: symbol === "SPY" ? newsMatters(n, ["SPY"]) || n.focus?.includes("SPY") === true : newsMatters(n, wanted) })),
-      digests: (await latestDigests(db, symbol ? [symbol] : members.map((m) => m.key), addDays(today, -3))).map((d) => ({ ...d, company: company[d.symbol] ?? d.symbol })),
-      events: events.results.filter((e) => e.kind !== "earnings" || (e.symbol !== null && keys.includes(e.symbol))),
-    };
-  });
+  // 事件日曆是全站共用、依資料版本快取；新聞的 AI 欄位會在使用者點開時才補上，不進快取，每次讀最新的。
+  const events = await cachedPage(cacheCtx(c), db, `news-events?today=${today}`, async () =>
+    (
+      await db
+        .prepare("SELECT * FROM events WHERE date >= ? AND date <= ? ORDER BY date, kind")
+        .bind(addDays(today, -30), addDays(today, 120))
+        .all<{ id: string; date: string; kind: string; symbol: string | null; title: string; detail: string | null; status: string; source_url: string; fetched_at: string }>()
+    ).results,
+  );
+  // 不指定代號時只列自己名單上（與大盤 SPY）的新聞。
+  const like = keys.map(() => "',' || symbols || ',' LIKE ?").join(" OR ");
+  const news = symbol
+    ? await c.env.DB.prepare(`SELECT ${NEWS_COLS} FROM news WHERE ',' || symbols || ',' LIKE ? ORDER BY published_at DESC, fetched_at DESC LIMIT 60`).bind(`%,${symbol},%`).all<NewsRow>()
+    : await c.env.DB.prepare(`SELECT ${NEWS_COLS} FROM news WHERE ${like} ORDER BY published_at DESC, fetched_at DESC LIMIT 120`).bind(...keys.map((k) => `%,${k},%`)).all<NewsRow>();
+  // 指定代號時，「重要」是這則真的在講那家公司
+  const wantedKeys = symbol ? [symbol] : keys;
+  const wantedTickers = members.filter((m) => wantedKeys.includes(m.key)).flatMap((m) => m.tickers);
+  const important = (n: NewsRow) => (symbol === "SPY" && n.focus !== null ? n.focus.split(",").includes("SPY") : isImportant(n, wantedKeys, wantedTickers));
+  const digestMembers = symbol ? members.filter((m) => m.key === symbol) : members;
+  return {
+    symbol,
+    keys,
+    today,
+    news: news.results.map((n) => newsOut(n, important(n))),
+    digests: await latestDigests(c.env.DB, digestMembers, addDays(today, -3)),
+    ai: await aiState(c.env.DB, v, Boolean(c.env.ANTHROPIC_API_KEY)),
+    events: events.filter((e) => e.kind !== "earnings" || (e.symbol !== null && keys.includes(e.symbol))),
+  };
 }
 
 // ── 觀察名單 ─────────────────────────────────────────────

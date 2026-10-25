@@ -32,6 +32,10 @@ final class SessionStore {
     var tab: AppTab = .overview
     /// 推播帶來的日期（收盤摘要）：總覽切到那一天
     var overviewDate: String?
+    /// 名單每次增刪成功就加一：總覽與走勢據此重新載入。
+    var watchlistRevision = 0
+    /// 名單頁點公司要看走勢：走勢頁讀到後切到該標的並清掉。
+    var historySymbol: String?
     /// APNs 權杖存在 UserDefaults：離線啟動（停在 checking、還沒拿到新權杖）時登出也能把這台裝置從伺服器拿掉。
     var deviceToken: String? = UserDefaults.standard.string(forKey: SessionStore.deviceTokenKey) {
         didSet { UserDefaults.standard.set(deviceToken, forKey: SessionStore.deviceTokenKey) }

@@ -10,7 +10,8 @@
     "postinstall": "void prepare",
     "typecheck": "tsc --noEmit",
     "deploy": "void deploy",
-    "backfill": "node scripts/backfill.ts"
+    "backfill": "node scripts/backfill.ts",
+    "ai": "node scripts/ai-batch.ts"
   },
   "license": "MIT",
   "type": "module",

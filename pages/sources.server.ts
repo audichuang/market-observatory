@@ -4,7 +4,7 @@ import { NYSE_CALENDAR, addDays, latestExpectedClose } from "../src/lib/calendar
 import { CBOE_URLS } from "../src/lib/sources/cboe.ts";
 import { SSGA_DISPLAY_URL } from "../src/lib/sources/ssga.ts";
 import { VIX_SYMBOL, yahooSymbols } from "../src/lib/universe.ts";
-import { loadWatchlist } from "../src/server/watchlist.ts";
+import { loadTrackedMembers } from "../src/server/watchlist.ts";
 import { yahooDisplayUrl } from "../src/lib/sources/yahoo.ts";
 import { JOB_NAMES } from "../src/server/jobs.ts";
 import { CHECK_ABS_TOLERANCE, CHECK_REL_TOLERANCE } from "../src/server/repo.ts";
@@ -31,7 +31,7 @@ export const loader = defineHandler(async (c) => {
       db.prepare("SELECT as_of, COUNT(*) AS n, ROUND(SUM(weight_pct), 2) AS total, MAX(fetched_at) AS fetched_at FROM weights GROUP BY as_of ORDER BY as_of DESC LIMIT 10").all<{ as_of: string; n: number; total: number; fetched_at: string }>(),
       db.prepare("SELECT (SELECT COUNT(*) FROM prices) AS prices, (SELECT COUNT(*) FROM snapshots) AS snapshots, (SELECT COUNT(DISTINCT trade_date) FROM snapshots) AS days, (SELECT COUNT(*) FROM news) AS news, (SELECT COUNT(*) FROM events) AS events").first<Record<string, number>>(),
     ]);
-    const tracked = yahooSymbols(await loadWatchlist(db));
+    const tracked = yahooSymbols(await loadTrackedMembers(db));
     const sourceLinks: Record<string, string> = Object.fromEntries(Object.entries(tracked).map(([s, p]) => [s, yahooDisplayUrl(p)]));
     sourceLinks[VIX_SYMBOL] = CBOE_URLS.VIX;
     return {

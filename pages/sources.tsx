@@ -1,4 +1,4 @@
-import { useRouter } from "@void/react";
+import { useRouter, useShared } from "@void/react";
 import { useState } from "react";
 import { CheckBadge, RunStatusBadge } from "../src/ui/bits.tsx";
 import { num, taipeiTime } from "../src/ui/format.ts";
@@ -30,6 +30,7 @@ const SCHEDULE = [
 
 export default function SourcesPage({ expected, freshness, mismatches, runs, weights, counts, jobs, tolerance, calendar, links }: Props) {
   const router = useRouter();
+  const { isOwner } = useShared();
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [showAllRuns, setShowAllRuns] = useState(false);
@@ -67,7 +68,7 @@ export default function SourcesPage({ expected, freshness, mismatches, runs, wei
         <div className="notice ok">所有標的都已更新到 {expected}。</div>
       )}
 
-      <div className="panel">
+      {isOwner && <div className="panel">
         <h2>手動執行</h2>
         <div className="chips">
           {jobs.filter((j) => !j.startsWith("backfill")).map((j) => (
@@ -77,7 +78,7 @@ export default function SourcesPage({ expected, freshness, mismatches, runs, wei
           ))}
         </div>
         {message && <p className="sub" style={{ marginTop: ".6rem" }}>{message}</p>}
-      </div>
+      </div>}
 
       <div className="grid two section">
         <div className="panel">

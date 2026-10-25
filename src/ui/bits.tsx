@@ -5,16 +5,9 @@ export function Delta({ value, digits = 2, percent = false }: { value: number | 
   return <span className={tone(value)}>{percent ? pctText(value, digits) : signed(value, digits)}</span>;
 }
 
-const CHECK_LABEL: Record<CheckStatus, [string, string]> = {
-  match: ["ok", "兩源一致"],
-  mismatch: ["bad", "來源不一致"],
-  pending: ["warn", "待核對"],
-  unavailable: ["", "無第二來源"],
-};
-
+/** 收盤價核對：只有兩個來源對不上時才顯示，其餘狀態不必看。 */
 export function CheckBadge({ status }: { status: CheckStatus }) {
-  const [cls, text] = CHECK_LABEL[status] ?? CHECK_LABEL.pending;
-  return <span className={`badge ${cls}`}>{text}</span>;
+  return status === "mismatch" ? <span className="badge bad">來源不一致</span> : null;
 }
 
 /** 以 0 為中心的水平條；max 是兩側的滿格值。 */

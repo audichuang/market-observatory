@@ -8,6 +8,12 @@ import type { WatchMember } from "./universe.ts";
  */
 export const MAX_WATCH = 30;
 
+/**
+ * 全站（所有使用者名單的聯集）最多追蹤幾家公司。排程抓的是聯集，每多一家，核對與新聞排程各多 1～2 個請求；
+ * 100 家約 110 個代號，最重的核對排程約 130 個請求，離 SUBREQUEST_BUDGET 還遠，也不至於讓 Nasdaq 限流。
+ */
+export const MAX_TRACKED = 100;
+
 export interface Holding {
   ticker: string;
   name: string;
@@ -76,4 +82,23 @@ export function sanitizeWatchlist(raw: unknown): WatchMember[] | null {
     out.push({ key: m.key, company: m.company, tickers });
   }
   return out.slice(0, MAX_WATCH);
+}
+
+/**
+ * 多份名單合成一份（排程要抓的聯集）：照名單順序、同一家公司（key）或同一個代號只留第一次出現的。
+ * 超過 MAX_TRACKED 的部分不收，加入時就會擋下，這裡只是防手動改壞的資料拖垮排程。
+ */
+export function mergeWatchlists(lists: WatchMember[][]): WatchMember[] {
+  const keys = new Set<string>();
+  const tickers = new Set<string>();
+  const out: WatchMember[] = [];
+  for (const list of lists) {
+    for (const m of list) {
+      if (keys.has(m.key) || m.tickers.some((t) => tickers.has(t))) continue;
+      keys.add(m.key);
+      m.tickers.forEach((t) => tickers.add(t));
+      out.push(m);
+    }
+  }
+  return out.slice(0, MAX_TRACKED);
 }

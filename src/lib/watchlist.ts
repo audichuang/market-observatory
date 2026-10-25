@@ -30,7 +30,8 @@ const SUFFIX = /\b(INC|CORP|CORPORATION|CO|COMPANY|PLC|LTD|N\.?V|S\.?A|HOLDINGS?
 
 /** 持股檔的公司名是全大寫（「NVIDIA CORP」）：去掉公司型態字尾、轉成首字大寫，給畫面用。 */
 export function displayName(name: string): string {
-  const base = companyKey(name).replace(/\s[&+]\s*CO(MPANY)?\b\.?/g, " ").replace(SUFFIX, " ").replace(/\s+/g, " ").trim() || companyKey(name);
+  // 「PROCTER + GAMBLE CO/THE」這種把 THE 放到斜線後面的寫法：先拿掉「/THE」與多餘斜線。
+  const base = companyKey(name).replace(/\/(THE)?\s*$/, "").replace(/\s[&+]\s*CO(MPANY)?\b\.?/g, " ").replace(SUFFIX, " ").replace(/\s+/g, " ").trim() || companyKey(name);
   return base
     .toLowerCase()
     .split(" ")

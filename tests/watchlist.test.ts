@@ -54,6 +54,8 @@ test("公司名：拿掉股類與公司型態字尾", () => {
   assert.equal(companyKey("DATADOG INC   CLASS A"), "DATADOG INC");
   assert.equal(displayName("JPMORGAN CHASE + CO"), "Jpmorgan Chase");
   assert.equal(displayName("VISA INC CLASS A SHARES"), "Visa");
+  assert.equal(displayName("PROCTER + GAMBLE CO/THE"), "Procter + Gamble");
+  assert.equal(displayName("COCA COLA CO/THE"), "Coca Cola");
 });
 
 test("移除與讀回：壞資料、重複代號會被濾掉", () => {

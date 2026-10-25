@@ -23,6 +23,23 @@ enum Fmt {
         return "\(v.formatted(.number.precision(.fractionLength(digits))))%"
     }
 
+    /// 費用率：同網頁 feeText，最多 4 位小數、去掉尾端 0（0.0945 → 0.0945%、0.03 → 0.03%）。
+    static func fee(_ v: Double?) -> String {
+        guard let v, v.isFinite else { return "—" }
+        return "\(v.formatted(.number.precision(.fractionLength(0...4))))%"
+    }
+
+    /// 美元規模縮寫：$1.03T、$873.6B、$8.5B、$379M。
+    static func compactUsd(_ v: Double?) -> String {
+        guard let v, v.isFinite else { return "—" }
+        let a = abs(v)
+        func f(_ x: Double, _ d: Int) -> String { x.formatted(.number.precision(.fractionLength(d)).grouping(.never)) }
+        if a >= 1e12 { return "$\(f(v / 1e12, 2))T" }
+        if a >= 1e9 { return "$\(f(v / 1e9, 1))B" }
+        if a >= 1e6 { return "$\(f(v / 1e6, 0))M" }
+        return "$\(f(v, 0))"
+    }
+
     static func twd(_ v: Double?) -> String {
         guard let v, v.isFinite else { return "—" }
         return "NT$\(v.formatted(.number.precision(.fractionLength(0))))"

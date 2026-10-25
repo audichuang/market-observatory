@@ -304,19 +304,28 @@ struct Plan: Codable, Sendable, Equatable {
 }
 
 struct Etfs: Decodable, Sendable {
+    /// 槓桿／反向 ETF 近一年：實際報酬、「倍數 × 指數報酬」與兩者之差。
+    struct Drift: Decodable, Sendable {
+        let actual: Double?
+        let naive: Double?
+        let drift: Double?
+    }
+
     struct Row: Decodable, Sendable, Identifiable {
         var id: String { ticker }
         let ticker: String
         let name: String
         let issuer: String
         let multiple: Double
+        let grossFeePct: Double?
         let netFeePct: Double?
         let aumUsd: Double?
+        let aumAsOf: String?
         let close: Double?
         let lastDate: String?
         let ytd: Double?
         let returns: [String: Double?]
-        let drift1y: Double?
+        let drift1y: Drift?
         let note: String?
     }
 
@@ -425,6 +434,8 @@ struct OutlookPage: Decodable, Sendable {
             let target: Double
             let horizon: String?
             let asOf: String?
+            let note: String?
+            let sourceUrl: String?
         }
 
         let list: [Target]
@@ -438,6 +449,8 @@ struct OutlookPage: Decodable, Sendable {
     let consensus: Consensus?
     let strategists: Strategists?
     let horizon: Int
+    /// 有效樣本少於這個數的條件不採用（網頁顯示灰字）。
+    let minN: Int?
 }
 
 // MARK: - 推播

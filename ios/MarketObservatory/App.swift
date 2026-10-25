@@ -32,6 +32,8 @@ final class SessionStore {
     var overviewDate: String?
     var deviceToken: String?
     var pushError: String?
+    /// 每次裝置向伺服器註冊成功就加一；推播設定頁看到變化就重新載入裝置清單。
+    var deviceRegistrations = 0
 
     var me: Me? {
         if case let .signedIn(me) = phase { return me }
@@ -101,8 +103,13 @@ final class SessionStore {
         do {
             try await API.raw("POST", "/api/v1/devices", body: Body(token: hex, environment: environment, appVersion: "\(version) (\(build))"))
             pushError = nil
+            deviceRegistrations += 1
         } catch {
-            pushError = "推播註冊失敗：\(error.localizedDescription)"
+            #if DEBUG
+            pushError = "推播註冊失敗，請稍後再試\n(\(error.localizedDescription))"
+            #else
+            pushError = "推播註冊失敗，請稍後再試"
+            #endif
             handle(error)
         }
     }
@@ -130,8 +137,16 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     }
 
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
-        let message = error.localizedDescription
-        Task { @MainActor in SessionStore.shared.pushError = "無法取得推播權杖：\(message)" }
+        let ns = error as NSError
+        // 3000：沒有有效的 aps-environment 授權（未簽章版本）；3010：模擬器不支援遠端推播。
+        var message = ns.domain == NSCocoaErrorDomain && (ns.code == 3000 || ns.code == 3010)
+            ? "這個版本無法註冊推播（模擬器或未簽章版本）"
+            : "無法向 Apple 取得推播權杖，請稍後再開一次 App"
+        #if DEBUG
+        message += "\n(\(ns.domain) \(ns.code): \(ns.localizedDescription))"
+        #endif
+        let text = message
+        Task { @MainActor in SessionStore.shared.pushError = text }
     }
 
     // App 在前景時也顯示橫幅。
@@ -154,8 +169,17 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
 
 struct RootView: View {
     @Environment(SessionStore.self) private var session
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
+        content
+            // 從系統設定打開通知後回到 App：重新註冊推播（權限被拒時 enablePush 不會跳詢問）。
+            .onChange(of: scenePhase) { _, p in
+                if p == .active, session.me != nil { Task { await session.enablePush() } }
+            }
+    }
+
+    @ViewBuilder private var content: some View {
         @Bindable var session = session
         switch session.phase {
         case .checking:

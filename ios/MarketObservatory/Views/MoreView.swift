@@ -220,6 +220,7 @@ struct OutlookView: View {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("約 \(p.horizon) 個交易日後 S&P 500 較高的機率").font(.subheadline).foregroundStyle(.secondary)
                         Text(Fmt.plainPct(o.pick.p * 100)).font(.system(size: 44, weight: .bold).monospacedDigit())
+                        Text(intervalText(o.pick)).font(.footnote).foregroundStyle(.secondary)
                         Text("歷史基準率 \(Fmt.plainPct(o.pick.base.p * 100)) · 判讀：\(callText(o.call))").font(.footnote)
                     }
                     .padding(.vertical, 6)
@@ -247,39 +248,167 @@ struct OutlookView: View {
                         }
                     }
                 }
-                if let t = p.track {
-                    Section("實際發出的預測對帳") {
-                        LabeledContent("已對帳", value: "\(t.n) 次")
-                        LabeledContent("Brier（越低越好）", value: "\(Fmt.num(t.brier, 3))（基準 \(Fmt.num(t.brierBase, 3))）")
-                        LabeledContent("實際上漲比例", value: Fmt.plainPct(t.upShare * 100))
-                    }
-                }
+                if let ev = o.evaluation { evaluationSection(ev, horizon: p.horizon) }
+                forecastSection(p)
             } else {
                 Text("資料不足，還無法產生展望。").foregroundStyle(.secondary)
             }
-            if let c = p.consensus {
-                Section {
-                    LabeledContent("隱含漲幅") { Delta(value: c.impliedUpsidePct, digits: 1, percent: true) }
-                    LabeledContent("隱含指數目標", value: Fmt.num(c.impliedIndexTarget, 0))
-                    LabeledContent("買進評等占比", value: Fmt.plainPct(c.buyPct))
-                    LabeledContent("涵蓋權重", value: "\(c.symbols) 檔 · \(Fmt.plainPct(c.coveredWeightPct))")
-                } header: {
-                    Text("成分股分析師共識")
-                }
+
+            Section {
+            } header: {
+                Text("機構觀點（背景資訊，不放進上面的機率）")
+            } footer: {
+                Text("研究顯示分析師目標價系統性偏樂觀，策略師年底目標與實際報酬幾乎沒有相關；這裡列出來是讓你知道市場共識在哪，而不是當漲跌訊號。")
             }
-            if let s = p.strategists {
-                Section {
-                    LabeledContent("中位數", value: "\(Fmt.num(s.median, 0))（\(Fmt.pct(s.medianUpsidePct, 1))）")
-                    ForEach(s.list) { t in
-                        LabeledContent(t.firm, value: "\(Fmt.num(t.target, 0))\(t.horizon.map { " · \($0)" } ?? "")")
-                    }
-                } header: {
-                    Text("策略師年底目標")
-                }
-            }
+            if let f = p.factset.first { factsetSection(f) }
+            if let c = p.consensus { consensusSection(c) }
+            if let s = p.strategists { strategistSection(s) }
         }
         .listStyle(.insetGrouped)
         .refreshable { await load() }
+    }
+
+    private static let basisLabels = [
+        "base": "歷史基準率",
+        "trend": "200 日線條件",
+        "vix": "VIX 條件",
+        "trend+vix": "200 日線 × VIX 條件",
+    ]
+
+    /// 0.594 → 「59%」（跟網頁的 pct() 一樣取整數）
+    private func ratio(_ v: Double?) -> String { Fmt.plainPct(v.map { $0 * 100 }, 0) }
+
+    private func intervalText(_ pick: OutlookPage.Outlook.Pick) -> String {
+        let basis = Self.basisLabels[pick.basis] ?? pick.basis
+        if let cond = pick.conditional, pick.distinct != true {
+            return "採歷史基準率（95% 區間 \(ratio(pick.base.low))～\(ratio(pick.base.high))）；「\(basis)」條件下為 \(ratio(cond.p))，區間 \(ratio(cond.low))～\(ratio(cond.high)) 包含基準率，看不出差別"
+        }
+        let low = pick.conditional?.low ?? pick.base.low
+        let high = pick.conditional?.high ?? pick.base.high
+        return "95% 區間 \(ratio(low))～\(ratio(high)) · 依據：\(basis)"
+    }
+
+    private func evaluationSection(_ ev: OutlookPage.Outlook.Evaluation, horizon: Int) -> some View {
+        Section {
+            Text("\(ev.firstDate ?? "—")～\(ev.lastDate ?? "—")，每 \(horizon) 個交易日預測一次（共 \(ev.points) 次）")
+                .font(.footnote).foregroundStyle(.secondary)
+            LabeledContent("預測方向命中率", value: Fmt.plainPct(ev.hitRate.map { $0 * 100 }))
+            LabeledContent("永遠猜上漲的命中率", value: Fmt.plainPct(ev.baseHitRate.map { $0 * 100 }))
+            LabeledContent("Brier（越低越好）", value: Fmt.num(ev.brier, 4))
+            LabeledContent("只用基準率的 Brier", value: Fmt.num(ev.brierBase, 4))
+            LabeledContent("BSS") {
+                VStack(alignment: .trailing, spacing: 1) {
+                    Text(Fmt.num(ev.bss, 3)).monospacedDigit()
+                    Text("95% 區間 \(Fmt.num(ev.bssLow, 3))～\(Fmt.num(ev.bssHigh, 3))").font(.caption2).foregroundStyle(.secondary)
+                }
+            }
+        } header: {
+            Text("滾動驗證")
+        } footer: {
+            Text("BSS = 1 − Brier ÷ 基準 Brier；區間下限 > 0 才代表穩定勝過基準率")
+        }
+    }
+
+    private func forecastSection(_ p: OutlookPage) -> some View {
+        Section("實際發出的預測") {
+            if let t = p.track {
+                LabeledContent("已對帳", value: "\(t.n) 次")
+                LabeledContent("Brier（越低越好）", value: "\(Fmt.num(t.brier, 3))（基準 \(Fmt.num(t.brierBase, 3))）")
+                LabeledContent("實際上漲比例", value: Fmt.plainPct(t.upShare * 100))
+            } else {
+                Text("每天收盤後記錄一次，\(p.horizon) 個交易日後才能對帳；目前還沒有到期的預測。")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+            ForEach((p.recent ?? []).prefix(8)) { f in
+                HStack(spacing: 8) {
+                    Text(f.date).monospacedDigit()
+                    Text(Fmt.plainPct(f.p * 100)).monospacedDigit()
+                    Text(callText(f.call)).foregroundStyle(.secondary)
+                    Spacer()
+                    if let up = f.up {
+                        Text(up ? "後來上漲" : "後來下跌").foregroundStyle(up ? Color.up : Color.down)
+                    } else {
+                        Text("待到期").foregroundStyle(.secondary)
+                    }
+                }
+                .font(.subheadline)
+            }
+        }
+    }
+
+    /// 60 →「60」、35.2 →「35.2」
+    private func short(_ v: Double?) -> String {
+        guard let v, v.isFinite else { return "—" }
+        return v.formatted(.number.precision(.fractionLength(0...1)))
+    }
+
+    private func factsetSection(_ f: OutlookPage.Factset) -> some View {
+        Section {
+            LabeledContent("由下而上目標") {
+                HStack(spacing: 6) {
+                    Text(Fmt.num(f.bottomUpTarget, 0)).monospacedDigit()
+                    Delta(value: f.upsidePct, digits: 1, percent: true)
+                }
+            }
+            LabeledContent("預估本益比", value: "\(short(f.forwardPE))（5 年 \(short(f.forwardPE5y)) · 10 年 \(short(f.forwardPE10y))）")
+            LabeledContent("買進／持有／賣出", value: "\(short(f.buyPct))／\(short(f.holdPct))／\(short(f.sellPct))%")
+        } header: {
+            Text("FactSet（全部成分股，週報）")
+        } footer: {
+            Text("\(f.reportDate.map { "\($0) 週報。" } ?? "")FactSet 統計：由下而上目標價長期平均高估實際指數。")
+        }
+    }
+
+    private func consensusSection(_ c: OutlookPage.Consensus) -> some View {
+        Section {
+            LabeledContent("隱含漲幅") { Delta(value: c.impliedUpsidePct, digits: 1, percent: true) }
+            LabeledContent("隱含指數目標", value: Fmt.num(c.impliedIndexTarget, 0))
+            LabeledContent("買進評等占比", value: Fmt.plainPct(c.buyPct))
+            LabeledContent {
+                Delta(value: c.revisionBreadth.map { $0 * 100 }, digits: 0)
+            } label: {
+                Text("EPS 修正廣度")
+                Text("範圍 −100～+100")
+            }
+            LabeledContent("涵蓋權重", value: "\(c.symbols) 檔 · \(Fmt.plainPct(c.coveredWeightPct))")
+            if !c.top.isEmpty {
+                DisclosureGroup("權重前 \(c.top.count) 檔") {
+                    ForEach(c.top) { t in
+                        HStack {
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(t.symbol).fontWeight(.semibold)
+                                Text("權重 \(Fmt.plainPct(t.weightPct))").font(.caption2).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            VStack(alignment: .trailing, spacing: 1) {
+                                Text(t.targetMean.map { "目標 \(Fmt.num($0))" } ?? "—").monospacedDigit()
+                                Delta(value: t.upsidePct, digits: 1, percent: true).font(.caption)
+                            }
+                        }
+                    }
+                }
+            }
+        } header: {
+            Text("成分股分析師共識")
+        } footer: {
+            Text("依 SPY 權重加權，目標價為 12 個月共識\(c.oldest.flatMap { o in c.newest.map { "（\(o)～\($0) 更新）" } } ?? "")。")
+        }
+    }
+
+    private func strategistSection(_ s: OutlookPage.Strategists) -> some View {
+        Section {
+            LabeledContent("中位數", value: "\(Fmt.num(s.median, 0))（\(Fmt.pct(s.medianUpsidePct, 1))）")
+            if let poll = s.poll {
+                LabeledContent("Reuters 民調中位數", value: "\(Fmt.num(poll.median, 0))（\(poll.respondents) 人\(poll.surveyed.map { "，\($0)" } ?? "")）")
+            }
+            ForEach(s.list) { t in
+                LabeledContent(t.firm, value: "\(Fmt.num(t.target, 0))\(t.horizon.map { " · \($0)" } ?? "")")
+            }
+        } header: {
+            Text("策略師年底目標")
+        } footer: {
+            Text("人工整理自新聞轉述\(s.checked.map { "（\($0) 核對）" } ?? "")，未必是券商原文。")
+        }
     }
 
     private func callText(_ call: String) -> String {

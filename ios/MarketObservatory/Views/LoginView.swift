@@ -21,8 +21,10 @@ struct LoginView: View {
     }
 
     var body: some View {
+        GeometryReader { geo in
         ScrollView {
             VStack(spacing: 20) {
+                Spacer(minLength: 0)
                 VStack(spacing: 8) {
                     Image(systemName: "chart.line.uptrend.xyaxis")
                         .font(.system(size: 44, weight: .semibold))
@@ -30,7 +32,6 @@ struct LoginView: View {
                     Text("市場觀測室").font(.largeTitle.bold())
                     Text("S&P 500、名單歸因、ETF 與收盤推播").font(.subheadline).foregroundStyle(.secondary)
                 }
-                .padding(.top, 48)
 
                 SignInWithAppleButton(mode == .signUp ? .signUp : .signIn) { request in
                     nonce = Self.randomNonce()
@@ -109,10 +110,13 @@ struct LoginView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .padding(.top, 12)
+                Spacer(minLength: 0)
             }
             .padding(.horizontal, 24)
-            .frame(maxWidth: 480)
-            .frame(maxWidth: .infinity)
+            .padding(.vertical, 24)
+            .frame(maxWidth: 420)
+            .frame(maxWidth: .infinity, minHeight: geo.size.height)
+        }
         }
         .scrollDismissesKeyboard(.interactively)
     }

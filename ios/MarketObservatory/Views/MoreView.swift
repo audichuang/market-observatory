@@ -9,8 +9,8 @@ struct MoreView: View {
         NavigationStack {
             List {
                 Section {
-                    NavigationLink { EtfView() } label: { Label("ETF 與定投試算", systemImage: "chart.pie") }
-                    NavigationLink { OutlookView() } label: { Label("下月展望", systemImage: "binoculars") }
+                    NavigationLink { EtfView() } label: { moreLabel("ETF 與定投試算", "S&P 500 ETF 報酬、費用與定投試算", "chart.pie") }
+                    NavigationLink { OutlookView() } label: { moreLabel("下月展望", "歷史條件機率與滾動驗證", "binoculars") }
                 }
                 Section {
                     NavigationLink { PushSettingsView() } label: { Label("推播設定", systemImage: "bell.badge") }
@@ -22,15 +22,22 @@ struct MoreView: View {
                             }
                         } icon: { Image(systemName: "person.crop.circle") }
                     }
-                }
-                Section {
+                } footer: {
                     Text("個人研究用途，非投資建議。行情來自 Yahoo Finance（主）、Nasdaq 與 Cboe（核對），權重來自 State Street SPY 每日持股；非官方授權資料源，可能延遲或錯誤。")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
                 }
             }
             .navigationTitle("更多")
         }
+    }
+
+    /// 主標文字開頭不變（走查用 BEGINSWITH 找），副標寫出裡面有什麼。
+    private func moreLabel(_ title: String, _ sub: String, _ icon: String) -> some View {
+        Label {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                Text(sub).font(.caption).foregroundStyle(.secondary)
+            }
+        } icon: { Image(systemName: icon) }
     }
 }
 
@@ -131,18 +138,18 @@ struct EtfView: View {
                                 Text(r.ticker).font(.headline)
                                 if r.multiple != 1 { Text("\(r.multiple > 0 ? "" : "反向 ")\(Int(abs(r.multiple)))×").font(.caption2.weight(.semibold)).foregroundStyle(.orange) }
                             }
-                            Text(r.name).font(.caption)
-                            Text("\(r.issuer) · 費用\u{00A0}\(Fmt.fee(r.netFeePct)) · AUM\u{00A0}\(Fmt.compactUsd(r.aumUsd))").font(.caption).foregroundStyle(.secondary)
+                            Text(r.name).font(.subheadline)
+                            Text("\(r.issuer) · 費用\u{00A0}\(Fmt.fee(r.netFeePct)) · 規模\u{00A0}\(Fmt.compactUsd(r.aumUsd))").font(.caption).foregroundStyle(.secondary)
                             if let n = r.note, !n.isEmpty { Text(n).font(.caption2).foregroundStyle(.secondary) }
                         }
                         Spacer()
                         VStack(alignment: .trailing, spacing: 2) {
                             let v = period == "YTD" ? r.ytd : (r.returns[period] ?? nil)
-                            Text(Fmt.pct(v)).foregroundStyle(Color.tone(v)).monospacedDigit()
-                            Text("收 \(Fmt.num(r.close))").font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                            Text(Fmt.pct(v)).font(.headline.monospacedDigit()).foregroundStyle(Color.tone(v))
+                            Text("收盤 \(Fmt.num(r.close))").font(.caption).foregroundStyle(.secondary).monospacedDigit()
                             if let drift = r.drift1y {
                                 HStack(spacing: 4) {
-                                    Text("1Y 偏離").foregroundStyle(.secondary)
+                                    Text("近一年偏離").foregroundStyle(.secondary)
                                     Delta(value: drift.drift, digits: 1, percent: true)
                                 }
                                 .font(.caption)
@@ -151,9 +158,9 @@ struct EtfView: View {
                     }
                 }
             } header: {
-                Text("報酬（資料到 \(e.asOf)）")
+                Text("報酬（資料到 \(Fmt.fullDate(e.asOf))）")
             } footer: {
-                Text("報酬為價格報酬，不含配息。「1Y 偏離」是槓桿／反向 ETF 近一年實際報酬減去「倍數 × 指數報酬」；每日重設加上費用，通常為負，持有越久偏離越大。")
+                Text("價格報酬，不含配息。近一年偏離 ＝ 槓桿／反向 ETF 實際報酬減「倍數 × 指數報酬」。")
             }
 
             Section {
@@ -223,11 +230,11 @@ struct EtfView: View {
                     }
                 }
                 .disabled(isDefault(e) || savingDefault)
-                if let defaultError { Notice(kind: .bad, text: "沒有存到：\(defaultError)") }
+                if let defaultError { Notice(kind: .bad, text: "沒有存到：\(defaultError)").noticeRow() }
             } header: {
                 Text("\(e.sim.etf) 定投 \(e.sim.years) 年（台幣計價）")
             } footer: {
-                Text("每月第一個交易日以收盤價買入，用當天 USD/TWD 換匯；不含配息、手續費與稅。改標的、期間或金額只是試算，按「設為我的預設」才會存起來。\(e.fxLast.map { "最新匯率 \(Fmt.num($0.close, 3))（\($0.date)）。" } ?? "")")
+                Text("每月第一個交易日以收盤價買入，用當天 USD/TWD 換匯；不含配息、手續費與稅。改標的、期間或金額只是試算，按「設為我的預設」才會存起來。\(e.fxLast.map { "最新匯率 \(Fmt.num($0.close, 3))（\(Fmt.fullDate($0.date))）。" } ?? "")")
             }
 
             Section("我的規劃") {
@@ -297,7 +304,7 @@ private struct PlanEditor: View {
                     if parsed == nil { Text("金額要是 0 到 10 億的整數，出場漲幅 0–100%，備註最多 2000 字。").foregroundStyle(Color.up) }
                 }
                 Section("備註") { TextEditor(text: $notes).frame(minHeight: 100).focused($focused) }
-                if let error { Section { Notice(kind: .bad, text: error) } }
+                if let error { Section { Notice(kind: .bad, text: error).noticeRow() } }
             }
             .navigationTitle("我的規劃")
             .navigationBarTitleDisplayMode(.inline)
@@ -363,12 +370,15 @@ struct OutlookView: View {
                 Section {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("約 \(p.horizon) 個交易日後 S&P 500 較高的機率").font(.subheadline).foregroundStyle(.secondary)
-                        Text(Fmt.plainPct(o.pick.p * 100)).font(.system(size: 44, weight: .bold).monospacedDigit())
+                        Text(Fmt.plainPct(o.pick.p * 100)).font(.largeTitle.weight(.bold).monospacedDigit())
                         Text(intervalText(o.pick)).font(.footnote).foregroundStyle(.secondary)
-                        Text("歷史基準率 \(Fmt.plainPct(o.pick.base.p * 100)) · 判讀：\(callText(o.call))").font(.footnote)
+                        HStack(spacing: 8) {
+                            CallBadge(call: o.call)
+                            Text("歷史基準率 \(Fmt.plainPct(o.pick.base.p * 100))").font(.subheadline)
+                        }
                     }
                     .padding(.vertical, 6)
-                    LabeledContent("資料日", value: o.asOf)
+                    LabeledContent("資料日", value: Fmt.fullDate(o.asOf))
                     LabeledContent("S&P 500 vs 200 日線") {
                         VStack(alignment: .trailing, spacing: 1) {
                             Delta(value: o.sma200.map { (o.close / $0 - 1) * 100 }, digits: 2, percent: true)
@@ -389,7 +399,12 @@ struct OutlookView: View {
                     let reasons = o.reasons.filter { !(o.pick.distinct != true && o.pick.conditional != nil && $0.contains("看不出差別")) }
                     VStack(alignment: .leading, spacing: 4) {
                         ForEach(reasons, id: \.self) { r in
-                            HStack(alignment: .firstTextBaseline, spacing: 2) { Text("・"); Text(r) }
+                            // 只有一條時直接當說明文字，不要孤零零一個項目符號。
+                            if reasons.count == 1 {
+                                Text(r)
+                            } else {
+                                HStack(alignment: .firstTextBaseline, spacing: 2) { Text("・"); Text(r) }
+                            }
                         }
                     }
                 }
@@ -443,7 +458,7 @@ struct OutlookView: View {
 
     private func evaluationSection(_ ev: OutlookPage.Outlook.Evaluation, horizon: Int) -> some View {
         Section {
-            Text("\(ev.firstDate ?? "—")～\(ev.lastDate ?? "—")，每 \(horizon) 個交易日預測一次（共 \(ev.points) 次）")
+            Text("\(ev.firstDate.map(Fmt.fullDate) ?? "—")～\(ev.lastDate.map(Fmt.fullDate) ?? "—")，每 \(horizon) 個交易日預測一次（共 \(ev.points) 次）")
                 .font(.footnote).foregroundStyle(.secondary)
             LabeledContent("預測方向命中率", value: Fmt.plainPct(ev.hitRate.map { $0 * 100 }))
             LabeledContent("永遠猜上漲的命中率", value: Fmt.plainPct(ev.baseHitRate.map { $0 * 100 }))
@@ -508,7 +523,7 @@ struct OutlookView: View {
         } header: {
             Text("FactSet（全部成分股，週報）")
         } footer: {
-            Text("\(f.reportDate.map { "\($0) 週報。" } ?? "")FactSet 統計：由下而上目標價長期平均高估實際指數。")
+            Text("\(f.reportDate.map { "\(Fmt.fullDate($0)) 週報。" } ?? "")FactSet 統計：由下而上目標價長期平均高估實際指數。")
         }
     }
 
@@ -579,13 +594,11 @@ struct OutlookView: View {
         }
     }
 
-    /// 一般字級左右排；無障礙大字級改成上下排，避免條件名稱與信賴區間互相擠壓。
+    /// 兩行版面：第一行條件名稱（加「目前」標章）與機率，第二行區間與樣本數從左緣開始、滿寬。
     private func cellRow(_ c: OutlookPage.Cell, minN: Int) -> some View {
         let weak = (c.rate?.nEff ?? 0) < Double(minN)
-        let stacked = dts.isAccessibilitySize
-        let layout = stacked ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4)) : AnyLayout(HStackLayout())
-        return layout {
-            HStack(spacing: 6) {
+        return VStack(alignment: .leading, spacing: 2) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
                 // 不讓「VIX ≥ 30」這類門檻在運算子旁斷行；要換行就在「，」之後。
                 let label = c.label
                     .replacingOccurrences(of: " < ", with: "\u{00A0}<\u{00A0}")
@@ -600,20 +613,20 @@ struct OutlookView: View {
                         .background(.tint.opacity(0.15), in: Capsule())
                         .foregroundStyle(.tint)
                 }
-            }
-            .layoutPriority(1)
-            if !stacked { Spacer() }
-            if let r = c.rate {
-                VStack(alignment: stacked ? .leading : .trailing, spacing: 1) {
-                    Text(Fmt.plainPct(r.p * 100)).monospacedDigit()
-                    Text("\(Fmt.plainPct(r.low * 100, 0))–\(Fmt.plainPct(r.high * 100, 0)) · 有效樣本 \(Int(r.nEff.rounded())) 個月").font(.caption2).foregroundStyle(.secondary)
-                    if weak { Text("樣本不足").font(.caption2).foregroundStyle(.secondary) }
+                Spacer(minLength: 8)
+                if let r = c.rate {
+                    Text(Fmt.plainPct(r.p * 100)).font(.headline.monospacedDigit())
+                } else {
+                    Text("—")
                 }
-            } else {
-                Text("—").foregroundStyle(.secondary)
+            }
+            if let r = c.rate {
+                Text("\(Fmt.plainPct(r.low * 100, 0))–\(Fmt.plainPct(r.high * 100, 0)) · 樣本 \(Int(r.nEff.rounded())) 個月\(weak ? " · 樣本不足" : "")")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
-        .opacity(weak ? 0.45 : 1)
+        .foregroundStyle(weak || c.rate == nil ? Color.secondary : Color.primary)
         .accessibilityElement(children: .combine)
     }
 
@@ -743,7 +756,7 @@ struct PushSettingsView: View {
         Form {
             if authorization == .denied {
                 Section {
-                    Notice(kind: .warn, text: "系統設定裡關閉了這個 App 的通知，伺服器送出的推播不會顯示。")
+                    Notice(kind: .warn, text: "系統設定裡關閉了這個 App 的通知，伺服器送出的推播不會顯示。").noticeRow()
                     Button("打開系統設定") {
                         if let u = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(u) }
                     }
@@ -751,7 +764,7 @@ struct PushSettingsView: View {
             }
             if let e = session.pushError {
                 Section {
-                    Notice(kind: .bad, text: e)
+                    Notice(kind: .bad, text: e).noticeRow()
                     #if DEBUG
                     if let d = session.pushErrorDetail {
                         DisclosureGroup("技術細節") {
@@ -787,7 +800,7 @@ struct PushSettingsView: View {
                     await flush()
                 }
             }
-            if let saveError { Section { Notice(kind: .bad, text: "設定沒有存到：\(saveError)") } }
+            if let saveError { Section { Notice(kind: .bad, text: "設定沒有存到：\(saveError)").noticeRow() } }
 
             Section {
                 Button {
@@ -799,14 +812,16 @@ struct PushSettingsView: View {
                     }
                 }
                 .disabled(testing || s.devices.isEmpty || !s.configured)
-                if s.configured && s.devices.isEmpty {
+                if let testResult { Text(testResult).font(.footnote).foregroundStyle(.secondary) }
+            } footer: {
+                // 不能按的原因放在 footer，不另外佔一列。
+                if !s.configured {
+                    Text("伺服器還沒設定推播金鑰。")
+                } else if s.devices.isEmpty {
                     Text(authorization == .denied ? "需要先在系統設定允許通知"
                         : session.pushError != nil ? "這台裝置還沒註冊成功，無法送測試推播"
                         : "需要先註冊這台裝置（允許通知後會自動註冊）")
-                        .font(.footnote).foregroundStyle(.secondary)
                 }
-                if let testResult { Text(testResult).font(.footnote).foregroundStyle(.secondary) }
-                if !s.configured { Text("伺服器還沒設定推播金鑰。").font(.footnote).foregroundStyle(.secondary) }
             }
 
             Section("已註冊的裝置") {
@@ -863,14 +878,14 @@ struct AccountView: View {
             }
             Section {
                 Button("登出") { Task { await session.signOut() } }
-                if let e = session.signOutError { Notice(kind: .bad, text: e) }
+                if let e = session.signOutError { Notice(kind: .bad, text: e).noticeRow() }
             }
             // 站長帳號伺服器一律拒絕刪除（403），不顯示這個按鈕。
             if session.me?.isOwner != true {
                 Section {
                     Button("刪除帳號", role: .destructive) { confirmDelete = true }
                         .disabled(busy)
-                    if let error { Notice(kind: .bad, text: error) }
+                    if let error { Notice(kind: .bad, text: error).noticeRow() }
                 } footer: {
                     Text(session.me?.hasApple == true
                         ? "刪除後名單、定投規劃、推播設定與登入資料都會移除，無法復原。刪除前會請你用 Apple 確認身分，並撤銷這個 App 的 Apple 登入授權。"
@@ -886,7 +901,10 @@ struct AccountView: View {
             } header: {
                 Text("伺服器（僅開發版）")
             } footer: {
-                Text("目前：\(Backend.baseURL.absoluteString)。改完請登出再登入。")
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("目前：\(Backend.baseURL.absoluteString)").lineLimit(1).truncationMode(.middle)
+                    Text("改完請登出再登入。")
+                }
             }
             #endif
             Section {

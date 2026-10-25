@@ -19,6 +19,8 @@ struct NewsView: View {
     @State private var generatedDigests: [NewsDigest] = []
     @State private var digestBusy = false
     @State private var digestError: String?
+    @State private var expandedDigest: String?
+    @State private var aiStatus: AIStatus?
     @Environment(\.openURL) private var openURL
     @Environment(\.dynamicTypeSize) private var typeSize
     @ScaledMetric(relativeTo: .subheadline) private var dateWidth: CGFloat = 82
@@ -97,7 +99,7 @@ struct NewsView: View {
                     Text("日曆").tag(1)
                 }
                 .pickerStyle(.segmented)
-                .listRowSeparator(.hidden)
+                .cardRow()
                 if section == 0 {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 6) {
@@ -106,7 +108,11 @@ struct NewsView: View {
                                 Chip(text: k, selected: symbol == k) { symbol = k }
                             }
                         }
+                        .padding(.horizontal, 16)
                     }
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets())
+                    .listRowSeparator(.hidden)
                 }
             }
             if section == 0 {
@@ -115,7 +121,7 @@ struct NewsView: View {
                 let others = p.news.filter { !isImportant($0) }
                 Section {
                     if let aiNotice {
-                        Label(aiNotice, systemImage: "info.circle").font(.caption).foregroundStyle(.secondary)
+                        Notice(kind: .info, text: aiNotice).noticeRow()
                     }
                     if p.news.isEmpty { Text("還沒有新聞。").foregroundStyle(.secondary) }
                     ForEach(important) { n in newsButton(n) }
@@ -147,7 +153,7 @@ struct NewsView: View {
     private func newsButton(_ n: NewsPage.Item) -> some View {
         let tr = translations[n.id]
         return Button { selected = n } label: {
-            NewsItemRow(item: n, titleZh: tr?.titleZh ?? n.titleZh, tone: tr?.tone ?? n.tone, category: tr?.category ?? n.category)
+            NewsRow(titleZh: tr?.titleZh ?? n.titleZh, title: n.title, tone: tr?.tone ?? n.tone, category: tr?.category ?? n.category, symbols: n.symbols, publisher: n.publisher, publishedAt: n.publishedAt, titleLines: 3)
         }
         .buttonStyle(.plain)
         .onAppear { enqueue(n) }
@@ -156,6 +162,8 @@ struct NewsView: View {
     /// 載入完成：伺服器沒設 AI 或額度用完就不送；否則先替畫面上的前幾則排翻譯。
     private func prepareTranslation(_ p: NewsPage) {
         requested.removeAll()
+        aiStatus = p.ai
+        digestError = nil
         aiNotice = NewsText.aiNotice(p.ai)
         aiDisabled = aiNotice != nil
         for n in p.news.filter({ isImportant($0) }).prefix(20) { enqueue(n) }
@@ -185,6 +193,7 @@ struct NewsView: View {
         do {
             let r: NewsTranslateResponse = try await API.send("POST", "/api/v1/news/translate", body: TranslateBody(ids: ids))
             for t in r.items where t.titleZh != nil { translations[t.id] = t }
+            if let ai = r.ai { aiStatus = ai }
             if let note = NewsText.aiNotice(r.ai) { aiNotice = note; aiDisabled = true }
         } catch {
             if case APIError.unauthorized = error { session.handle(error) }
@@ -198,23 +207,44 @@ struct NewsView: View {
     private func digestSection(_ p: NewsPage) -> some View {
         let source = (p.digests?.isEmpty == false) ? (p.digests ?? []) : generatedDigests
         let ds = source.sorted { (p.keys.firstIndex(of: $0.symbol) ?? .max) < (p.keys.firstIndex(of: $1.symbol) ?? .max) }
+        let ai = aiStatus ?? p.ai
         Section {
+            if let digestError { Notice(kind: .info, text: digestError).noticeRow() }
             if ds.isEmpty {
-                Button {
-                    Task { await generateDigests() }
-                } label: {
-                    HStack(spacing: 8) {
-                        if digestBusy { ProgressView() } else { Image(systemName: "sparkles") }
-                        Text(digestBusy ? "AI 整理中…" : "產生今日重點")
+                if digestBusy {
+                    AILoadingRow()
+                } else if digestError == nil {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Button("產生今日重點") { Task { await generateDigests() } }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                        Text("每家公司用 1 次 AI 額度").font(.footnote).foregroundStyle(.secondary)
                     }
                 }
-                .disabled(digestBusy)
-                if let digestError { Text(digestError).font(.caption).foregroundStyle(.secondary) }
             } else {
-                ForEach(ds) { d in DigestRow(digest: d) }
+                ForEach(ds.prefix(3)) { d in digestRow(d) }
+                if ds.count > 3 {
+                    DisclosureGroup("其餘 \(ds.count - 3) 家") {
+                        ForEach(ds.dropFirst(3)) { d in digestRow(d) }
+                    }
+                }
+                if digestBusy { AILoadingRow() }
             }
         } header: {
-            Text(ds.first.map { "今日重點 · \(Fmt.dateWithWeekday($0.date))" } ?? "今日重點")
+            HStack {
+                Text("今日重點")
+                Spacer()
+                if let ai, ai.enabled {
+                    Text("AI 額度 \(ai.used)/\(ai.limit)").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            .textCase(nil)
+        }
+    }
+
+    private func digestRow(_ d: NewsDigest) -> some View {
+        DigestRow(digest: d, expanded: expandedDigest == d.symbol) {
+            withAnimation { expandedDigest = expandedDigest == d.symbol ? nil : d.symbol }
         }
     }
 
@@ -227,6 +257,7 @@ struct NewsView: View {
         do {
             let r: DigestsResponse = try await API.send("POST", "/api/v1/digests", body: DigestBody())
             generatedDigests = r.digests
+            if let ai = r.ai { aiStatus = ai }
             if r.digests.isEmpty { digestError = "今天還沒有名單公司的相關新聞可以整理" }
         } catch {
             if case APIError.unauthorized = error { session.handle(error) }
@@ -250,12 +281,16 @@ struct NewsView: View {
                 today: p.today,
                 selected: Binding(get: { day }, set: { calendarDay = $0 })
             )
-            .listRowInsets(EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8))
-        } footer: {
+            .listRowInsets(EdgeInsets(top: 8, leading: 8, bottom: 4, trailing: 8))
+            .listRowSeparator(.hidden)
             HStack(spacing: 14) {
                 legend(Color.up, "總經（FOMC）")
-                legend(.blue, "名單公司財報")
+                legend(Color.accentColor, "名單公司財報")
             }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .center)
+            .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 8, trailing: 8))
         }
         let todays = p.events.filter { $0.date == day }
         Section {
@@ -297,7 +332,7 @@ struct NewsView: View {
     /// 「接下來」的精簡列：點了在月曆上選到那天。
     private func upcomingRow(_ e: NewsPage.Event, today: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Circle().fill(e.kind == "earnings" ? Color.blue : Color.up).frame(width: 7, height: 7)
+            Circle().fill(e.kind == "earnings" ? Color.accentColor : Color.up).frame(width: 7, height: 7)
             Text(Fmt.dateWithWeekday(e.date)).font(.subheadline.monospacedDigit()).foregroundStyle(.secondary).lineLimit(1).fixedSize()
             if let s = e.symbol { Text(s).font(.subheadline.monospaced().weight(.semibold)).foregroundStyle(Color.accentColor) }
             Text(e.title).font(.subheadline).lineLimit(1)

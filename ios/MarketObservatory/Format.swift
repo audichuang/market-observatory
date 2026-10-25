@@ -4,7 +4,7 @@ import SwiftUI
 enum Fmt {
     static func num(_ v: Double?, _ digits: Int = 2) -> String {
         guard let v, v.isFinite else { return "—" }
-        return v.formatted(.number.precision(.fractionLength(digits)).grouping(.automatic))
+        return v.formatted(.number.precision(.fractionLength(digits)).grouping(.automatic)).replacingOccurrences(of: "-", with: "−")
     }
 
     static func signed(_ v: Double?, _ digits: Int = 2) -> String {
@@ -20,7 +20,7 @@ enum Fmt {
 
     static func plainPct(_ v: Double?, _ digits: Int = 1) -> String {
         guard let v, v.isFinite else { return "—" }
-        return "\(v.formatted(.number.precision(.fractionLength(digits))))%"
+        return "\(v.formatted(.number.precision(.fractionLength(digits))).replacingOccurrences(of: "-", with: "−"))%"
     }
 
     /// 費用率：同網頁 feeText，最多 4 位小數、去掉尾端 0（0.0945 → 0.0945%、0.03 → 0.03%）。
@@ -50,6 +50,12 @@ enum Fmt {
         guard let d = day(iso) else { return iso }
         let wd = ["日", "一", "二", "三", "四", "五", "六"][Calendar(identifier: .gregorian).component(.weekday, from: d) - 1]
         return "\(Int(iso.dropFirst(5).prefix(2)) ?? 0)/\(Int(iso.suffix(2)) ?? 0)（\(wd)）"
+    }
+
+    /// 「2026-10-23」→「2026/10/23」，純呈現用（資料截止日、區間起訖等一定要寫年份的地方）。
+    static func fullDate(_ iso: String) -> String {
+        guard iso.count >= 10 else { return iso }
+        return "\(iso.prefix(4))/\(iso.dropFirst(5).prefix(2))/\(iso.dropFirst(8).prefix(2))"
     }
 
     static func shortDate(_ iso: String) -> String {
@@ -150,6 +156,50 @@ struct CheckBadge: View {
     }
 }
 
+/// 展望判讀：偏多紅、偏空綠（紅漲綠跌），不確定橘。
+struct CallBadge: View {
+    let call: String
+    var body: some View {
+        let (text, color): (String, Color) = switch call {
+        case "up": ("偏多", .up)
+        case "down": ("偏空", .down)
+        default: ("不確定", .orange)
+        }
+        Text(text)
+            .font(.caption.weight(.semibold))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 2)
+            .background(color.opacity(0.12), in: Capsule())
+            .foregroundStyle(color)
+    }
+}
+
+extension View {
+    /// 狀態提示：獨立一列、背景透明，不再包在白卡裡。
+    func noticeRow() -> some View {
+        self
+            .listRowBackground(Color.clear)
+            .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+            .listRowSeparator(.hidden)
+    }
+
+    /// 坐在灰色 grouped 背景上的卡片列（子卡片自己畫底色）。
+    func cardRow() -> some View {
+        self
+            .listRowBackground(Color.clear)
+            .listRowInsets(EdgeInsets(top: 5, leading: 16, bottom: 5, trailing: 16))
+            .listRowSeparator(.hidden)
+    }
+
+    /// 卡片底色用語意色：淺色是白卡、深色是深灰卡。
+    func cardBackground() -> some View {
+        self
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(12)
+            .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+    }
+}
+
 struct Notice: View {
     enum Kind { case warn, bad, ok, info }
     let kind: Kind
@@ -243,5 +293,7 @@ extension View {
                     .foregroundStyle(Color(.secondaryLabel))
                 }
             }
+            // 大字級時軸標籤不要把繪圖區吃掉。
+            .dynamicTypeSize(...DynamicTypeSize.xLarge)
     }
 }

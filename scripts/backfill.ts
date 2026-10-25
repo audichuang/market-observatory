@@ -1,6 +1,8 @@
 // 歷史回補：在 Worker 裡分段跑（Yahoo 會對單一 IP 限流，Worker 出口較穩），本腳本只負責登入與依序呼叫。
 //   MO_URL=https://… MO_EMAIL=… MO_PASSWORD=… node scripts/backfill.ts [--sessions 500]
 // 每段都寫進 runs 表；只補不存在或收盤有變的列，不會覆蓋排程寫入的核對結果。
+export {};
+
 const base = (process.env.MO_URL ?? "http://localhost:5180").replace(/\/$/, "");
 const email = process.env.MO_EMAIL;
 const password = process.env.MO_PASSWORD;

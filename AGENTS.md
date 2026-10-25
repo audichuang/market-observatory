@@ -16,4 +16,4 @@
 - 開放註冊：網頁 loader 與 App API 的資料都在 `src/server/views.ts`。每個人不同的資料（名單、定投規劃）不能放進共用的 `cachedPage` 結果，要嘛在快取外套上，要嘛把名單放進快取鍵；排程一律用 `loadTrackedMembers`（聯集），單一使用者用 `loadWatchlist(db, key)`。
 - 新的後台功能放在 `/api/admin/` 底下：middleware 只放行站長，route 裡也要再用 `viewerOf(c)?.isOwner` 檢查。
 - iOS App 在 `ios/`（XcodeGen）；改了 `/api/v1` 的回應欄位，App 的 Codable 模型要一起改。
-- 新聞 AI 不在 Worker 裡呼叫模型、也不用 API key：本機 Orca 排程（「市場觀測室：新聞標題翻譯」每 4 小時、「市場觀測室：每日 AI 重點」週二到六 7:00，台北時間）叫 Claude 跑 `scripts/ai-batch.ts pull` → 寫 `.ai-batch/<kind>/answers.json` → `push`；待辦與寫回在 `src/server/ai-batch.ts`（`/api/admin/ai`），提示詞在 `src/lib/news-ai.ts`。新的 AI 內容照這條路加：伺服器給待辦、本機產生提示詞、答案經伺服器驗證後寫 D1；網頁與 App 只讀 D1，沒寫到就不顯示。排程只在這台 Mac 開著時跑，改了 script 要留在 checkout 目前的分支上。
+- 新聞 AI（翻譯、重點、「今天為什麼漲跌」）不在 Worker 裡呼叫模型、不用 API key：由本機 Orca 排程（名稱開頭「市場觀測室：」）叫 Claude 跑 `scripts/ai-batch.ts`，答案經 `/api/admin/ai` 驗證後寫進 D1；網頁與 App 只讀 D1，沒寫到就不顯示。新的 AI 內容照這條路加，不要在 route 或 cron 裡接模型。排程跑的是這個 checkout 當下的分支，切到沒有 `scripts/ai-batch.ts` 的分支，排程就會失敗。

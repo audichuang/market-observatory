@@ -69,10 +69,13 @@ export async function fetchWithTimeout(
       res = await fetch(target, { ...reqInit, redirect: "manual" });
       const loc = res.status >= 300 && res.status < 400 ? res.headers.get("location") : null;
       if (!loc) break;
+      // 沒讀的回應本體會佔著連線（Workers 同時只能有 6 個）：跟轉址、重試、丟錯之前都先丟掉。
+      await res.body?.cancel();
       if (hop >= MAX_REDIRECTS) throw new SourceError(source, `轉址超過 ${MAX_REDIRECTS} 次`, res.status);
       target = new URL(loc, target).toString();
     }
     if (res.ok) return res;
+    await res.body?.cancel();
     // 額度還夠才重試；不夠就把錯誤交回去，不拿別檔的額度來賭。
     if (attempt === 0 && RETRY_STATUSES.has(res.status) && (!budget || budget.remaining > 0)) {
       await sleep(retryWaitMs(res.headers.get("retry-after")));

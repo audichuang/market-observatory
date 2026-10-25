@@ -2,6 +2,11 @@ import { type Budget, type DailyBar, SourceError, fetchWithTimeout, mdyToIso, pa
 
 export const NASDAQ_SOURCE = "nasdaq";
 
+/** Nasdaq 的代號用點（BRK.B），SSGA／Yahoo 與本站用連字號（BRK-B）；連字號版本 Nasdaq 回「Symbol not exists」。 */
+export const nasdaqSymbol = (s: string) => s.replace("-", ".");
+/** Nasdaq 回來的代號換回本站格式（財報日曆列的是 GEF.B 這種寫法）。 */
+export const fromNasdaqSymbol = (s: string) => s.replace(".", "-");
+
 const NASDAQ_HEADERS = {
   Accept: "application/json, text/plain, */*",
   Origin: "https://www.nasdaq.com",
@@ -40,7 +45,7 @@ export function parseNasdaqHistorical(data: HistoricalData): DailyBar[] {
 }
 
 export async function fetchNasdaqHistorical(symbol: string, assetClass: "stocks" | "etf", fromDate: string, limit = 40, budget?: Budget): Promise<DailyBar[]> {
-  const url = `https://api.nasdaq.com/api/quote/${encodeURIComponent(symbol)}/historical?assetclass=${assetClass}&fromdate=${fromDate}&limit=${limit}`;
+  const url = `https://api.nasdaq.com/api/quote/${encodeURIComponent(nasdaqSymbol(symbol))}/historical?assetclass=${assetClass}&fromdate=${fromDate}&limit=${limit}`;
   return parseNasdaqHistorical(await getJson<HistoricalData>(url, budget));
 }
 
@@ -72,7 +77,7 @@ export function parseEarningsDate(symbol: string, data: { announcement?: string;
 }
 
 export async function fetchEarningsDate(symbol: string, budget?: Budget): Promise<EarningsDate | null> {
-  const data = await getJson<{ announcement?: string; reportText?: string }>(`https://api.nasdaq.com/api/analyst/${encodeURIComponent(symbol)}/earnings-date`, budget);
+  const data = await getJson<{ announcement?: string; reportText?: string }>(`https://api.nasdaq.com/api/analyst/${encodeURIComponent(nasdaqSymbol(symbol))}/earnings-date`, budget);
   return parseEarningsDate(symbol, data);
 }
 
@@ -117,7 +122,7 @@ export function parseNasdaqNews(rows: NewsRow[]): NewsItem[] {
 
 export async function fetchNasdaqNews(symbol: string, limit = 8, budget?: Budget): Promise<NewsItem[]> {
   const data = await getJson<{ rows?: NewsRow[] }>(
-    `https://api.nasdaq.com/api/news/topic/articlebysymbol?q=${encodeURIComponent(symbol)}|stocks&offset=0&limit=${limit}`,
+    `https://api.nasdaq.com/api/news/topic/articlebysymbol?q=${encodeURIComponent(nasdaqSymbol(symbol))}|stocks&offset=0&limit=${limit}`,
     budget,
   );
   return parseNasdaqNews(data.rows ?? []);
@@ -140,9 +145,9 @@ const TIME_LABEL: Record<string, string> = {
 export function parseEarningsCalendar(date: string, rows: CalendarRow[], symbols: string[]): EarningsDate[] {
   const wanted = new Set(symbols);
   return rows
-    .filter((r) => r.symbol && wanted.has(r.symbol))
+    .filter((r) => r.symbol && wanted.has(fromNasdaqSymbol(r.symbol)))
     .map((r) => ({
-      symbol: r.symbol as string,
+      symbol: fromNasdaqSymbol(r.symbol as string),
       date,
       status: "confirmed" as const,
       detail: [TIME_LABEL[r.time ?? ""] ?? null, r.fiscalQuarterEnding ? `財季 ${r.fiscalQuarterEnding}` : null, r.epsForecast ? `市場預估 EPS ${r.epsForecast}` : null].filter(Boolean).join("，"),
@@ -204,8 +209,6 @@ export function parseAnalystView(symbol: string, target: TargetPriceData, foreca
   };
 }
 
-/** Nasdaq 的代號用點（BRK.B），SSGA／Yahoo 用連字號（BRK-B）。 */
-const nasdaqSymbol = (s: string) => s.replace("-", ".");
 
 /** withEpsRevisions=false 時只抓目標價（1 個請求），用來擴大涵蓋範圍又不超過子請求上限。 */
 export async function fetchAnalystView(symbol: string, withEpsRevisions = true, budget?: Budget): Promise<AnalystView> {

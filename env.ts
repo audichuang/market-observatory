@@ -9,4 +9,7 @@ export default defineEnv({
   APNS_TEAM_ID: string().optional(),
   APNS_KEY_ID: string().optional(),
   APNS_PRIVATE_KEY: string().optional(),
+  /** Sign in with Apple 金鑰（.p8，要開 Sign in with Apple 功能；APNs 那把加開也行）：刪帳號時簽 client secret 撤銷 Apple 授權，Team ID 共用 APNS_TEAM_ID */
+  SIWA_KEY_ID: string().optional(),
+  SIWA_PRIVATE_KEY: string().optional(),
 });

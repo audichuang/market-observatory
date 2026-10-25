@@ -232,6 +232,18 @@ export function extractArticleText(html: string, maxChars = 6000): string | null
   return text.length >= 200 ? text : null;
 }
 
+/**
+ * 在 Yahoo 搜尋結果裡找同一篇文章的網址：Nasdaq 文章頁擋機器（Akamai），但同一篇轉載（Motley Fool 等）多半也在 Yahoo、抓得到正文。
+ * 只認標題完全相同（忽略大小寫、標點與 HTML 實體），寧可對不到也不要拿錯文章寫重點。
+ */
+export function matchYahooArticle(title: string, news: { title?: unknown; link?: unknown }[]): string | null {
+  const norm = (t: string) => t.toLowerCase().replace(/&[a-z#0-9]+;/g, " ").replace(/[^a-z0-9]+/g, " ").trim();
+  const want = norm(title);
+  if (!want) return null;
+  const hit = news.find((n) => typeof n.title === "string" && typeof n.link === "string" && /^https:\/\//i.test(n.link) && norm(n.title) === want);
+  return hit ? (hit.link as string) : null;
+}
+
 export function parseDigest(input: string | unknown): { summary: string; tone: NewsTone } | null {
   const data = (typeof input === "string" ? extractJson(input) : input) as { summary?: unknown; tone?: unknown };
   if (typeof data.summary !== "string" || data.summary.trim().length < 6) return null;

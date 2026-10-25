@@ -32,6 +32,22 @@
     "screenshot": "/tmp/mo-codex-qa/A4.png"
   },
   {
+    "id": "A5",
+    "verdict": "pass",
+    "observed": "登出後用錯密碼送出顯示中文「Email 或密碼不正確」，留登入且不閃退；改正確密碼後約2秒登入成功並回10/23總覽。",
+    "expected": "錯密碼中文錯誤，不閃退；正確密碼可登入。",
+    "notes": "截圖保存錯密碼提示，隨後成功登入已目視確認。 觀察時間：2026-10-25T19:49:00.682654+08:00",
+    "screenshot": "/tmp/mo-codex-qa/A5.png"
+  },
+  {
+    "id": "A6",
+    "verdict": "not-run",
+    "observed": "點使用Apple登入後沒有Apple視窗，直接在登入畫面顯示「Apple 登入失敗：無法完成作業。（com.apple.AuthenticationServices.AuthorizationError錯誤1000 。）」；App未閃退且欄位仍可操作。",
+    "expected": "Apple sheet可取消；模擬器未登入AppleID而無sheet時依規範記not-run。",
+    "notes": "未登入任何AppleID；原始英文錯誤另計H4 fail。 觀察時間：2026-10-25T19:48:10.872461+08:00",
+    "screenshot": "/tmp/mo-codex-qa/A6.png"
+  },
+  {
     "id": "B1",
     "verdict": "pass",
     "observed": "標題 S&P 500 10/23（五）；API snapshot.tradeDate=2026-10-23，確為星期五。",
@@ -48,52 +64,20 @@
     "screenshot": "/tmp/mo-codex-qa/B2.png"
   },
   {
-    "id": "B7",
-    "verdict": "pass",
-    "observed": "下月展望有68.6%機率／基準率與不確定判讀；未來三週依序10/28 FOMC、MSFT、GOOGL，10/29 AMZN，11/2 AAPL；最新新聞有5則。財報均為七巨頭名單成員。",
-    "expected": "展望、事件、新聞三區有內容；事件僅名單財報及總經且日期遞增。",
-    "notes": " 觀察時間：2026-10-25T19:17:05.274389+08:00",
-    "screenshot": "/tmp/mo-codex-qa/B7.png"
-  },
-  {
-    "id": "B8",
-    "verdict": "fail",
-    "observed": "在總覽點「完整日曆 →」後雖切到新聞分頁，但上方分段仍選「新聞」，畫面是 Stifel Financial 等新聞列表，未顯示日曆。",
-    "expected": "切到新聞分頁並選中日曆段落。",
-    "notes": "可見選中的新聞分段與API news[0]標題，屬導航目的地錯誤。 觀察時間：2026-10-25T19:17:21.412573+08:00",
-    "screenshot": "/tmp/mo-codex-qa/B8.png"
-  },
-  {
-    "id": "E1",
-    "verdict": "pass",
-    "observed": "新聞列表有標題、來源及日期；第一則「Stifel Financial  - Preferred Stock Price Target Decreased by 10.15% to $26.68」，來源 Fintel、10/25（日），與 API /api/v1/news 的 news[0] 一致。",
-    "expected": "第一則標題與 API 一致，標題／來源／時間可讀。",
-    "notes": "來源新聞標題為API原文英文；介面控制為繁體中文。 觀察時間：2026-10-25T19:17:21.782218+08:00",
-    "screenshot": "/tmp/mo-codex-qa/E1.png"
-  },
-  {
-    "id": "E5",
-    "verdict": "pass",
-    "observed": "日曆由10/28 MSFT/GOOGL/FOMC、10/29 AMZN、11/2 AAPL、11/18 NVDA到12/9 FOMC依日期排序；10/28 FOMC標3天後，NVDA標「Zacks 推估」，所有財報均為名單公司。",
-    "expected": "FOMC 10/28與3天倒數正確，日期排序、名單過濾及推估標示正確。",
-    "notes": "財季內容保留API Sep/2026 原文。 觀察時間：2026-10-25T19:17:45.517601+08:00",
-    "screenshot": "/tmp/mo-codex-qa/E5.png"
-  },
-  {
-    "id": "B9",
-    "verdict": "fail",
-    "observed": "先手動選日曆，再回總覽點「全部新聞 →」，切回新聞分頁後仍顯示原先日曆內容（MSFT/FOMC事件），沒有進新聞段落。",
-    "expected": "全部新聞連結必須選中新聞段落。",
-    "notes": "與B8相同：跨分頁連結似乎只切tab，未同步新聞／日曆子選擇。 觀察時間：2026-10-25T19:18:05.189341+08:00",
-    "screenshot": "/tmp/mo-codex-qa/B9.png"
-  },
-  {
     "id": "B3",
     "verdict": "pass",
     "observed": "7家按NVDA/AAPL/MSFT/AMZN/GOOGL/META/TSLA順序；點數−3.51/−0.83/+2.96/−2.71/−4.65/−1.59/−0.77、報酬−0.59/−0.14/+0.66/−0.95/−1.17/−0.96/−0.63%、權重7.78/7.70/5.86/3.72/5.19/2.17/1.60%，皆符合API；其餘−28.64，名單−11.11相加−39.75與指數相同。",
     "expected": "七家與API mag7相同順序、數字一致，有其餘列且合計差≤0.02。",
     "notes": "已分段捲動觀察全部7家；截圖為列表下半部。 觀察時間：2026-10-25T19:18:24.948660+08:00",
     "screenshot": "/tmp/mo-codex-qa/B3.png"
+  },
+  {
+    "id": "B4",
+    "verdict": "pass",
+    "observed": "點總覽NVDA列後切走勢，標的選單為NVIDIA，圖表標題NVIDIA。",
+    "expected": "切到走勢並選NVIDIA（NVDA）。",
+    "notes": " 觀察時間：2026-10-25T19:20:48.767929+08:00",
+    "screenshot": "/tmp/mo-codex-qa/B4.png"
   },
   {
     "id": "B5",
@@ -112,20 +96,36 @@
     "screenshot": "/tmp/mo-codex-qa/B6.png"
   },
   {
-    "id": "B10",
-    "verdict": "not-run",
-    "observed": "DeviceHub 的兩次向下拖曳及一般scroll沒有觸發拉動或刷新；AX Scroll Up僅能分頁捲動，未看到刷新轉圈。",
-    "expected": "下拉出現轉圈、重新載入、不閃退。",
-    "notes": "無法透過目前DeviceHub輸入完成可辨識的下拉手勢；沒有以未觀察的刷新判pass。 觀察時間：2026-10-25T19:20:28.411787+08:00",
-    "screenshot": "/tmp/mo-codex-qa/B10.png"
+    "id": "B7",
+    "verdict": "fail",
+    "observed": "下月展望有68.6%機率／基準率與不確定判讀；未來三週依序10/28 FOMC、MSFT、GOOGL，10/29 AMZN，11/2 AAPL；最新新聞有5則。財報均為七巨頭名單成員。 但App內顯示整句英文新聞標題（例如Stifel Financial - Preferred Stock Price Target…或SpaceX Just Shared Great News…），不屬代號、ETF名或術語，違反全域繁體中文規則。",
+    "expected": "展望、事件、新聞三區有內容；事件僅名單財報及總經且日期遞增。 同時需符合全域語言規則（除列明豁免外不可有英文字串）。",
+    "notes": " 觀察時間：2026-10-25T19:17:05.274389+08:00 資料／排序／篩選本身通過；依規範字面未豁免新聞原文，故語言判fail。API目前回英文原文，與要求原文標題一致的規則存在衝突；未自行假設豁免。",
+    "screenshot": "/tmp/mo-codex-qa/B7.png"
   },
   {
-    "id": "B4",
+    "id": "B8",
+    "verdict": "fail",
+    "observed": "在總覽點「完整日曆 →」後雖切到新聞分頁，但上方分段仍選「新聞」，畫面是 Stifel Financial 等新聞列表，未顯示日曆。",
+    "expected": "切到新聞分頁並選中日曆段落。",
+    "notes": "可見選中的新聞分段與API news[0]標題，屬導航目的地錯誤。 觀察時間：2026-10-25T19:17:21.412573+08:00",
+    "screenshot": "/tmp/mo-codex-qa/B8.png"
+  },
+  {
+    "id": "B9",
+    "verdict": "fail",
+    "observed": "先手動選日曆，再回總覽點「全部新聞 →」，切回新聞分頁後仍顯示原先日曆內容（MSFT/FOMC事件），沒有進新聞段落。",
+    "expected": "全部新聞連結必須選中新聞段落。",
+    "notes": "與B8相同：跨分頁連結似乎只切tab，未同步新聞／日曆子選擇。 觀察時間：2026-10-25T19:18:05.189341+08:00",
+    "screenshot": "/tmp/mo-codex-qa/B9.png"
+  },
+  {
+    "id": "B10",
     "verdict": "pass",
-    "observed": "點總覽NVDA列後切走勢，標的選單為NVIDIA，圖表標題NVIDIA。",
-    "expected": "切到走勢並選NVIDIA（NVDA）。",
-    "notes": " 觀察時間：2026-10-25T19:20:48.767929+08:00",
-    "screenshot": "/tmp/mo-codex-qa/B4.png"
+    "observed": "後續在總覽頂部透過DeviceHub AX Scroll Up成功觸發刷新：右上出現轉圈、卡片淡化，結束後恢復10/22資料且可切分頁，無閃退。",
+    "expected": "下拉刷新有轉圈、重新載入且不閃退。",
+    "notes": "19:20原先因拖曳無效記not-run；19:43使用公開AX捲動動作重試成功，故依實際觀察改pass。 觀察時間：2026-10-25T19:44:00.234401+08:00",
+    "screenshot": "/tmp/mo-codex-qa/B10.png"
   },
   {
     "id": "C1",
@@ -244,7 +244,7 @@
     "verdict": "fail",
     "observed": "Broadcom「移除」確認以popover顯示「從名單移除Broadcom？」「股價資料會保留…」及單一紅色「移除」按鈕，沒有規範要求可按的「取消」。",
     "expected": "確認對話框按取消後AVGO仍在。",
-    "notes": "畫面及AX均沒有取消按鈕；接下來點外部關閉以保留AVGO，再驗D8確認移除。 觀察時間：2026-10-25T19:27:09.644563+08:00",
+    "notes": "畫面及AX均沒有取消按鈕；接下來點外部關閉以保留AVGO，再驗D8確認移除。 觀察時間：2026-10-25T19:27:09.644563+08:00 實際點外部關閉後AVGO仍在，已目視確認。",
     "screenshot": "/tmp/mo-codex-qa/D7.png"
   },
   {
@@ -264,12 +264,12 @@
     "screenshot": "/tmp/mo-codex-qa/D9.png"
   },
   {
-    "id": "E6",
-    "verdict": "pass",
-    "observed": "在日曆頂部再向上捲動（AX Scroll Up）觸發刷新，頂部只有一個轉圈；AX為「正在重新整理內容」，未閃退。",
-    "expected": "下拉刷新僅一個轉圈、不閃退。",
-    "notes": "透過DeviceHub公開AX捲動動作成功完成手勢等效的拉動。 觀察時間：2026-10-25T19:28:42.264225+08:00",
-    "screenshot": "/tmp/mo-codex-qa/E6.png"
+    "id": "E1",
+    "verdict": "fail",
+    "observed": "新聞列表有標題、來源及日期；第一則「Stifel Financial  - Preferred Stock Price Target Decreased by 10.15% to $26.68」，來源 Fintel、10/25（日），與 API /api/v1/news 的 news[0] 一致。 但App內顯示整句英文新聞標題（例如Stifel Financial - Preferred Stock Price Target…或SpaceX Just Shared Great News…），不屬代號、ETF名或術語，違反全域繁體中文規則。",
+    "expected": "第一則標題與 API 一致，標題／來源／時間可讀。 同時需符合全域語言規則（除列明豁免外不可有英文字串）。",
+    "notes": "來源新聞標題為API原文英文；介面控制為繁體中文。 觀察時間：2026-10-25T19:17:21.782218+08:00 資料／排序／篩選本身通過；依規範字面未豁免新聞原文，故語言判fail。API目前回英文原文，與要求原文標題一致的規則存在衝突；未自行假設豁免。",
+    "screenshot": "/tmp/mo-codex-qa/E1.png"
   },
   {
     "id": "E2",
@@ -281,19 +281,35 @@
   },
   {
     "id": "E3",
-    "verdict": "pass",
-    "observed": "選NVDA時有載入spinner，第一則SpaceX Just Shared Great News for Artificial Intelligence (AI) Investors. Here Are 2 Stocks That Could Benefit，符合?symbol=NVDA news[0]；捲動核對10則均有NVDA。選全部後恢復Stifel首則。",
-    "expected": "載入提示、NVDA相關列表與API第一則一致，可回全部。",
-    "notes": " 觀察時間：2026-10-25T19:30:33.389264+08:00",
+    "verdict": "fail",
+    "observed": "選NVDA時有載入spinner，第一則SpaceX Just Shared Great News for Artificial Intelligence (AI) Investors. Here Are 2 Stocks That Could Benefit，符合?symbol=NVDA news[0]；捲動核對10則均有NVDA。選全部後恢復Stifel首則。 但App內顯示整句英文新聞標題（例如Stifel Financial - Preferred Stock Price Target…或SpaceX Just Shared Great News…），不屬代號、ETF名或術語，違反全域繁體中文規則。",
+    "expected": "載入提示、NVDA相關列表與API第一則一致，可回全部。 同時需符合全域語言規則（除列明豁免外不可有英文字串）。",
+    "notes": " 觀察時間：2026-10-25T19:30:33.389264+08:00 資料／排序／篩選本身通過；依規範字面未豁免新聞原文，故語言判fail。API目前回英文原文，與要求原文標題一致的規則存在衝突；未自行假設豁免。",
     "screenshot": "/tmp/mo-codex-qa/E3.png"
   },
   {
     "id": "E4",
-    "verdict": "pass",
-    "observed": "570毫秒內點NVDA→AAPL→MSFT，最後MSFT選中；首則This Stock Market Metric Warns History May Be Repeating Itself. Here's How the Smartest Investors Are Preparing.與MSFT API一致，後續可見列皆含MSFT，未被舊結果蓋掉。",
-    "expected": "最後所選代號與列表一致。",
-    "notes": " 觀察時間：2026-10-25T19:30:48.881625+08:00",
+    "verdict": "fail",
+    "observed": "570毫秒內點NVDA→AAPL→MSFT，最後MSFT選中；首則This Stock Market Metric Warns History May Be Repeating Itself. Here's How the Smartest Investors Are Preparing.與MSFT API一致，後續可見列皆含MSFT，未被舊結果蓋掉。 但App內顯示整句英文新聞標題（例如Stifel Financial - Preferred Stock Price Target…或SpaceX Just Shared Great News…），不屬代號、ETF名或術語，違反全域繁體中文規則。",
+    "expected": "最後所選代號與列表一致。 同時需符合全域語言規則（除列明豁免外不可有英文字串）。",
+    "notes": " 觀察時間：2026-10-25T19:30:48.881625+08:00 資料／排序／篩選本身通過；依規範字面未豁免新聞原文，故語言判fail。API目前回英文原文，與要求原文標題一致的規則存在衝突；未自行假設豁免。",
     "screenshot": "/tmp/mo-codex-qa/E4.png"
+  },
+  {
+    "id": "E5",
+    "verdict": "pass",
+    "observed": "日曆由10/28 MSFT/GOOGL/FOMC、10/29 AMZN、11/2 AAPL、11/18 NVDA到12/9 FOMC依日期排序；10/28 FOMC標3天後，NVDA標「Zacks 推估」，所有財報均為名單公司。",
+    "expected": "FOMC 10/28與3天倒數正確，日期排序、名單過濾及推估標示正確。",
+    "notes": "財季內容保留API Sep/2026 原文。 觀察時間：2026-10-25T19:17:45.517601+08:00",
+    "screenshot": "/tmp/mo-codex-qa/E5.png"
+  },
+  {
+    "id": "E6",
+    "verdict": "pass",
+    "observed": "在日曆頂部再向上捲動（AX Scroll Up）觸發刷新，頂部只有一個轉圈；AX為「正在重新整理內容」，未閃退。",
+    "expected": "下拉刷新僅一個轉圈、不閃退。",
+    "notes": "透過DeviceHub公開AX捲動動作成功完成手勢等效的拉動。 觀察時間：2026-10-25T19:28:42.264225+08:00",
+    "screenshot": "/tmp/mo-codex-qa/E6.png"
   },
   {
     "id": "F1",
@@ -358,5 +374,101 @@
     "expected": "未簽章提示可以出現，但文字應為中文、看得懂，依全域規則不可有英文錯誤訊息。",
     "notes": "不是把無法註冊本身當失敗；失敗原因是原始系統錯誤外洩到使用者介面。 觀察時間：2026-10-25T19:39:10.044146+08:00",
     "screenshot": "/tmp/mo-codex-qa/F7.png"
+  },
+  {
+    "id": "F8",
+    "verdict": "pass",
+    "observed": "每日收盤摘要關閉，門檻連加兩次至±6.0%；離開重進仍關閉及6.0。API prefs.daily=false、moveThresholdPct=6，其他moves/events仍true。",
+    "expected": "設定持久化且API一致，最後還原每日開及5%。",
+    "notes": "接著還原預設並核對API。 觀察時間：2026-10-25T19:39:50.332348+08:00 已於19:40還原，API prefs={\"daily\": true, \"moves\": true, \"moveThresholdPct\": 5, \"events\": true}。",
+    "screenshot": "/tmp/mo-codex-qa/F8.png"
+  },
+  {
+    "id": "F9",
+    "verdict": "pass",
+    "observed": "帳號頁顯示codex-qa-20261025@example.com，有登出、刪除帳號及不可復原說明。",
+    "expected": "顯示測試email並提供登出與刪除帳號。",
+    "notes": " 觀察時間：2026-10-25T19:40:59.105285+08:00",
+    "screenshot": "/tmp/mo-codex-qa/F9.png"
+  },
+  {
+    "id": "G1",
+    "verdict": "pass",
+    "observed": "前景帳號頁送daily後頂端橫幅完整顯示S&P500 10/23收盤−0.52%；內文兩行可讀7623.68（−39.75點）、VIX19.4、名單−11.1（28%）、NVDA−3.5。",
+    "expected": "前景推播有橫幅，標題及兩行內文完整、關鍵指數與VIX可見。",
+    "notes": "首次0.5秒截圖過早未顯示；重送後2秒截圖捕捉成功。 觀察時間：2026-10-25T19:41:41.502233+08:00",
+    "screenshot": "/tmp/mo-codex-qa/G1.png"
+  },
+  {
+    "id": "G2",
+    "verdict": "pass",
+    "observed": "以Settings將App退背景，送daily後點橫幅，App回前景並選總覽。標題10/22（四），收盤7663.43、−93.74（−1.21%）、VIX19.03、名單−73.27，符合payload date=2026-10-22的API；未誤用通知標題10/23。",
+    "expected": "點背景daily通知後總覽顯示2026-10-22。",
+    "notes": "首次點擊時橫幅已逾時；重送並及時點擊成功。 觀察時間：2026-10-25T19:42:29.636676+08:00",
+    "screenshot": "/tmp/mo-codex-qa/G2.png"
+  },
+  {
+    "id": "G3",
+    "verdict": "pass",
+    "observed": "App背景送events通知並點橫幅後，回App新聞分頁且日曆段落選中，顯示接下來MSFT/GOOGL/FOMC等10/28事件。",
+    "expected": "事件通知導向新聞分頁日曆段落。",
+    "notes": " 觀察時間：2026-10-25T19:43:01.082452+08:00",
+    "screenshot": "/tmp/mo-codex-qa/G3.png"
+  },
+  {
+    "id": "H1",
+    "verdict": "fail",
+    "observed": "深色下已逐一看總覽、走勢、名單、新聞日曆、更多（含帳號）。無白底白字且紅綠可區分，但日曆的日期、財報細節與來源箭頭用很暗的藍色放在深灰卡片上，明顯難讀；走勢的軸刻度同樣近乎融入背景。",
+    "expected": "五分頁文字／背景對比足夠、紅綠可辨，不得有不可讀文字。",
+    "notes": "證據H1-calendar.png與H1-chart.png；建議深色下使用較亮的語意文字／座標軸顏色。 觀察時間：2026-10-25T19:44:53.325469+08:00",
+    "screenshot": "/tmp/mo-codex-qa/H1.png"
+  },
+  {
+    "id": "H2",
+    "verdict": "pass",
+    "observed": "accessibility-large下逐看總覽KPI及貢獻、名單、新聞日曆、11檔ETF與定投輸入。總覽KPI／名單權重改上下排列；日曆標題與細節換行；ETF名稱／費用及偏離可換行，報酬與關鍵數字完整，沒有重疊或省略號截斷關鍵數字。",
+    "expected": "大字級仍可讀，無重疊、關鍵數字無裁切，測後還原large。",
+    "notes": " 觀察時間：2026-10-25T19:47:05.648151+08:00 已於19:47還原large與light。",
+    "screenshot": "/tmp/mo-codex-qa/H2.png"
+  },
+  {
+    "id": "H3",
+    "verdict": "pass",
+    "observed": "19:13～19:50整輪未見App閃退；各類結束仍可操作。起始及結束DiagnosticReports均無MarketObservatory檔；指定ls…|grep命令結束碼1、無輸出（無匹配）。最後仍是可操作的登入畫面。",
+    "expected": "整輪無閃退且沒有本輪新MarketObservatory崩潰報告。",
+    "notes": "19:15的terminate/launch為A4預期操作，Safari、Settings的切換為測案步驟，不是崩潰。 觀察時間：2026-10-25T19:51:47.019007+08:00",
+    "screenshot": "/tmp/mo-codex-qa/H3.png"
+  },
+  {
+    "id": "H4",
+    "verdict": "fail",
+    "observed": "推播設定頁顯示原始英文錯誤「NSCocoaErrorDomain 3000」及「aps-environment」；截至此時未見原始JSON、Optional(...)或nil。 Apple登入另顯示com.apple.AuthenticationServices.AuthorizationError錯誤1000；見A6.png。",
+    "expected": "整輪不出現英文錯誤碼、原始JSON、Optional或nil。",
+    "notes": "與F7同一問題；未簽章說明本身符合預期，原始NSError文字不符合全域規則。 觀察時間：2026-10-25T19:40:19.832687+08:00",
+    "screenshot": "/tmp/mo-codex-qa/H4.png"
+  },
+  {
+    "id": "Z1",
+    "verdict": "pass",
+    "observed": "更多→帳號按登出後約2秒回市場觀測室登入畫面，未閃退。",
+    "expected": "登出回登入，後續驗A5錯密碼及正確登入。",
+    "notes": " 觀察時間：2026-10-25T19:47:50.643111+08:00",
+    "screenshot": "/tmp/mo-codex-qa/Z1.png"
+  },
+  {
+    "id": "Z2",
+    "verdict": "fail",
+    "observed": "點刪除帳號後浮窗顯示「確定要刪除帳號？」「這個動作無法復原。」與單一紅色刪除帳號按鈕；沒有「取消」按鈕，無法照規範按取消。",
+    "expected": "刪帳確認先按取消，帳號仍存在且保持登入。",
+    "notes": "與D7同樣，iPhone Duo上確認呈popover並省略取消。將點外部關閉確認保持登入，再執行Z3。 觀察時間：2026-10-25T19:49:31.977809+08:00 實際點外部關閉後email與登入狀態仍在，之後才再次確認執行Z3。",
+    "screenshot": "/tmp/mo-codex-qa/Z2.png"
+  },
+  {
+    "id": "Z3",
+    "verdict": "pass",
+    "observed": "再次刪除並確認後回登入；同組email與正確密碼在App登入顯示「Email或密碼不正確」。正式API登入HTTP401，code=INVALID_EMAIL_OR_PASSWORD，authenticated=false。",
+    "expected": "刪除後回登入，App與API均無法再用原帳密登入。",
+    "notes": "僅刪除codex-qa-20261025@example.com；名單、DCA、tranche與push偏好在刪除前均已還原。 觀察時間：2026-10-25T19:50:33.720792+08:00",
+    "screenshot": "/tmp/mo-codex-qa/Z3.png"
   }
 ]

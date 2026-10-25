@@ -56,7 +56,7 @@ export async function overviewView(c: ViewCtx, v: Viewer) {
     const [revisions, dates, news, events, lastPriceRun, forecast] = await Promise.all([
       tradeDate ? listRevisions(db, tradeDate) : Promise.resolve([]),
       listSnapshotDates(db, 400),
-      db.prepare("SELECT title, url, publisher, published_at, symbols FROM news WHERE symbols != 'SPY' ORDER BY published_at DESC, fetched_at DESC LIMIT 80").all<{ title: string; url: string; publisher: string | null; published_at: string | null; symbols: string }>(),
+      db.prepare("SELECT title, title_zh, tone, category, focus, url, publisher, published_at, symbols FROM news WHERE symbols != 'SPY' ORDER BY published_at DESC, fetched_at DESC LIMIT 120").all<{ title: string; title_zh: string | null; tone: string | null; category: string | null; focus: string | null; url: string; publisher: string | null; published_at: string | null; symbols: string }>(),
       db.prepare("SELECT date, kind, symbol, title, status FROM events WHERE date >= ? AND date <= ? ORDER BY date LIMIT 60").bind(today, addDays(today, 21)).all<{ date: string; kind: string; symbol: string | null; title: string; status: string }>(),
       db.prepare("SELECT status, summary, finished_at FROM runs WHERE job = 'prices' ORDER BY id DESC LIMIT 1").first<{ status: string; summary: string; finished_at: string | null }>(),
       db.prepare("SELECT trade_date, probability, base_rate, call FROM forecasts ORDER BY trade_date DESC LIMIT 1").first<{ trade_date: string; probability: number; base_rate: number; call: string }>(),
@@ -81,12 +81,15 @@ export async function overviewView(c: ViewCtx, v: Viewer) {
     revisions: shared.revisions,
     dates: shared.dates,
     expectedClose: latestExpectedClose(),
-    news: shared.news.filter((n) => n.symbols.split(",").some((k) => mine.has(k))).slice(0, 5),
+    // 只列真的在講自己名單公司的新聞（AI 判斷；還沒加工的用掛在哪些代號底下判斷）
+    news: shared.news.filter((n) => (n.focus === null ? n.symbols.split(",") : n.focus.split(",")).some((k) => mine.has(k))).slice(0, 5),
     events: shared.events.filter((e) => e.kind !== "earnings" || (e.symbol !== null && mine.has(e.symbol))).slice(0, 8),
     lastPriceRun: shared.lastPriceRun,
     forecast: shared.forecast,
     restCount: rest?.n ?? null,
     viewingLatest: !date,
+    // 名單公司在這個交易日（或之後一天，盤後新聞）的 AI 新聞重點
+    digests: s ? (await latestDigests(db, s.mag7.map((m) => m.key), s.tradeDate)).filter((d) => d.date <= addDays(s.tradeDate, 1)) : [],
   };
 }
 
@@ -270,27 +273,68 @@ export async function etfsView(c: ViewCtx, v: Viewer) {
 
 // ── 新聞與日曆 ───────────────────────────────────────────
 
+export interface NewsRow {
+  id: string;
+  symbols: string;
+  title: string;
+  url: string;
+  publisher: string | null;
+  published_at: string | null;
+  fetched_at: string;
+  title_zh: string | null;
+  tone: string | null;
+  category: string | null;
+  /** AI 判斷這則真正在講的代號；null＝還沒加工 */
+  focus: string | null;
+}
+
+/**
+ * 這則對這個人重不重要：真的在講他名單上的公司，或是大盤總經新聞。還沒經過 AI 加工的先當重要（不會因為排程還沒跑就藏起來）。
+ * 其餘（選股標題黨、只順帶提到、別家公司的債券目標價）收在「其他」。
+ */
+export function newsMatters(n: Pick<NewsRow, "focus" | "category">, keys: string[]): boolean {
+  if (n.focus === null) return true;
+  const focus = n.focus.split(",").filter(Boolean);
+  return focus.some((f) => f !== "SPY" && keys.includes(f)) || (focus.includes("SPY") && n.category === "總經與市場");
+}
+
+/** 名單公司最近幾天的 AI 重點（每家只取最新一天）。 */
+export async function latestDigests(db: Pick<D1Database, "prepare">, keys: string[], since: string) {
+  if (!keys.length) return [];
+  const rows = await db
+    .prepare(`SELECT symbol, date, summary, tone FROM news_digests WHERE date >= ? AND symbol IN (${keys.map(() => "?").join(",")}) ORDER BY date DESC`)
+    .bind(since, ...keys)
+    .all<{ symbol: string; date: string; summary: string; tone: string }>();
+  const seen = new Set<string>();
+  return rows.results.filter((r) => (seen.has(r.symbol) ? false : (seen.add(r.symbol), true)));
+}
+
 export async function newsView(c: ViewCtx, v: Viewer) {
   const db = readDb(c.env);
   const members = await membersOf(c, v);
   const keys = [...members.map((m) => m.key), "SPY"];
   const symbol = keys.includes(c.req.query("symbol") ?? "") ? (c.req.query("symbol") as string) : null;
   const today = new Date().toISOString().slice(0, 10);
-  return cachedPage(cacheCtx(c), db, `news?symbol=${symbol ?? ""}&keys=${keys.join(",")}&today=${today}`, async () => {
+  return cachedPage(cacheCtx(c), db, `news2?symbol=${symbol ?? ""}&keys=${keys.join(",")}&today=${today}`, async () => {
     // 不指定代號時只列自己名單上（與大盤 SPY）的新聞。
     const like = keys.map(() => "',' || symbols || ',' LIKE ?").join(" OR ");
+    const cols = "id, symbols, title, url, publisher, published_at, fetched_at, title_zh, tone, category, focus";
     const news = symbol
-      ? await db.prepare("SELECT * FROM news WHERE ',' || symbols || ',' LIKE ? ORDER BY published_at DESC, fetched_at DESC LIMIT 60").bind(`%,${symbol},%`).all()
-      : await db.prepare(`SELECT * FROM news WHERE ${like} ORDER BY published_at DESC, fetched_at DESC LIMIT 80`).bind(...keys.map((k) => `%,${k},%`)).all();
+      ? await db.prepare(`SELECT ${cols} FROM news WHERE ',' || symbols || ',' LIKE ? ORDER BY published_at DESC, fetched_at DESC LIMIT 60`).bind(`%,${symbol},%`).all<NewsRow>()
+      : await db.prepare(`SELECT ${cols} FROM news WHERE ${like} ORDER BY published_at DESC, fetched_at DESC LIMIT 120`).bind(...keys.map((k) => `%,${k},%`)).all<NewsRow>();
     const events = await db
       .prepare("SELECT * FROM events WHERE date >= ? AND date <= ? ORDER BY date, kind")
       .bind(addDays(today, -30), addDays(today, 120))
       .all<{ id: string; date: string; kind: string; symbol: string | null; title: string; detail: string | null; status: string; source_url: string; fetched_at: string }>();
+    // 指定代號時，「重要」是這則真的在講那家公司
+    const wanted = symbol ? [symbol] : keys;
+    const company = Object.fromEntries(members.map((m) => [m.key, m.company]));
     return {
       symbol,
       keys,
       today,
-      news: news.results as { id: string; symbols: string; title: string; url: string; publisher: string | null; published_at: string | null; fetched_at: string }[],
+      news: news.results.map((n) => ({ ...n, important: symbol === "SPY" ? newsMatters(n, ["SPY"]) || n.focus?.includes("SPY") === true : newsMatters(n, wanted) })),
+      digests: (await latestDigests(db, symbol ? [symbol] : members.map((m) => m.key), addDays(today, -3))).map((d) => ({ ...d, company: company[d.symbol] ?? d.symbol })),
       events: events.results.filter((e) => e.kind !== "earnings" || (e.symbol !== null && keys.includes(e.symbol))),
     };
   });

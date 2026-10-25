@@ -2,6 +2,7 @@ import { defineHandler } from "void";
 import { viewerOf } from "../../../src/server/account.ts";
 import { JOB_NAMES, type JobName, runJob } from "../../../src/server/jobs.ts";
 import { apnsConfig } from "../../../src/server/push.ts";
+import { llmFromEnv } from "../../../src/server/llm.ts";
 
 // 手動觸發排程工作（只限站長，middleware/01.gate.ts 擋）；結果同樣寫進 runs。
 // 回補用參數：part（分段序號）、sessions（重算天數）、upTo（重算到哪一天）。
@@ -18,6 +19,7 @@ export const POST = defineHandler(async (c) => {
     sessions: int(c.req.query("sessions")),
     upTo: upTo && /^\d{4}-\d{2}-\d{2}$/.test(upTo) ? upTo : undefined,
     push: apnsConfig(c.env),
+    llm: llmFromEnv(c.env),
   });
   return c.json(result);
 });

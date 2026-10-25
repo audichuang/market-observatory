@@ -18,7 +18,7 @@ struct HistoryView: View {
                             Menu {
                                 Picker("標的", selection: Binding(get: { symbol }, set: { symbol = $0; Task { await load() } })) {
                                     ForEach(h.symbols, id: \.self) { pair in
-                                        Text(pair.count > 1 ? "\(pair[1])（\(pair[0])）" : pair.first ?? "").tag(pair.first ?? "")
+                                        Text(pair.count > 1 && pair[1] != pair[0] ? "\(pair[1])（\(pair[0])）" : pair.first ?? "").tag(pair.first ?? "")
                                     }
                                 }
                             } label: {

@@ -162,4 +162,37 @@ final class WalkthroughTests: XCTestCase {
         XCTAssertTrue(app.textFields["email"].waitForExistence(timeout: 15), "刪除後應回到登入畫面")
         snap("12-after-delete")
     }
+    // TEMP (not committed): News tab deep dive, round 2
+    func test3_NewsDeepDive() throws {
+        let app = XCUIApplication()
+        app.launch()
+        try signInIfNeeded(app)
+        XCTAssertTrue(app.buttons["總覽"].waitForExistence(timeout: 20))
+        sleep(4)
+        snap("r00-overview")
+        tab(app, "新聞")
+        sleep(5)
+        snap("r01-news-top")
+        // expand first digest
+        let digest = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "AAPL")).firstMatch
+        if digest.exists { digest.tap(); sleep(1); snap("r02-digest-expanded") }
+        // open a news detail sheet
+        let headline = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "沃爾瑪")).firstMatch
+        let anyNews = headline.exists ? headline : app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "The Motley Fool")).firstMatch
+        if anyNews.exists { anyNews.tap(); sleep(2); snap("r03-news-sheet")
+            app.swipeUp(); sleep(1); snap("r04-news-sheet-large")
+            if app.buttons["完成"].exists { app.buttons["完成"].tap(); sleep(1) } }
+        // calendar while at top
+        app.buttons["日曆"].tap(); sleep(2); snap("r05-calendar")
+        app.swipeUp(); sleep(1); snap("r06-calendar-scroll")
+        app.swipeDown(); app.swipeDown(); sleep(1)
+        app.buttons["新聞"].firstMatch.tap(); sleep(1)
+        // scroll to bottom to see 其他 N 則
+        for _ in 0..<12 { app.swipeUp() }
+        sleep(1); snap("r07-news-bottom")
+        let others = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "其他")).firstMatch
+        print("OTHERS exists=\(others.exists)")
+        if others.exists { others.tap(); sleep(1); app.swipeUp(); sleep(1); snap("r08-news-others") }
+        XCTAssertTrue(app.state == .runningForeground, "app crashed")
+    }
 }

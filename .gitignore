@@ -9,3 +9,6 @@ dist
 *.tsbuildinfo
 .DS_Store
 .backfill
+ios/build/
+ios/*.xcodeproj/xcuserdata/
+ios/*.xcodeproj/project.xcworkspace/xcuserdata/

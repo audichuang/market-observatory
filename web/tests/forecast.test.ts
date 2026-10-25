@@ -114,3 +114,56 @@ test("條件區間包含基準率時，輸出的機率是基準率，不是條�
     else assert.equal(pick.p, pick.base.p);
   }
 });
+
+// 特徵測試：重構模型設定前後，輸出必須一字不差（數值四捨五入到 12 位）。
+const r12 = (x: number | null) => (x === null ? null : Math.round(x * 1e12) / 1e12);
+const roundEval = (e: ReturnType<typeof walkForward>) => ({ ...e, hitRate: r12(e.hitRate), baseHitRate: r12(e.baseHitRate), brier: r12(e.brier), brierBase: r12(e.brierBase), bss: r12(e.bss), bssLow: r12(e.bssLow), bssHigh: r12(e.bssHigh) });
+const alternating = (n: number, phase: number) => {
+  const c: number[] = [];
+  let p = 100;
+  for (let i = 0; i < n; i++) {
+    p *= Math.floor(i / phase) % 2 === 0 ? 1.002 : 0.998;
+    c.push(p);
+  }
+  return c;
+};
+const noiseCloses = () => {
+  let s = 1;
+  const rnd = () => ((s = (s * 16807) % 2147483647) / 2147483647);
+  let q = 100;
+  return Array.from({ length: 3000 }, () => (q *= 1 + (rnd() - 0.5) * 0.02));
+};
+const sinCloses = () => {
+  const c: number[] = [];
+  let p = 100;
+  for (let i = 0; i < 2600; i++) {
+    p *= 1 + 0.01 * Math.sin(i / 37) + 0.0003;
+    c.push(p);
+  }
+  return c;
+};
+const alt600 = alternating(3000, 600);
+const characterised: [string, number[], number[], ReturnType<typeof roundEval>, number, string][] = [
+  ["alt300", alternating(3000, 300), alternating(3000, 300).map(() => 15), { points: 108, hitRate: 0.62962962963, baseHitRate: 0.472222222222, brier: 0.20902409256, brierBase: 0.257032009644, bss: 0.186777970378, bssLow: -0.013115603516, bssHigh: 0.366382563506, firstDate: "2016-12-24", lastDate: "2023-02-18" }, 0.195804195804, "trend+vix"],
+  ["alt600", alt600, alt600.map(() => 15), { points: 108, hitRate: 0.685185185185, baseHitRate: 0.518518518519, brier: 0.162957845483, brierBase: 0.267705074275, bss: 0.39127845849, bssLow: 0.178358878759, bssHigh: 0.589503908611, firstDate: "2016-12-24", lastDate: "2023-02-18" }, 0.913705583756, "trend+vix"],
+  ["noise", noiseCloses(), noiseCloses().map(() => 15), { points: 108, hitRate: 0.509259259259, baseHitRate: 0.490740740741, brier: 0.254412814031, brierBase: 0.254412814031, bss: 0, bssLow: 0, bssHigh: 0, firstDate: "2016-12-24", lastDate: "2023-02-18" }, 0.455395683453, "trend+vix"],
+  ["sin", sinCloses(), sinCloses().map(() => 15), { points: 89, hitRate: 0.505617977528, baseHitRate: 0.516853932584, brier: 0.25735595411, brierBase: 0.25735595411, bss: 0, bssLow: 0, bssHigh: 0, firstDate: "2016-12-24", lastDate: "2022-01-15" }, 0.511764705882, "trend+vix"],
+  ["vixMix", alt600, alt600.map((_, i) => (Math.floor(i / 150) % 3 === 2 ? 35 : 15)), { points: 108, hitRate: 0.62037037037, baseHitRate: 0.518518518519, brier: 0.197774628376, brierBase: 0.267705074275, bss: 0.261221966331, bssLow: 0.043696689881, bssHigh: 0.459752218462, firstDate: "2016-12-24", lastDate: "2023-02-18" }, 0.87922705314, "trend+vix"],
+];
+
+test("特徵測試：walkForward 與 buildOutlook 的輸出固定", () => {
+  for (const [name, spx, vix, evaluation, p, basis] of characterised) {
+    const obs = buildObservations(series(spx), series(vix));
+    assert.deepEqual(roundEval(walkForward(obs)), evaluation, name);
+    const o = buildOutlook(series(spx), series(vix))!;
+    assert.equal(r12(o.pick.p), p, name);
+    assert.equal(o.pick.basis, basis, name);
+  }
+  const obs = buildObservations(series(Array.from({ length: 900 }, (_, i) => 100 + i)), series(Array.from({ length: 900 }, () => 15)));
+  const trend = pickProbability(obs, day(899), { aboveSma200: true, vixStress: true })!;
+  assert.deepEqual([trend.p, trend.basis], [1, "trend"]);
+  const none = pickProbability(obs, day(899), { aboveSma200: false, vixStress: true })!;
+  assert.deepEqual([none.p, none.basis], [1, "base"]);
+  const both = pickProbability(obs, day(899), { aboveSma200: true, vixStress: false })!;
+  assert.deepEqual([both.p, both.basis], [1, "trend+vix"]);
+});

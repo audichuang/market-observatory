@@ -292,3 +292,109 @@ test("newsView：每則帶 AI 欄位與免費 important、points 轉成陣列、
   assert.deepEqual(out.ai, { enabled: true, used: 0, limit: 40 });
   assert.equal((await newsView({ ...c, env: { DB: db } }, user("viewer"))).ai.enabled, false);
 });
+
+// ── 審查後修正 ──
+
+function stubAnthropic(stopReason: string, text = '{"ok":true}') {
+  const original = globalThis.fetch;
+  let requests = 0;
+  globalThis.fetch = (async () => {
+    requests++;
+    const msg = { id: "m", type: "message", role: "assistant", model: "x", content: [{ type: "text", text }], stop_reason: stopReason, stop_sequence: null, usage: { input_tokens: 1, output_tokens: 1 } };
+    return new Response(JSON.stringify(msg), { headers: { "content-type": "application/json" } });
+  }) as typeof fetch;
+  return { restore: () => (globalThis.fetch = original), requests: () => requests };
+}
+
+test("模型已回應才壞（拒絕、截斷、不是 JSON、格式不對）已經計費：不退額度，重複送最後會 429，不能無限重試", async () => {
+  const { translateNews, newsPoints, generateDigests, AiHttpError, DAILY_LIMIT } = await import("../src/server/news-ai.ts");
+  const cases: [string, string, string][] = [["refusal", '{"ok":true}', "拒絕"], ["max_tokens", '{"ok":true}', "截斷"], ["end_turn", "not json", "JSON"], ["end_turn", '{"items":"x"}', "翻譯格式"]];
+  for (const [stop, text] of cases) {
+    const { db, sql } = await seeded();
+    const stub = stubAnthropic(stop, text);
+    try {
+      const ai = createAi("k", new Budget(1000));
+      let status = 0;
+      for (let i = 0; i < DAILY_LIMIT + 1; i++) {
+        try {
+          await translateNews(db, ai, user(), [NVDA], ["n2"]);
+        } catch (e) {
+          status = (e as InstanceType<typeof AiHttpError>).status;
+        }
+      }
+      assert.equal(status, 429, `${stop}：第 41 次要被額度擋下`);
+      assert.equal(stub.requests(), DAILY_LIMIT, "只打出去 40 次");
+      assert.equal((sql.prepare("SELECT calls FROM ai_usage WHERE user_id = 'u1'").get() as { calls: number }).calls, DAILY_LIMIT);
+      // 重點與每日重點同一條規則
+      const { db: db2, today: t2 } = await seeded();
+      const p = await newsPoints(db2, createAi("k", new Budget(1000)), user("p"), "n2", new Budget(5)).catch((e) => e);
+      assert.ok(p instanceof AiHttpError && p.status === 502);
+      assert.equal((await generateDigests(db2, createAi("k", new Budget(1000)), user("p"), [NVDA], t2).catch((e) => e)).status, 502);
+    } finally {
+      stub.restore();
+    }
+  }
+  // 模型回應前的失敗（網路、HTTP 錯誤）照舊退回
+  const { db, sql } = await seeded();
+  const original = globalThis.fetch;
+  globalThis.fetch = (async () => new Response("{}", { status: 400 })) as typeof fetch;
+  try {
+    await assert.rejects(translateNews(db, createAi("k", new Budget(100)), user(), [NVDA], ["n2"]), (e: unknown) => e instanceof AiHttpError && e.status === 502);
+    assert.equal((sql.prepare("SELECT calls FROM ai_usage WHERE user_id = 'u1'").get() as { calls: number }).calls, 0);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test("多掛了代號（enriched_at 被排程清掉）：已翻的也要重新判斷在講誰，重判後才算新公司的重要新聞", async () => {
+  const { db, sql } = await seeded();
+  const { translateNews } = await import("../src/server/news-ai.ts");
+  const { ai, calls } = fakeAi(enrichAnswer);
+  await translateNews(db, ai, user(), [NVDA, AAPL], ["n1"]);
+  assert.equal(calls.length, 1);
+  assert.equal((await translateNews(db, ai, user(), [NVDA, AAPL], ["n1"])).items[0].important, true);
+  assert.equal(calls.length, 1, "沒變就不重判");
+  // 排程把 n1 多掛上 AAPL 並清掉 enriched_at
+  sql.prepare("UPDATE news SET symbols = 'SPY,NVDA,AAPL', enriched_at = NULL WHERE id = 'n1'").run();
+  const again = fakeAi(() => ({ items: [{ n: 1, title_zh: "輝達與蘋果", tone: "positive", category: "財報", focus: ["NVDA", "AAPL"] }] }));
+  const r = await translateNews(db, again.ai, user(), [AAPL], ["n1"]);
+  assert.equal(again.calls.length, 1, "已翻但 enriched_at 是 NULL → 重判");
+  assert.equal(r.items[0].title_zh, "輝達與蘋果");
+  assert.equal(r.items[0].important, true);
+  assert.equal((sql.prepare("SELECT focus FROM news WHERE id = 'n1'").get() as { focus: string }).focus, "NVDA,AAPL");
+  assert.notEqual((sql.prepare("SELECT enriched_at FROM news WHERE id = 'n1'").get() as { enriched_at: string | null }).enriched_at, null);
+  await translateNews(db, again.ai, user(), [AAPL], ["n1"]);
+  assert.equal(again.calls.length, 1, "重判完不再重判");
+});
+
+test("translate 帶畫面的代號篩選：重要與否與 newsView 同一條規則（不是整份名單）", async () => {
+  const { db, sql } = await seeded();
+  const { translateNews } = await import("../src/server/news-ai.ts");
+  const { newsView } = await import("../src/server/views.ts");
+  // n5：在講 NVDA，但也掛在 AAPL 底下
+  sql.prepare("INSERT INTO news (id, symbols, title, url, published_at, source, fetched_at, primary_symbol) VALUES ('n5', 'NVDA,AAPL', 'Nvidia and Apple', 'https://e.com/5', ?, 'nasdaq', 'x', 'NVDA')").run(easternDate());
+  const { ai } = fakeAi(() => ({ items: [{ n: 1, title_zh: "輝達", tone: "neutral", category: "財報", focus: ["NVDA"] }] }));
+  const members = [NVDA, AAPL];
+  const filtered = await translateNews(db, ai, user(), members, ["n5"], "AAPL");
+  assert.equal(filtered.items[0].important, false, "AAPL 頁面：這則是在講 NVDA");
+  const whole = await translateNews(db, ai, user(), members, ["n5"]);
+  assert.equal(whole.items[0].important, true, "全部頁面：NVDA 在名單上");
+  const c = { env: { DB: db }, req: { query: (k: string) => (k === "symbol" ? "AAPL" : undefined), url: "https://x/api/v1/news?symbol=AAPL" } };
+  assert.equal((await newsView(c, user("viewer"))).news.find((n) => n.id === "n5")!.important, filtered.items[0].important);
+});
+
+test("NewsFeed 邏輯：只翻看得到的（其他組收合時不翻）、已送過的不重送、翻完依 id 併回目前列表", async () => {
+  const { pendingTranslateIds, mergeTranslated } = await import("../src/ui/news-feed-logic.ts");
+  const n = (id: string, important: boolean, needs_ai = true) => ({ id, important, needs_ai });
+  const news = [n("a", true), n("b", false), n("c", true, false), n("d", false)];
+  const o = { showOthers: true, othersOpen: false, tried: new Set<string>(), max: 20 };
+  assert.deepEqual(pendingTranslateIds(news, o), ["a"], "其他組收合：只翻重要的");
+  assert.deepEqual(pendingTranslateIds(news, { ...o, othersOpen: true }), ["a", "b", "d"], "展開後才翻其他");
+  assert.deepEqual(pendingTranslateIds(news, { ...o, othersOpen: true, tried: new Set(["a"]) }), ["b", "d"]);
+  assert.deepEqual(pendingTranslateIds(news, { ...o, showOthers: false }), ["a", "b", "d"], "沒有收合組的頁面全部都看得到");
+  assert.deepEqual(pendingTranslateIds(news, { ...o, othersOpen: true, max: 2 }), ["a", "b"]);
+  // 請求期間列表已經被別的更新改過（例如 points 回來）：依 id 併回，不整個覆蓋
+  const current = [{ id: "a", title_zh: null as string | null, points_zh: ["重點"], important: true, needs_ai: true }];
+  const merged = mergeTranslated(current, [{ id: "a", title_zh: "中", important: false }, { id: "zzz", title_zh: "x", important: true }]);
+  assert.deepEqual(merged, [{ id: "a", title_zh: "中", points_zh: ["重點"], important: false, needs_ai: false }]);
+});

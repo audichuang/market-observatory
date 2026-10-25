@@ -134,6 +134,7 @@ struct EventCalendarView: View {
             VStack(spacing: 3) {
                 Text("\(day)")
                     .font(.body.monospacedDigit().weight(isToday || isSelected ? .semibold : .regular))
+                    .dynamicTypeSize(...DynamicTypeSize.xxLarge)
                     .foregroundStyle(isSelected ? Color.white : isToday ? Color.accentColor : d < today ? Color.secondary : Color.primary)
                     .frame(width: 36, height: 36)
                     .background {
@@ -141,7 +142,7 @@ struct EventCalendarView: View {
                     }
                 HStack(spacing: 3) {
                     if m.macro { Circle().fill(Color.up).frame(width: 6, height: 6) }
-                    if m.earnings { Circle().fill(Color.blue).frame(width: 6, height: 6) }
+                    if m.earnings { Circle().fill(Color.accentColor).frame(width: 6, height: 6) }
                 }
                 .frame(height: 6)
             }

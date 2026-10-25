@@ -84,14 +84,13 @@ struct WatchlistView: View {
                     ProgressView()
                     Text(busy).font(.footnote).foregroundStyle(.secondary)
                 }
+                .noticeRow()
             }
             if let message {
-                Notice(kind: message.ok ? .ok : .bad, text: message.text)
-                    .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
+                Notice(kind: message.ok ? .ok : .bad, text: message.text).noticeRow()
             }
             if w.members.count >= w.max {
-                Notice(kind: .info, text: "名單已滿 \(w.max) 家，先移除一家才能再加。")
-                    .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
+                Notice(kind: .info, text: "名單已滿 \(w.max) 家，先移除一家才能再加。").noticeRow()
             }
             Section {
                 ForEach(w.members) { m in
@@ -100,7 +99,7 @@ struct WatchlistView: View {
                     } label: {
                         HStack {
                             memberRow(m)
-                            Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+                            Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
                         }
                         .contentShape(Rectangle())
                     }
@@ -115,12 +114,12 @@ struct WatchlistView: View {
                     .disabled(busy != nil)
                 }
                 if w.members.isEmpty {
-                    Text("名單是空的。按右上角＋加入 S&P 500 成分股。").foregroundStyle(.secondary)
+                    Text("名單是空的。點右上角＋加入。").foregroundStyle(.secondary)
                 }
             } header: {
-                Text("\(w.members.count)/\(w.max) 家 · 合計權重 \(Fmt.num(w.totalWeight, 1))%")
+                Text("\(w.members.count)/\(w.max) 家 · 合計權重 \(Fmt.num(w.totalWeight, 2))%")
             } footer: {
-                Text("名單只影響你自己的總覽、走勢與推播；「其餘成分股」＝指數減掉名單。點一下看走勢，左滑可移除。權重取自 \(w.asOf ?? "—") 的 SPY 持股。改名單後，總覽與最近 45 個交易日的貢獻會立刻用新名單重算；更早的日子保留當時名單的數字。")
+                Text("點一下看走勢，左滑可移除。權重取自 \(w.asOf.map(Fmt.fullDate) ?? "—") 的 SPY 持股；改名單後，近 45 個交易日的貢獻會用新名單重算。")
             }
         }
         .listStyle(.insetGrouped)
@@ -139,10 +138,10 @@ struct WatchlistView: View {
 
     @ViewBuilder
     private func memberRow(_ m: Watchlist.Member) -> some View {
-        let weight = Text("\(Fmt.num(m.weightPct, 2))%").monospacedDigit().foregroundStyle(.secondary)
+        let weight = Text("\(Fmt.num(m.weightPct, 2))%").font(.body.monospacedDigit()).foregroundStyle(.secondary)
         let names = VStack(alignment: .leading, spacing: 2) {
-            Text(m.company).font(.body)
-            Text(m.tickers.joined(separator: "＋")).font(.caption).foregroundStyle(.secondary)
+            Text(m.tickers.joined(separator: " + ")).font(.headline)
+            Text(m.company).font(.caption).foregroundStyle(.secondary)
             if dts.isAccessibilitySize { weight }
             if !m.outOfIndex.isEmpty {
                 Text("\(m.outOfIndex.joined(separator: "、")) 已不在最新 SPY 持股（可能調出 S&P 500）").font(.caption2).foregroundStyle(.orange)

@@ -96,6 +96,8 @@ export function NewsFeed({ news: initial, digests: initialDigests, ai: initialAi
   const inflight = useRef(false);
   const mounted = useRef(true);
   const symbolRef = useRef(symbol);
+  // 丟掉過期的翻譯回應後 news 沒變，effect 不會再跑；遞增它讓新篩選的標題接著送。
+  const [retryTick, setRetryTick] = useState(0);
   symbolRef.current = symbol;
   useEffect(() => {
     mounted.current = true;
@@ -126,6 +128,7 @@ export function NewsFeed({ news: initial, digests: initialDigests, ai: initialAi
       // 請求期間換了代號篩選：這批 important 是照舊篩選算的，丟掉；已送過的標記拿掉，新畫面可重送
       if (isStaleTranslate(symbol, symbolRef.current)) {
         for (const id of pending) tried.current.delete(id);
+        setRetryTick((t) => t + 1);
         return;
       }
       if (!r.ok) {
@@ -135,7 +138,7 @@ export function NewsFeed({ news: initial, digests: initialDigests, ai: initialAi
       setNews((cur) => mergeTranslated(cur, r.data.items));
       setAi(r.data.ai);
     });
-  }, [news, ai.enabled, ai.used, ai.limit, showOthers, othersOpen, symbol]);
+  }, [news, ai.enabled, ai.used, ai.limit, showOthers, othersOpen, symbol, retryTick]);
 
   async function loadPoints(id: string) {
     setOpen((o) => ({ ...o, [id]: true }));

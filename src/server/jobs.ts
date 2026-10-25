@@ -9,6 +9,7 @@ import { type FactsetInsight, fetchInsight, latestInsightUrl } from "../lib/sour
 import { YAHOO_SOURCE, fetchYahooDaily, fetchYahooLastCloses, fetchYahooSpark } from "../lib/sources/yahoo.ts";
 import { Budget } from "../lib/sources/http.ts";
 import { type ApnsConfig, notifyClose, notifyEvents } from "./push.ts";
+import { type Llm, jobNewsAi } from "./news-ai.ts";
 import { buildOutlook } from "../lib/forecast.ts";
 import { rotationPicks } from "../lib/consensus.ts";
 import { easternDate } from "../lib/calendar.ts";
@@ -17,8 +18,8 @@ import { MAX_TRACKED, addToWatchlist, removeFromWatchlist } from "../lib/watchli
 import { WATCHLIST_KEY, latestHoldings, loadTrackedMembers, loadWatchlist, updateWatchlist } from "./watchlist.ts";
 import { type BarBatch, applyCrossChecks, finishRun, insertWeights, loadPrices, getSetting, loadWeightAnchors, nowIso, putSetting, saveSnapshots, startRun, upsertBars, weightsNear } from "./repo.ts";
 
-export type JobName = "prices" | "crosscheck" | "weights" | "news" | "events" | "analysts" | "factset" | "forecast" | "snapshots" | "notify-close" | "notify-events" | "backfill-prices" | "backfill-checks";
-export const JOB_NAMES: JobName[] = ["prices", "crosscheck", "weights", "news", "events", "analysts", "factset", "forecast", "snapshots", "notify-close", "notify-events", "backfill-prices", "backfill-checks"];
+export type JobName = "prices" | "crosscheck" | "weights" | "news" | "events" | "analysts" | "factset" | "forecast" | "snapshots" | "notify-close" | "notify-events" | "news-ai" | "backfill-prices" | "backfill-checks";
+export const JOB_NAMES: JobName[] = ["prices", "crosscheck", "weights", "news", "events", "analysts", "factset", "forecast", "snapshots", "notify-close", "notify-events", "news-ai", "backfill-prices", "backfill-checks"];
 
 export interface JobOptions {
   /** 回補工作的分段序號（從 0 開始） */
@@ -29,6 +30,8 @@ export interface JobOptions {
   upTo?: string;
   /** 推播工作用的 APNs 金鑰（從 env 讀，見 src/server/push.ts 的 apnsConfig）；沒設定時推播工作記成 failed */
   push?: ApnsConfig | null;
+  /** 新聞 AI 加工用的模型（src/server/llm.ts 的 llmFromEnv）；沒有時 news-ai 工作略過 */
+  llm?: Llm | null;
 }
 
 /**
@@ -302,15 +305,18 @@ async function jobNews(db: D1Database, _opts: JobOptions, budget: Budget): Promi
   const skipped = all.slice(symbols.length);
   const results = await mapLimit(symbols, 3, (s) => fetchNasdaqNews(s, 8, budget));
   const stmt = db.prepare(
-    `INSERT INTO news (id, symbols, title, url, publisher, published_at, source, fetched_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(id) DO UPDATE SET symbols = CASE WHEN instr(news.symbols, excluded.symbols) > 0 THEN news.symbols ELSE news.symbols || ',' || excluded.symbols END`,
+    `INSERT INTO news (id, symbols, title, url, publisher, published_at, source, fetched_at, summary, primary_symbol) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET symbols = CASE WHEN instr(news.symbols, excluded.symbols) > 0 THEN news.symbols ELSE news.symbols || ',' || excluded.symbols END,
+       summary = COALESCE(news.summary, excluded.summary), primary_symbol = COALESCE(news.primary_symbol, excluded.primary_symbol),
+       -- 多掛了一個代號：AI 要重新判斷這則在講誰
+       enriched_at = CASE WHEN instr(news.symbols, excluded.symbols) > 0 THEN news.enriched_at ELSE NULL END`,
   );
   const stmts: D1PreparedStatement[] = [];
   const failed: string[] = [];
   const fetchedAt = nowIso();
   results.forEach((r, i) => {
     if (r.status === "rejected") return failed.push(`${symbols[i]}: ${errText(r.reason)}`);
-    for (const n of r.value) stmts.push(stmt.bind(n.id, symbols[i], n.title, n.url, n.publisher, n.publishedAt, NASDAQ_SOURCE, fetchedAt));
+    for (const n of r.value) stmts.push(stmt.bind(n.id, symbols[i], n.title, n.url, n.publisher, n.publishedAt, NASDAQ_SOURCE, fetchedAt, n.summary, n.primarySymbol));
   });
   for (let i = 0; i < stmts.length; i += 100) await db.batch(stmts.slice(i, i + 100));
   // 只保留 120 天，避免表無限長大。
@@ -516,6 +522,7 @@ const JOBS: Record<JobName, (db: D1Database, opts: JobOptions, budget: Budget) =
   },
   "notify-close": (db, opts, budget) => notifyClose(db, opts.push ?? null, budget),
   "notify-events": (db, opts, budget) => notifyEvents(db, opts.push ?? null, budget),
+  "news-ai": (db, opts, budget) => jobNewsAi(db, opts.llm ?? null, budget),
   "backfill-prices": jobBackfillPrices,
   "backfill-checks": jobBackfillChecks,
 };
@@ -555,7 +562,8 @@ export const SCHEDULES = {
   retry: ["prices", "crosscheck", "notify-close"],
   // 事件提醒在美東早上（UTC 11:30 = 台灣晚上 7:30）：當天的財報日剛更新完。
   "daily-reference": ["weights", "events", "factset", "notify-events"],
-  news: ["news", "analysts"],
+  // 抓完新聞就翻譯、分類、寫各家重點（Workers AI），再輪替抓分析師共識。
+  news: ["news", "news-ai", "analysts"],
 } as const satisfies Record<string, readonly JobName[]>;
 export type ScheduleName = keyof typeof SCHEDULES;
 

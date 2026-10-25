@@ -87,6 +87,10 @@ export interface NewsItem {
   url: string;
   publisher: string | null;
   publishedAt: string | null;
+  /** 英文摘要（description），可能是空的 */
+  summary: string | null;
+  /** 文章主角（primarysymbol），Yahoo 格式（BRK-B） */
+  primarySymbol: string | null;
 }
 
 interface NewsRow {
@@ -95,6 +99,8 @@ interface NewsRow {
   publisher?: string;
   created?: string;
   id?: number | string;
+  description?: string;
+  primarysymbol?: string;
 }
 
 function parseNasdaqCreated(created: string | undefined): string | null {
@@ -115,6 +121,9 @@ export function parseNasdaqNews(rows: NewsRow[]): NewsItem[] {
       url,
       publisher: r.publisher?.trim() || null,
       publishedAt: parseNasdaqCreated(r.created),
+      // description 常以「Key Points」開頭、句子黏在一起：去掉開頭字樣、限制長度
+      summary: r.description?.replace(/^\s*Key Points\s*/i, "").trim().slice(0, 600) || null,
+      primarySymbol: r.primarysymbol ? fromNasdaqSymbol(r.primarysymbol.toUpperCase()) : null,
     });
   }
   return out;

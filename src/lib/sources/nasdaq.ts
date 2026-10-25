@@ -1,4 +1,4 @@
-import { type DailyBar, SourceError, fetchWithTimeout, mdyToIso, parseLooseNumber } from "./http.ts";
+import { type Budget, type DailyBar, SourceError, fetchWithTimeout, mdyToIso, parseLooseNumber } from "./http.ts";
 
 export const NASDAQ_SOURCE = "nasdaq";
 
@@ -13,8 +13,8 @@ interface NasdaqEnvelope<T> {
   status?: { rCode?: number; bCodeMessage?: { errorMessage?: string }[] | null };
 }
 
-async function getJson<T>(url: string): Promise<T> {
-  const res = await fetchWithTimeout(NASDAQ_SOURCE, url, { headers: NASDAQ_HEADERS, timeoutMs: 15000 });
+async function getJson<T>(url: string, budget?: Budget): Promise<T> {
+  const res = await fetchWithTimeout(NASDAQ_SOURCE, url, { headers: NASDAQ_HEADERS, timeoutMs: 15000, budget });
   const body = (await res.json()) as NasdaqEnvelope<T>;
   if (!body.data) {
     const msg = body.status?.bCodeMessage?.map((m) => m.errorMessage).join("; ") || `rCode ${body.status?.rCode}`;
@@ -39,9 +39,9 @@ export function parseNasdaqHistorical(data: HistoricalData): DailyBar[] {
   return out.sort((a, b) => a.date.localeCompare(b.date));
 }
 
-export async function fetchNasdaqHistorical(symbol: string, assetClass: "stocks" | "etf", fromDate: string, limit = 40): Promise<DailyBar[]> {
+export async function fetchNasdaqHistorical(symbol: string, assetClass: "stocks" | "etf", fromDate: string, limit = 40, budget?: Budget): Promise<DailyBar[]> {
   const url = `https://api.nasdaq.com/api/quote/${encodeURIComponent(symbol)}/historical?assetclass=${assetClass}&fromdate=${fromDate}&limit=${limit}`;
-  return parseNasdaqHistorical(await getJson<HistoricalData>(url));
+  return parseNasdaqHistorical(await getJson<HistoricalData>(url, budget));
 }
 
 export interface EarningsDate {
@@ -71,8 +71,8 @@ export function parseEarningsDate(symbol: string, data: { announcement?: string;
   };
 }
 
-export async function fetchEarningsDate(symbol: string): Promise<EarningsDate | null> {
-  const data = await getJson<{ announcement?: string; reportText?: string }>(`https://api.nasdaq.com/api/analyst/${encodeURIComponent(symbol)}/earnings-date`);
+export async function fetchEarningsDate(symbol: string, budget?: Budget): Promise<EarningsDate | null> {
+  const data = await getJson<{ announcement?: string; reportText?: string }>(`https://api.nasdaq.com/api/analyst/${encodeURIComponent(symbol)}/earnings-date`, budget);
   return parseEarningsDate(symbol, data);
 }
 
@@ -115,9 +115,10 @@ export function parseNasdaqNews(rows: NewsRow[]): NewsItem[] {
   return out;
 }
 
-export async function fetchNasdaqNews(symbol: string, limit = 8): Promise<NewsItem[]> {
+export async function fetchNasdaqNews(symbol: string, limit = 8, budget?: Budget): Promise<NewsItem[]> {
   const data = await getJson<{ rows?: NewsRow[] }>(
     `https://api.nasdaq.com/api/news/topic/articlebysymbol?q=${encodeURIComponent(symbol)}|stocks&offset=0&limit=${limit}`,
+    budget,
   );
   return parseNasdaqNews(data.rows ?? []);
 }
@@ -149,8 +150,8 @@ export function parseEarningsCalendar(date: string, rows: CalendarRow[], symbols
     }));
 }
 
-export async function fetchEarningsCalendar(date: string, symbols: string[]): Promise<EarningsDate[]> {
-  const data = await getJson<{ rows?: CalendarRow[] | null }>(`https://api.nasdaq.com/api/calendar/earnings?date=${date}`);
+export async function fetchEarningsCalendar(date: string, symbols: string[], budget?: Budget): Promise<EarningsDate[]> {
+  const data = await getJson<{ rows?: CalendarRow[] | null }>(`https://api.nasdaq.com/api/calendar/earnings?date=${date}`, budget);
   return parseEarningsCalendar(date, data.rows ?? [], symbols);
 }
 
@@ -207,11 +208,11 @@ export function parseAnalystView(symbol: string, target: TargetPriceData, foreca
 const nasdaqSymbol = (s: string) => s.replace("-", ".");
 
 /** withEpsRevisions=false 時只抓目標價（1 個請求），用來擴大涵蓋範圍又不超過子請求上限。 */
-export async function fetchAnalystView(symbol: string, withEpsRevisions = true): Promise<AnalystView> {
+export async function fetchAnalystView(symbol: string, withEpsRevisions = true, budget?: Budget): Promise<AnalystView> {
   const base = `https://api.nasdaq.com/api/analyst/${encodeURIComponent(nasdaqSymbol(symbol))}`;
   const [target, forecast] = await Promise.all([
-    getJson<TargetPriceData>(`${base}/targetprice`),
-    withEpsRevisions ? getJson<EarningsForecastData>(`${base}/earnings-forecast`).catch(() => null) : Promise.resolve(null),
+    getJson<TargetPriceData>(`${base}/targetprice`, budget),
+    withEpsRevisions ? getJson<EarningsForecastData>(`${base}/earnings-forecast`, budget).catch(() => null) : Promise.resolve(null),
   ]);
   return parseAnalystView(symbol, target, forecast);
 }

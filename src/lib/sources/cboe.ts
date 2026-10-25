@@ -1,4 +1,4 @@
-import { type DailyBar, SourceError, fetchWithTimeout, mdyToIso, parseLooseNumber } from "./http.ts";
+import { type Budget, type DailyBar, SourceError, fetchWithTimeout, mdyToIso, parseLooseNumber } from "./http.ts";
 
 export const CBOE_SOURCE = "cboe";
 
@@ -32,7 +32,7 @@ export function parseCboeCsv(text: string, since = "0000-00-00"): DailyBar[] {
   return out.reverse();
 }
 
-export async function fetchCboeDaily(which: keyof typeof CBOE_URLS, since: string): Promise<DailyBar[]> {
-  const res = await fetchWithTimeout(CBOE_SOURCE, CBOE_URLS[which], { timeoutMs: 30000 });
+export async function fetchCboeDaily(which: keyof typeof CBOE_URLS, since: string, budget?: Budget): Promise<DailyBar[]> {
+  const res = await fetchWithTimeout(CBOE_SOURCE, CBOE_URLS[which], { timeoutMs: 30000, budget });
   return parseCboeCsv(await res.text(), since);
 }

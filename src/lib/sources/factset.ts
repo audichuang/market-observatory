@@ -1,4 +1,4 @@
-import { SourceError, fetchWithTimeout } from "./http.ts";
+import { type Budget, SourceError, fetchWithTimeout } from "./http.ts";
 
 // FactSet Earnings Insight 週報（每週五）：用全部 S&P 500 成分股的分析師目標價「由下而上」加總出指數目標價，
 // 也就是「個股預測按權重反推指數」的現成版本。固定網址會轉到最新一期 PDF。
@@ -94,15 +94,16 @@ export async function extractPdfText(pdf: Uint8Array): Promise<string> {
 }
 
 /** 只取轉址後的 PDF 網址（不下載本體），用來判斷有沒有新的一期。 */
-export async function latestInsightUrl(): Promise<string> {
+export async function latestInsightUrl(budget?: Budget): Promise<string> {
+  budget?.take(FACTSET_LATEST_URL);
   const res = await fetch(FACTSET_LATEST_URL, { redirect: "manual", signal: AbortSignal.timeout(15000) });
   const loc = res.headers.get("location");
   if (!loc) throw new SourceError(FACTSET_SOURCE, `沒有轉址（HTTP ${res.status}）`);
   return new URL(loc, FACTSET_LATEST_URL).toString();
 }
 
-export async function fetchInsight(pdfUrl: string): Promise<FactsetInsight> {
-  const res = await fetchWithTimeout(FACTSET_SOURCE, pdfUrl, { timeoutMs: 40000 });
+export async function fetchInsight(pdfUrl: string, budget?: Budget): Promise<FactsetInsight> {
+  const res = await fetchWithTimeout(FACTSET_SOURCE, pdfUrl, { timeoutMs: 40000, budget });
   const bytes = new Uint8Array(await res.arrayBuffer());
   if (String.fromCharCode(...bytes.subarray(0, 5)) !== "%PDF-") throw new SourceError(FACTSET_SOURCE, "回應不是 PDF");
   const insight = parseInsightText(await extractPdfText(bytes), pdfUrl);

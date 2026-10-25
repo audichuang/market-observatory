@@ -16,3 +16,4 @@
 - 開放註冊：網頁 loader 與 App API 的資料都在 `src/server/views.ts`。每個人不同的資料（名單、定投規劃）不能放進共用的 `cachedPage` 結果，要嘛在快取外套上，要嘛把名單放進快取鍵；排程一律用 `loadTrackedMembers`（聯集），單一使用者用 `loadWatchlist(db, key)`。
 - 新的後台功能放在 `/api/admin/` 底下：middleware 只放行站長，route 裡也要再用 `viewerOf(c)?.isOwner` 檢查。
 - iOS App 在 `ios/`（XcodeGen）；改了 `/api/v1` 的回應欄位，App 的 Codable 模型要一起改。
+- 新聞 AI（`src/server/news-ai.ts`、`src/server/anthropic.ts`）只在使用者打開畫面／點開文章時呼叫，不能放進排程；結果存 D1 共用，每帳號每天（美東）40 次、站長 400 次。Anthropic 請求一律經 `createAi`（走 `fetchWithTimeout` 並扣 budget）；Haiku 做標題翻譯，Sonnet 做文章與每日重點；不送 temperature／top_p，Sonnet 不送 `thinking: disabled`。

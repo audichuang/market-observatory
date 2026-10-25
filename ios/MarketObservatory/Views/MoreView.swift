@@ -132,13 +132,7 @@ struct EtfView: View {
                                 if r.multiple != 1 { Text("\(r.multiple > 0 ? "" : "反向 ")\(Int(abs(r.multiple)))×").font(.caption2.weight(.semibold)).foregroundStyle(.orange) }
                             }
                             Text(r.name).font(.caption)
-                            Text("\(r.issuer) · 費用 \(Fmt.fee(r.netFeePct)) · AUM \(Fmt.compactUsd(r.aumUsd))").font(.caption).foregroundStyle(.secondary)
-                            if let d = r.drift1y?.drift {
-                                HStack(spacing: 4) {
-                                    Text("1Y 偏離").font(.caption2).foregroundStyle(.secondary)
-                                    Delta(value: d, digits: 1, percent: true).font(.caption)
-                                }
-                            }
+                            Text("\(r.issuer) · 費用\u{00A0}\(Fmt.fee(r.netFeePct)) · AUM\u{00A0}\(Fmt.compactUsd(r.aumUsd))").font(.caption).foregroundStyle(.secondary)
                             if let n = r.note, !n.isEmpty { Text(n).font(.caption2).foregroundStyle(.secondary) }
                         }
                         Spacer()
@@ -386,12 +380,18 @@ struct OutlookView: View {
                         VStack(alignment: .trailing, spacing: 1) {
                             Text(Fmt.num(o.vix)).monospacedDigit()
                             if let r = o.regime {
-                                Text(r.vixStress ? "≥ 30（恐慌區）" : "< 30").font(.caption2).foregroundStyle(r.vixStress ? Color.up : .secondary)
+                                Text(r.vixStress ? "≥ 30（恐慌區）" : "< 30（非恐慌區）").font(.caption2).foregroundStyle(r.vixStress ? Color.orange : .secondary)
                             }
                         }
                     }
                 } footer: {
-                    VStack(alignment: .leading, spacing: 4) { ForEach(o.reasons, id: \.self) { Text("・\($0)") } }
+                    // 標題說明已經寫了「看不出差別」時，不再重複同一句理由；項目符號用懸掛縮排。
+                    let reasons = o.reasons.filter { !(o.pick.distinct != true && o.pick.conditional != nil && $0.contains("看不出差別")) }
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(reasons, id: \.self) { r in
+                            HStack(alignment: .firstTextBaseline, spacing: 2) { Text("・"); Text(r) }
+                        }
+                    }
                 }
 
                 Section {
@@ -434,7 +434,7 @@ struct OutlookView: View {
     private func intervalText(_ pick: OutlookPage.Outlook.Pick) -> String {
         let basis = Self.basisLabels[pick.basis] ?? pick.basis
         if let cond = pick.conditional, pick.distinct != true {
-            return "採歷史基準率（95% 區間 \(ratio(pick.base.low))～\(ratio(pick.base.high))）；「\(basis)」條件下為 \(ratio(cond.p))，區間 \(ratio(cond.low))～\(ratio(cond.high)) 包含基準率，看不出差別"
+            return "採歷史基準率（95% 區間 \(ratio(pick.base.low))～\(ratio(pick.base.high))）；「\(basis)」下為 \(Fmt.plainPct(cond.p * 100))，區間 \(ratio(cond.low))～\(ratio(cond.high)) 包含基準率，看不出差別"
         }
         let low = pick.conditional?.low ?? pick.base.low
         let high = pick.conditional?.high ?? pick.base.high
@@ -549,7 +549,10 @@ struct OutlookView: View {
     }
 
     private func strategistSection(_ s: OutlookPage.Strategists) -> some View {
-        Section {
+        // 每列的 horizon 都一樣時（例如全是「2026 年底」）只在標題寫一次，不在每列重複。
+        let shared = Set(s.list.compactMap { $0.horizon }.filter { !$0.isEmpty })
+        let common = shared.count == 1 ? shared.first : nil
+        return Section {
             LabeledContent("中位數", value: "\(Fmt.num(s.median, 0))（\(Fmt.pct(s.medianUpsidePct, 1))）")
             if let poll = s.poll {
                 LabeledContent("Reuters 民調中位數", value: "\(Fmt.num(poll.median, 0))（\(poll.respondents) 人\(poll.surveyed.map { "，\($0)" } ?? "")）")
@@ -562,7 +565,7 @@ struct OutlookView: View {
                         } else {
                             Text(t.firm)
                         }
-                        let meta = [t.horizon, t.asOf, t.note].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+                        let meta = [t.horizon == common ? nil : t.horizon, t.asOf, t.note].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
                         if !meta.isEmpty { Text(meta).font(.caption).foregroundStyle(.secondary) }
                     }
                     Spacer()
@@ -570,7 +573,7 @@ struct OutlookView: View {
                 }
             }
         } header: {
-            Text("策略師年底目標")
+            Text(common.map { "策略師目標（\($0)）" } ?? "策略師年底目標")
         } footer: {
             Text("人工整理自新聞轉述\(s.checked.map { "（\($0) 核對）" } ?? "")，未必是券商原文。")
         }
@@ -583,7 +586,12 @@ struct OutlookView: View {
         let layout = stacked ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4)) : AnyLayout(HStackLayout())
         return layout {
             HStack(spacing: 6) {
-                Text(c.label).font(.subheadline).fontWeight(c.current ? .semibold : .regular)
+                // 不讓「VIX ≥ 30」這類門檻在運算子旁斷行；要換行就在「，」之後。
+                let label = c.label
+                    .replacingOccurrences(of: " < ", with: "\u{00A0}<\u{00A0}")
+                    .replacingOccurrences(of: " ≥ ", with: "\u{00A0}≥\u{00A0}")
+                    .replacingOccurrences(of: "VIX ", with: "VIX\u{00A0}")
+                Text(label).font(.subheadline).fontWeight(c.current ? .semibold : .regular)
                 if c.current {
                     Text("目前")
                         .font(.caption2.weight(.semibold))
@@ -593,6 +601,7 @@ struct OutlookView: View {
                         .foregroundStyle(.tint)
                 }
             }
+            .layoutPriority(1)
             if !stacked { Spacer() }
             if let r = c.rate {
                 VStack(alignment: stacked ? .leading : .trailing, spacing: 1) {
@@ -899,9 +908,6 @@ struct AccountView: View {
                 self.error = "Apple 身分確認失敗：\(error.localizedDescription)"
                 return
             }
-        }
-        if let token = session.deviceToken {
-            _ = try? await API.raw("DELETE", "/api/v1/devices", body: ["token": token])
         }
         struct DeleteBody: Encodable, Sendable { let appleAuthorizationCode: String }
         do {

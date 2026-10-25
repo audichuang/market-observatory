@@ -263,7 +263,11 @@ struct OverviewView: View {
 
     private func spreadCard(_ s: Snapshot) -> some View {
         Kpi(label: "等權重 RSP − 市值加權", value: Fmt.pct(s.breadth.spreadPct), tone: s.breadth.spreadPct) {
-            Text("RSP \(Fmt.pct(s.breadth.rspReturnPct)) vs SPX \(Fmt.pct(s.breadth.spxReturnPct))").foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("RSP \(Fmt.pct(s.breadth.rspReturnPct))")
+                Text("vs SPX \(Fmt.pct(s.breadth.spxReturnPct))")
+            }
+            .foregroundStyle(.secondary)
         }
     }
 
@@ -322,27 +326,35 @@ struct OverviewView: View {
                 .buttonStyle(.plain)
                 .accessibilityHint("看 \(r.company) 的走勢")
             }
-            AttributionRow(
-                title: "其餘",
-                subtitle: restCount.map { "\($0) 檔（推算）" } ?? "其餘成分股（推算）",
-                ret: s.rest.impliedReturnPct,
-                weight: s.mag7Total.weightPct.map { 100 - $0 },
-                pts: s.rest.contributionPts,
-                share: s.mag7Total.shareOfMovePct.map { 100 - $0 },
-                maxAbs: maxAbs,
-                check: nil
-            )
-            AttributionRow(
-                title: "S&P 500",
-                subtitle: "合計",
-                ret: s.index.returnPct,
-                weight: 100,
-                pts: s.index.changePts,
-                share: 100,
-                maxAbs: maxAbs,
-                check: nil,
-                showsBar: false
-            )
+            // The hidden chevron reserves the same trailing width as the stock rows,
+            // so every bar shares one zero line and right edge.
+            HStack {
+                AttributionRow(
+                    title: "其餘",
+                    subtitle: restCount.map { "\($0) 檔（推算）" } ?? "其餘成分股（推算）",
+                    ret: s.rest.impliedReturnPct,
+                    weight: s.mag7Total.weightPct.map { 100 - $0 },
+                    pts: s.rest.contributionPts,
+                    share: s.mag7Total.shareOfMovePct.map { 100 - $0 },
+                    maxAbs: maxAbs,
+                    check: nil
+                )
+                Image(systemName: "chevron.right").font(.caption.weight(.semibold)).hidden()
+            }
+            HStack {
+                AttributionRow(
+                    title: "S&P 500",
+                    subtitle: "合計",
+                    ret: s.index.returnPct,
+                    weight: 100,
+                    pts: s.index.changePts,
+                    share: 100,
+                    maxAbs: maxAbs,
+                    check: nil,
+                    showsBar: false
+                )
+                Image(systemName: "chevron.right").font(.caption.weight(.semibold)).hidden()
+            }
         } header: {
             HStack {
                 Text("名單對指數的點數貢獻")

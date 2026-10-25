@@ -5,6 +5,8 @@
 # build 號用時間（yyyymmddHHMM），每次上傳都會遞增。
 set -euo pipefail
 cd "${0:A:h}/.."
+# Xcode 打包 IPA 會呼叫 rsync，預期是系統的 /usr/bin/rsync；PATH 裡有 Homebrew 的 rsync 3.x 時會失敗（"exportArchive Copy failed"）。
+export PATH="/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
 
 KEY_ID="${ASC_KEY_ID:-PSZ89WD7LP}"
 ISSUER_ID="${ASC_ISSUER_ID:-c2cf053c-9890-472f-98d6-4515cd7e47e8}"

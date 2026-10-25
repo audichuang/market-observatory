@@ -134,13 +134,16 @@ export function NewsFeed({ news: initial, digests: initialDigests, ai: initialAi
         setNotice(r.status === 429 || r.status === 503 ? r.error : "標題暫時無法翻成中文，先顯示英文原文。");
         return;
       }
-      setNews((cur) => mergeTranslated(cur, r.data.items));
-      setAi(r.data.ai);
       const later = r.data.pending ?? [];
+      // pending 的還在別人手上重翻，回來的是舊結果：先不併，免得被當成翻完
+      setNews((cur) => mergeTranslated(cur, r.data.items.filter((i) => !later.includes(i.id))));
+      setAi(r.data.ai);
       if (later.length) {
-        for (const id of later) tried.current.delete(id);
+        // 冷卻期間它們仍算送過，後面的新聞照常送；時間到才放回去重問
         setTimeout(() => {
-          if (mounted.current) setRetryTick((t) => t + 1);
+          if (!mounted.current) return;
+          for (const id of later) tried.current.delete(id);
+          setRetryTick((t) => t + 1);
         }, 6000);
       }
     });

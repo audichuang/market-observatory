@@ -2,7 +2,7 @@ import { Link, useRouter } from "@void/react";
 import type { Mag7Row } from "../src/lib/snapshot.ts";
 import { CenteredBar, CheckBadge, Delta } from "../src/ui/bits.tsx";
 import { dateWithWeekday, num, pctText, signed, taipeiTime } from "../src/ui/format.ts";
-import { NewsFeed } from "../src/ui/NewsFeed.tsx";
+import { NewsFeed, ToneBadge } from "../src/ui/NewsFeed.tsx";
 import type { Props } from "./index.server";
 
 export default function Overview({ snapshot, dates, expectedClose, news, digests, market, events, lastPriceRun, forecast, restCount, viewingLatest }: Props) {
@@ -45,6 +45,13 @@ export default function Overview({ snapshot, dates, expectedClose, news, digests
       )}
       {s.quality.mismatches.length > 0 && (
         <div className="notice bad">收盤價來源不一致：{s.quality.mismatches.join("、")}。歸因數字可能有誤，詳見「資料來源」頁。</div>
+      )}
+
+      {market && (
+        <div className="panel" style={{ marginBottom: "1rem" }}>
+          <div className="label">今天為什麼漲跌 <ToneBadge tone={market.tone} /></div>
+          <p style={{ margin: ".35rem 0 0" }}>{market.summary}</p>
+        </div>
       )}
 
       <div className="grid kpis">

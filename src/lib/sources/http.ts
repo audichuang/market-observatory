@@ -55,9 +55,9 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 export async function fetchWithTimeout(
   source: string,
   url: string,
-  init: RequestInit & { timeoutMs?: number; budget?: Budget; retryWaitMs?: (retryAfter: string | null) => number } = {},
+  init: RequestInit & { timeoutMs?: number; budget?: Budget; retryWaitMs?: (retryAfter: string | null) => number; errorBody?: boolean } = {},
 ): Promise<Response> {
-  const { timeoutMs = 20000, headers, budget, retryWaitMs = retryDelayMs, ...rest } = init;
+  const { timeoutMs = 20000, headers, budget, retryWaitMs = retryDelayMs, errorBody = false, ...rest } = init;
   const signal = AbortSignal.timeout(timeoutMs);
   const reqInit = { ...rest, signal, headers: { "User-Agent": UA, Accept: "*/*", ...(headers as Record<string, string> | undefined) } };
   for (let attempt = 0; ; attempt++) {
@@ -75,13 +75,15 @@ export async function fetchWithTimeout(
       target = new URL(loc, target).toString();
     }
     if (res.ok) return res;
-    await res.body?.cancel();
+    // errorBody：錯誤回應的本體帶進錯誤訊息（例如 APNs 的 {"reason":"BadDeviceToken"}），只取前 200 字。
+    const detail = errorBody ? (await res.text().catch(() => "")).slice(0, 200) : "";
+    if (!errorBody) await res.body?.cancel();
     // 額度還夠才重試；不夠就把錯誤交回去，不拿別檔的額度來賭。
     if (attempt === 0 && RETRY_STATUSES.has(res.status) && (!budget || budget.remaining > 0)) {
       await sleep(retryWaitMs(res.headers.get("retry-after")));
       continue;
     }
-    throw new SourceError(source, `HTTP ${res.status}`, res.status);
+    throw new SourceError(source, `HTTP ${res.status}${detail ? ` ${detail}` : ""}`, res.status);
   }
 }
 

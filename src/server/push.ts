@@ -73,6 +73,7 @@ export async function sendPush(c: ApnsConfig, device: Pick<DeviceRow, "token" | 
       method: "POST",
       budget,
       timeoutMs: 10000,
+      errorBody: true,
       headers: {
         authorization: `bearer ${await providerToken(c)}`,
         "apns-topic": c.bundleId,

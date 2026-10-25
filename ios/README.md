@@ -5,9 +5,9 @@ SwiftUI，最低 iOS 27。專案用 [XcodeGen](https://github.com/yonaskolb/Xcod
 ```sh
 cd ios
 xcodegen generate
-# 模擬器建置（iOS 27.1 的 runtime 只支援 iPhone Duo 機型）
+# 模擬器建置
 xcodebuild -project MarketObservatory.xcodeproj -scheme MarketObservatory \
-  -destination 'platform=iOS Simulator,OS=27.1,name=<iPhone Duo 裝置名>' \
+  -destination 'generic/platform=iOS Simulator' \
   -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
 ```
 
@@ -26,6 +26,8 @@ xcodebuild -project MarketObservatory.xcodeproj -scheme MarketObservatory \
 ```
 
 `test2_DeleteAccount` 會刪掉登入的帳號，只用一次性的測試帳號跑。
+
+Xcode 27 沒有 Simulator.app，要看或點模擬器畫面（例如交給 Codex 做 GUI 驗收）用 `Xcode.app/Contents/Applications/DeviceHub.app`。
 
 ## 推播測試（模擬器）
 

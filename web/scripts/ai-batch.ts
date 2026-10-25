@@ -6,10 +6,11 @@
 // 提示詞用 src/lib/news-ai.ts 的同一套（用語規則一致）；伺服器端見 src/server/ai-batch.ts、routes/api/admin/ai.ts。
 // 帳密：MO_EMAIL／MO_PASSWORD，沒設就用 1Password 的 Agent vault（~/.config/op/agent-sa.env）。
 import { execFileSync } from "node:child_process";
+import { get as httpsGet } from "node:https";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { DIGEST_SCHEMA, ENRICH_SCHEMA, type EnrichInput, POINTS_SCHEMA, type Prompt, digestPrompt, enrichPrompt, extractArticleText, marketPrompt, pointsPrompt } from "../src/lib/news-ai.ts";
+import { DIGEST_SCHEMA, ENRICH_SCHEMA, type EnrichInput, POINTS_SCHEMA, type Prompt, digestPrompt, enrichPrompt, extractArticleText, marketPrompt, matchYahooArticle, pointsPrompt } from "../src/lib/news-ai.ts";
 import type { DigestWork, MarketWork } from "../src/server/ai-batch.ts";
 
 const base = (process.env.MO_URL ?? "https://market-observatory.kzfvvwnwhp.workers.dev").replace(/\/$/, "");
@@ -68,16 +69,57 @@ async function api<T>(cookie: string, method: "GET" | "POST", path: string, body
   return JSON.parse(text) as T;
 }
 
-/** 抓原文正文；失敗就回 null，提示詞改用標題＋摘要。 */
-async function article(url: string): Promise<string | null> {
-  if (!/^https:\/\//i.test(url)) return null;
-  try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(10_000), headers: { Accept: "text/html,application/xhtml+xml", "User-Agent": "Mozilla/5.0" } });
-    if (!res.ok || !(res.headers.get("content-type") ?? "").includes("html")) return null;
-    return extractArticleText((await res.text()).slice(0, 600_000));
-  } catch {
-    return null;
+/** GET 一個網址的文字內容（最多跟 3 次轉址）。用 node:https 而不是 fetch：Yahoo 的回應 header 超過 fetch 的上限（UND_ERR_HEADERS_OVERFLOW）。 */
+function getText(url: string, hops = 3): Promise<{ status: number; type: string; body: string }> {
+  return new Promise((resolve, reject) => {
+    const req = httpsGet(url, { headers: { "User-Agent": "Mozilla/5.0", Accept: "text/html,application/json" }, maxHeaderSize: 65536, timeout: 10_000 }, (res) => {
+      const status = res.statusCode ?? 0;
+      if (status >= 300 && status < 400 && res.headers.location && hops > 0) {
+        res.resume();
+        resolve(getText(new URL(res.headers.location, url).href, hops - 1));
+        return;
+      }
+      let body = "";
+      res.setEncoding("utf8");
+      res.on("data", (c: string) => {
+        if (body.length < 900_000) body += c;
+      });
+      res.on("end", () => resolve({ status, type: String(res.headers["content-type"] ?? ""), body }));
+    });
+    req.on("timeout", () => req.destroy(new Error("timeout")));
+    req.on("error", reject);
+  });
+}
+
+/** 每個代號的 Yahoo 新聞搜尋結果（同一次 pull 裡共用，同一家公司的幾則重點只搜一次）。 */
+const yahooNews = new Map<string, Promise<{ title?: unknown; link?: unknown }[]>>();
+function searchYahoo(symbol: string) {
+  let p = yahooNews.get(symbol);
+  if (!p) {
+    p = getText(`https://query2.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(symbol)}&newsCount=30&quotesCount=0`)
+      .then((r) => (r.status === 200 ? ((JSON.parse(r.body) as { news?: { title?: unknown; link?: unknown }[] }).news ?? []) : []))
+      .catch(() => []);
+    yahooNews.set(symbol, p);
   }
+  return p;
+}
+
+/**
+ * 抓原文正文；抓不到回 null（這則就不寫重點）。Nasdaq 文章頁對機器回 403（Akamai），
+ * 所以改在 Yahoo 用代號搜新聞、以標題對回同一篇轉載，抓 Yahoo 那頁。Zacks 等不在 Yahoo 的來源對不到。
+ */
+async function article(title: string, symbols: string[]): Promise<string | null> {
+  for (const symbol of symbols.slice(0, 3)) {
+    const url = matchYahooArticle(title, await searchYahoo(symbol));
+    if (!url) continue;
+    try {
+      const res = await getText(url);
+      return res.status === 200 && res.type.includes("html") ? extractArticleText(res.body) : null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
 }
 
 function chunk<T>(xs: T[], n: number): T[][] {
@@ -117,8 +159,8 @@ async function buildTasks(cookie: string): Promise<Task[]> {
       meta: { type: "digest", key: d.key, date: d.date, newsIds: d.news.map((n) => n.id) },
     }),
   );
-  // 抓不到原文（Nasdaq 對機器回 403）就不寫：只靠標題寫出的重點等於把標題換句話說
-  const bodies = await Promise.all(work.points.map((p) => article(p.url)));
+  // 抓不到原文就不寫：只靠標題寫出的重點等於把標題換句話說
+  const bodies = await Promise.all(work.points.map((p) => article(p.title, p.symbols)));
   work.points.forEach((p, i) =>
     bodies[i] &&
     tasks.push({

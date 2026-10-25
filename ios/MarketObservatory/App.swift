@@ -81,7 +81,11 @@ final class SessionStore {
 
     /// 任何 API 回 401：回到登入畫面。
     func handle(_ error: Error) {
-        if case APIError.unauthorized = error { phase = .signedOut }
+        if case APIError.unauthorized = error {
+            overviewDate = nil
+            historySymbol = nil
+            phase = .signedOut
+        }
     }
 
     /// 先請伺服器拿掉這台裝置、結束 session，再清 cookie。
@@ -110,6 +114,8 @@ final class SessionStore {
     private func finishSignOut() {
         API.clearCookies()
         tab = .overview
+        overviewDate = nil
+        historySymbol = nil
         pushError = nil
         restoreError = nil
         signOutError = nil
@@ -152,6 +158,8 @@ final class SessionStore {
     }
 
     func open(payload: [AnyHashable: Any]) {
+        // 登出時沒有分頁可切，日期留著會在下次登入時被套用；checking（冷啟動）照收，登入後才開那一天。
+        if case .signedOut = phase { return }
         switch payload["screen"] as? String {
         case "news": tab = .news
         case "settings": tab = .more

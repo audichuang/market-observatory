@@ -410,3 +410,26 @@ test("NewsFeed 邏輯：換代號篩選後，舊代號送出的翻譯回應不�
   const cur = [{ id: "x", important: true, needs_ai: true }];
   assert.equal(mergeTranslated(cur, [{ id: "x", important: false }])[0].important, false);
 });
+
+test("同一則同時被兩個請求翻（換篩選、兩個分頁、兩個使用者）：只呼叫一次模型、只扣一次額度，兩邊都拿到中文；失敗會放掉認領", async () => {
+  const { db, sql } = await seeded();
+  const { translateNews } = await import("../src/server/news-ai.ts");
+  const { ai, calls } = fakeAi(async (req) => {
+    await new Promise((r) => setTimeout(r, 80));
+    return enrichAnswer(req);
+  });
+  const [a, b] = await Promise.all([translateNews(db, ai, user(), [NVDA], ["n1", "n3"]), translateNews(db, ai, user(), [NVDA], ["n1", "n3"], "NVDA")]);
+  assert.equal(calls.length, 1, "第二個請求等第一個寫回，不再呼叫");
+  assert.deepEqual([a.items.length, b.items.length], [2, 2]);
+  assert.equal(b.items.find((i) => i.id === "n1")?.title_zh, "中文：Nvidia beats estimates");
+  assert.equal(b.ai.used, 1);
+  assert.equal((sql.prepare("SELECT COUNT(*) AS n FROM news WHERE ai_claim_at IS NOT NULL").get() as { n: number }).n, 0, "翻完放掉認領");
+  // 模型失敗：認領要放掉，下一次能重送
+  const bad = fakeAi(() => {
+    throw new Error("boom");
+  });
+  await assert.rejects(translateNews(db, bad.ai, user("z"), [NVDA], ["n2"]));
+  assert.equal((sql.prepare("SELECT ai_claim_at FROM news WHERE id = 'n2'").get() as { ai_claim_at: string | null }).ai_claim_at, null);
+  await translateNews(db, ai, user("z"), [NVDA], ["n2"]);
+  assert.equal(calls.length, 2);
+});

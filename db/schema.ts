@@ -73,6 +73,8 @@ export const news = sqliteTable(
     /** 這則真正在講的代號（逗號分隔，SPY 代表大盤／總經）；空字串＝雜訊（選股標題黨、只順帶提到） */
     focus: text("focus"),
     enrichedAt: text("enriched_at"),
+    /** 翻譯請求認領這則的時間：同時有兩個請求要翻同一則時，只有認領到的呼叫模型、扣額度，另一個等它寫回 */
+    aiClaimAt: text("ai_claim_at"),
     /** 單篇文章的 AI 重點（JSON 字串陣列，3～5 點繁中）；使用者點「AI 重點」時才產生，所有人共用 */
     pointsZh: text("points_zh"),
   },

@@ -103,33 +103,43 @@ interface NewsRow {
 const NEWS_COLS = "id, symbols, title, summary, primary_symbol, title_zh, tone, category, focus, enriched_at";
 const placeholders = (n: number) => Array.from({ length: n }, () => "?").join(",");
 
-/** 認領超過這麼久還沒放掉，當作那個請求已經死掉（Worker 被中斷），可以重新認領。 */
-const CLAIM_TTL_MS = 60_000;
-/** 等別的請求翻完的上限；超過就先回目前有的，沒翻到的前端維持英文。 */
-const WAIT_MS = 15_000;
+/**
+ * 認領超過這麼久還沒放掉，當作那個請求已經死掉（Worker 被中斷），可以重新認領。
+ * 要比一次翻譯最長可能的時間長：anthropic.ts 單次 60 秒、最多重試 1 次，加上 D1 寫回，約兩分多。
+ */
+const CLAIM_TTL_MS = 300_000;
+/** 等別的請求翻完的上限；超過就回 pending，前端過幾秒再來拿（那時多半已有快取，不呼叫模型）。 */
+const WAIT_MS = 12_000;
 
-/** 回傳這次認領到的 id（還沒翻、且沒有別人持有未過期的認領）。 */
-async function claimForTranslate(db: Db, ids: string[]): Promise<string[]> {
+/**
+ * 認領值是「時間#隨機碼」：時間在前，過期判斷照字串比較就對；隨機碼讓放掉時只放自己的，
+ * 過期的舊請求晚回來也不會清掉別人重新認領的那份。
+ */
+async function claimForTranslate(db: Db, ids: string[]): Promise<{ token: string; ids: string[] }> {
   const now = Date.now();
+  const token = `${new Date(now).toISOString()}#${crypto.randomUUID()}`;
   const r = await db
     .prepare(`UPDATE news SET ai_claim_at = ? WHERE id IN (${placeholders(ids.length)}) AND (title_zh IS NULL OR enriched_at IS NULL) AND (ai_claim_at IS NULL OR ai_claim_at < ?) RETURNING id`)
-    .bind(new Date(now).toISOString(), ...ids, new Date(now - CLAIM_TTL_MS).toISOString())
+    .bind(token, ...ids, new Date(now - CLAIM_TTL_MS).toISOString())
     .all<{ id: string }>();
-  return r.results.map((x) => x.id);
+  return { token, ids: r.results.map((x) => x.id) };
 }
 
-async function releaseClaim(db: Db, ids: string[]) {
-  if (ids.length) await db.prepare(`UPDATE news SET ai_claim_at = NULL WHERE id IN (${placeholders(ids.length)})`).bind(...ids).run();
+async function releaseClaim(db: Db, claim: { token: string; ids: string[] }) {
+  if (claim.ids.length) await db.prepare(`UPDATE news SET ai_claim_at = NULL WHERE ai_claim_at = ? AND id IN (${placeholders(claim.ids.length)})`).bind(claim.token, ...claim.ids).run();
 }
 
-async function waitForTranslations(db: Db, ids: string[], waitMs = WAIT_MS) {
+/** 等別人持有的認領寫回；回傳等完仍沒翻好的 id（別人還在翻、或剛失敗放掉了）。 */
+async function waitForTranslations(db: Db, ids: string[], waitMs = WAIT_MS): Promise<string[]> {
   const until = Date.now() + waitMs;
-  while (Date.now() < until) {
+  for (;;) {
     const r = await db
-      .prepare(`SELECT COUNT(*) AS n FROM news WHERE id IN (${placeholders(ids.length)}) AND (title_zh IS NULL OR enriched_at IS NULL) AND ai_claim_at IS NOT NULL`)
+      .prepare(`SELECT id, ai_claim_at FROM news WHERE id IN (${placeholders(ids.length)}) AND (title_zh IS NULL OR enriched_at IS NULL)`)
       .bind(...ids)
-      .first<{ n: number }>();
-    if (!r || r.n === 0) return;
+      .all<{ id: string; ai_claim_at: string | null }>();
+    const left = r.results;
+    // 全翻好了，或剩下的已沒人在翻（失敗放掉）：不必再等
+    if (left.every((x) => x.ai_claim_at === null) || Date.now() >= until) return left.map((x) => x.id);
     await new Promise((res) => setTimeout(res, 400));
   }
 }
@@ -138,46 +148,47 @@ async function waitForTranslations(db: Db, ids: string[], waitMs = WAIT_MS) {
  * 只處理還沒翻、或多掛了代號要重新判斷在講誰的（enriched_at 被排程清掉）：一次 Haiku 呼叫；其餘直接回傳，不算次數。
  * symbol 是畫面上的代號篩選（新聞頁 ?symbol=），重要與否照該畫面的規則算，翻完分組才不會跳。
  */
-export async function translateNews(db: Db, ai: Ai | null, v: Viewer, members: WatchMember[], ids: string[], symbol: string | null = null) {
+export async function translateNews(db: Db, ai: Ai | null, v: Viewer, members: WatchMember[], ids: string[], symbol: string | null = null, waitMs = WAIT_MS) {
   const unique = [...new Set(ids)].slice(0, MAX_TRANSLATE);
   const load = async () => (unique.length ? (await db.prepare(`SELECT ${NEWS_COLS} FROM news WHERE id IN (${placeholders(unique.length)})`).bind(...unique).all<NewsRow>()).results : []);
   const rows = await load();
   const todo = rows.filter((r) => r.title_zh === null || r.enriched_at === null);
   if (todo.length && !ai) throw new AiHttpError(503, NO_KEY_MESSAGE);
   // 先在 D1 原子地認領：別的請求（另一個分頁、剛換掉的篩選、其他使用者）正在翻的不再呼叫模型，等它寫回就好。
-  const mine = todo.length ? await claimForTranslate(db, todo.map((r) => r.id)) : [];
-  const theirs = todo.filter((r) => !mine.includes(r.id)).map((r) => r.id);
-  const own = todo.filter((r) => mine.includes(r.id));
+  const claim = todo.length ? await claimForTranslate(db, todo.map((r) => r.id)) : { token: "", ids: [] as string[] };
+  const theirs = todo.filter((r) => !claim.ids.includes(r.id)).map((r) => r.id);
+  const own = todo.filter((r) => claim.ids.includes(r.id));
   if (own.length && ai) {
-    const date = easternDate();
-    if ((await reserveCalls(db, v, 1, date)) === 0) {
-      await releaseClaim(db, mine);
-      throw new AiHttpError(429, QUOTA_MESSAGE);
-    }
-    let billed = false;
+    // 認領之後的每條路（扣額度失敗、額度用完、模型失敗）都要放掉自己的認領
     try {
-      const inputs: EnrichInput[] = own.map((r) => ({ id: r.id, title: r.title, summary: r.summary, symbols: r.symbols.split(","), primarySymbol: r.primary_symbol }));
-      const p = enrichPrompt(inputs);
-      const raw = await ai.json({ model: HAIKU, system: p.system, user: p.user, schema: ENRICH_SCHEMA, maxTokens: 4000 });
-      billed = true;
-      const parsed = parseOrModelError(() => parseEnrich(raw, inputs), "標題翻譯格式不對");
-      const now = nowIso();
-      const update = db.prepare("UPDATE news SET title_zh = ?, tone = ?, category = ?, focus = ?, enriched_at = ? WHERE id = ? AND (title_zh IS NULL OR enriched_at IS NULL)");
-      if (parsed.length) await db.batch(parsed.map((e) => update.bind(e.titleZh, e.tone, e.category, e.focus.join(","), now, e.id)));
-    } catch (e) {
-      if (!billed && refundable(e)) await refundCalls(db, v, 1, date).catch(() => {});
-      throw failure(e);
+      const date = easternDate();
+      if ((await reserveCalls(db, v, 1, date)) === 0) throw new AiHttpError(429, QUOTA_MESSAGE);
+      let billed = false;
+      try {
+        const inputs: EnrichInput[] = own.map((r) => ({ id: r.id, title: r.title, summary: r.summary, symbols: r.symbols.split(","), primarySymbol: r.primary_symbol }));
+        const p = enrichPrompt(inputs);
+        const raw = await ai.json({ model: HAIKU, system: p.system, user: p.user, schema: ENRICH_SCHEMA, maxTokens: 4000 });
+        billed = true;
+        const parsed = parseOrModelError(() => parseEnrich(raw, inputs), "標題翻譯格式不對");
+        const now = nowIso();
+        const update = db.prepare("UPDATE news SET title_zh = ?, tone = ?, category = ?, focus = ?, enriched_at = ? WHERE id = ? AND (title_zh IS NULL OR enriched_at IS NULL)");
+        if (parsed.length) await db.batch(parsed.map((e) => update.bind(e.titleZh, e.tone, e.category, e.focus.join(","), now, e.id)));
+      } catch (e) {
+        if (!billed && refundable(e)) await refundCalls(db, v, 1, date).catch(() => {});
+        throw failure(e);
+      }
     } finally {
-      await releaseClaim(db, mine).catch(() => {});
+      await releaseClaim(db, claim).catch(() => {});
     }
   }
-  if (theirs.length) await waitForTranslations(db, theirs);
+  // 別人正在翻的：等它寫回；等不到的回 pending，前端過幾秒再送一次（不呼叫模型，除非那邊失敗了）
+  const pending = theirs.length ? await waitForTranslations(db, theirs, waitMs) : [];
   const important = importanceFor(members, symbol);
   const fresh = todo.length ? await load() : rows;
   const items = fresh
     .filter((r) => r.title_zh !== null)
     .map((r) => ({ id: r.id, title_zh: r.title_zh, tone: r.tone, category: r.category, focus: r.focus, important: important(r) }));
-  return { items, ai: await aiState(db, v, ai !== null) };
+  return { items, pending, ai: await aiState(db, v, ai !== null) };
 }
 
 // ── 單篇文章重點 ────────────────────────────────────────

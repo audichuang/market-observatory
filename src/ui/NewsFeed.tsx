@@ -96,6 +96,8 @@ export function NewsFeed({ news: initial, digests: initialDigests, ai: initialAi
   const inflight = useRef(false);
   const mounted = useRef(true);
   const symbolRef = useRef(symbol);
+  // 伺服器回 pending（別人正在翻同一則）：過幾秒遞增它，讓 effect 再送一次拿快取
+  const [retryTick, setRetryTick] = useState(0);
   symbolRef.current = symbol;
   useEffect(() => {
     mounted.current = true;
@@ -120,7 +122,7 @@ export function NewsFeed({ news: initial, digests: initialDigests, ai: initialAi
     if (pending.length === 0) return;
     for (const id of pending) tried.current.add(id);
     inflight.current = true;
-    void postJson<{ items: TranslateOut[]; ai: AiInfo }>("/api/v1/news/translate", { ids: pending, ...(symbol ? { symbol } : {}) }).then((r) => {
+    void postJson<{ items: TranslateOut[]; pending?: string[]; ai: AiInfo }>("/api/v1/news/translate", { ids: pending, ...(symbol ? { symbol } : {}) }).then((r) => {
       inflight.current = false;
       if (!mounted.current) return;
       // 請求期間換了代號篩選：這批 important 是照舊篩選算的，丟掉；已送過的標記拿掉，新畫面可重送
@@ -134,8 +136,15 @@ export function NewsFeed({ news: initial, digests: initialDigests, ai: initialAi
       }
       setNews((cur) => mergeTranslated(cur, r.data.items));
       setAi(r.data.ai);
+      const later = r.data.pending ?? [];
+      if (later.length) {
+        for (const id of later) tried.current.delete(id);
+        setTimeout(() => {
+          if (mounted.current) setRetryTick((t) => t + 1);
+        }, 6000);
+      }
     });
-  }, [news, ai.enabled, ai.used, ai.limit, showOthers, othersOpen, symbol]);
+  }, [news, ai.enabled, ai.used, ai.limit, showOthers, othersOpen, symbol, retryTick]);
 
   async function loadPoints(id: string) {
     setOpen((o) => ({ ...o, [id]: true }));

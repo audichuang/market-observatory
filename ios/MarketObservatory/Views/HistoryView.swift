@@ -10,6 +10,8 @@ struct HistoryView: View {
     @State private var loadTask: Task<Void, Never>?
     // 選取的 checkmark 比 chevron 寬，固定寬度讓數字欄右緣對齊
     @ScaledMetric(relativeTo: .caption) private var rowIconWidth: CGFloat = 14
+    @ScaledMetric(relativeTo: .body) private var chartHeight: CGFloat = 240
+    @ScaledMetric(relativeTo: .body) private var contributionHeight: CGFloat = 200
 
     /// 換標的或區間後、新資料回來前：畫面上還是舊圖，要讓人看得出正在載入。
     private var busy: Bool {
@@ -99,7 +101,7 @@ struct HistoryView: View {
                     .id("top")
 
                     if let first = h.mainStats.first, let last = h.mainStats.last {
-                        Text("\(h.label ?? h.symbol)　\(first) ～ \(last)")
+                        Text("\(Fmt.fullDate(first)) – \(Fmt.fullDate(last))")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .monospacedDigit()
@@ -107,7 +109,7 @@ struct HistoryView: View {
                     }
 
                     PriceChart(points: h.priceLine)
-                        .frame(height: 240)
+                        .frame(height: min(chartHeight, 240 * 1.5))
                         .opacity(busy ? 0.5 : 1)
                     ViewThatFits(in: .horizontal) {
                         HStack { priceLegend }
@@ -126,12 +128,13 @@ struct HistoryView: View {
                     .font(.caption2)
                     statLayout {
                         StatCell(title: "區間報酬", value: Fmt.pct(h.mainStats.ret), tone: h.mainStats.ret)
-                        StatCell(title: "最大回檔", value: Fmt.pct(h.mainStats.mdd), tone: h.mainStats.mdd)
+                        StatCell(title: "最大回檔", value: Fmt.pct(h.mainStats.mdd, 1), tone: h.mainStats.mdd)
                         StatCell(title: "交易日", value: "\(h.mainStats.points)", tone: nil)
                     }
                 } footer: {
                     Text("日收盤（拆股調整、不含股息）。均線先用更早的資料暖機再截取，不受區間起點影響。")
                 }
+                .listRowSeparator(.hidden)
 
                 Section {
                     if h.watch.count > RebasedChart.members {
@@ -139,18 +142,14 @@ struct HistoryView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
-                    RebasedChart(series: h.rebased, watch: h.watch, labels: labels)
-                        .frame(height: 240)
+                    RebasedChart(series: h.rebased, watch: h.watch, labels: labels, selected: symbol)
+                        .frame(height: min(chartHeight, 240 * 1.5))
                         .opacity(busy ? 0.5 : 1)
                 } header: {
-                    HStack {
-                        Text("觀察名單 vs S&P 500 相對報酬（起點 = 0%）")
-                        Spacer()
-                        Button("編輯名單") { session.tab = .watchlist }
-                            .font(.caption)
-                    }
-                    .textCase(nil)
+                    Text("名單 vs 指數（起點 0%）")
+                        .textCase(nil)
                 }
+                .listRowSeparator(.hidden)
 
                 Section("區間統計") {
                     ForEach(h.stats) { s in
@@ -176,7 +175,7 @@ struct HistoryView: View {
                 Section {
                     if h.contribution.contains(where: { $0.mag7 != nil }) {
                         ContributionChart(rows: h.contribution)
-                            .frame(height: 200)
+                            .frame(height: min(contributionHeight, 200 * 1.5))
                             .opacity(busy ? 0.5 : 1)
                         ViewThatFits(in: .horizontal) {
                             HStack { contributionLegend }
@@ -189,8 +188,9 @@ struct HistoryView: View {
                 } header: {
                     Text("近 \(h.contribution.count) 個交易日：指數漲跌點數拆解")
                 } footer: {
-                    Text("觀察名單（\(h.watch.joined(separator: "、"))）貢獻 vs 其餘成分股。只加總你名單上的公司；名單上任何一家那天沒有資料就留空。")
+                    Text("名單貢獻 vs 其餘成分股，只加總你名單上的公司。")
                 }
+                .listRowSeparator(.hidden)
             }
             .listStyle(.insetGrouped)
             .refreshable { await load() }
@@ -212,22 +212,26 @@ struct HistoryView: View {
 
     @ViewBuilder private func statRow(_ s: History.Stat) -> some View {
         let risk = "回檔 \(Fmt.pct(s.mdd, 1)) · 波動 \(Fmt.num(s.vol, 1))%"
+        let isIndex = s.symbol == "SPX" || s.symbol == "RSP"
+        let title = isIndex ? (s.label ?? s.symbol) : s.symbol
+        let kind = s.symbol == "SPX" ? "指數" : s.symbol == "RSP" ? "等權重 ETF" : (s.label ?? "")
+        let sub = (kind.isEmpty ? [] : [kind]) + ["收盤 \(Fmt.num(s.close))"]
         if dts.isAccessibilitySize {
             VStack(alignment: .leading, spacing: 2) {
-                Text(s.label ?? s.symbol).font(.subheadline)
-                Text("收盤 \(Fmt.num(s.close))").font(.caption).foregroundStyle(.secondary)
-                Text(Fmt.pct(s.ret)).foregroundStyle(Color.tone(s.ret)).monospacedDigit()
+                Text(title).font(.headline)
+                Text(sub.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary)
+                Text(Fmt.pct(s.ret)).font(.headline.monospacedDigit()).foregroundStyle(Color.tone(s.ret))
                 Text(risk).font(.caption).foregroundStyle(.secondary).monospacedDigit()
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         } else {
-            VStack(alignment: .leading) {
-                Text(s.label ?? s.symbol).font(.subheadline)
-                Text("收盤 \(Fmt.num(s.close))").font(.caption).foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title).font(.headline)
+                Text(sub.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
-            Spacer()
-            VStack(alignment: .trailing) {
-                Text(Fmt.pct(s.ret)).foregroundStyle(Color.tone(s.ret)).monospacedDigit()
+            Spacer(minLength: 8)
+            VStack(alignment: .trailing, spacing: 1) {
+                Text(Fmt.pct(s.ret)).font(.headline.monospacedDigit()).foregroundStyle(Color.tone(s.ret))
                 Text(risk).font(.caption).foregroundStyle(.secondary).monospacedDigit()
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
@@ -261,10 +265,10 @@ private struct StatCell: View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title).font(.caption).foregroundStyle(.secondary)
             Text(value)
-                .font(.subheadline.weight(.semibold).monospacedDigit())
+                .font(.title3.weight(.semibold).monospacedDigit())
                 .foregroundStyle(tone == nil ? Color.primary : Color.tone(tone))
                 .lineLimit(1)
-                .minimumScaleFactor(0.7)
+                .minimumScaleFactor(0.8)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -294,6 +298,7 @@ private struct PriceChart: View {
         .chartYScale(domain: (lo - pad) ... (hi + pad))
         .chartPlotStyle { $0.clipped() }
         .chartLegend(.hidden)
+        .readableAxes()
     }
 }
 
@@ -311,6 +316,8 @@ private struct RebasedChart: View {
     let series: [History.Rebased]
     let watch: [String]
     let labels: [String: String]
+    /// 目前選取的標的：跟 S&P 500 一起加粗，其他系列淡一點，9 條線才不會糊在一起。
+    let selected: String
 
     var body: some View {
         let plotted = series.filter { s in
@@ -325,18 +332,20 @@ private struct RebasedChart: View {
                     if let v = p.value, let d = Fmt.day(p.date) {
                         LineMark(x: .value("日期", d), y: .value("報酬", v), series: .value("標的", name(s.symbol)))
                             .foregroundStyle(by: .value("標的", name(s.symbol)))
-                            .lineStyle(StrokeStyle(lineWidth: s.symbol == "SPX" ? 2.5 : 1.2, dash: s.symbol == "RSP" ? [5, 3] : []))
+                            .lineStyle(StrokeStyle(lineWidth: emphasized(s.symbol) ? 2.5 : 1, dash: s.symbol == "RSP" ? [5, 3] : []))
+                            .opacity(emphasized(s.symbol) ? 1 : 0.35)
                     }
                 }
             }
             RuleMark(y: .value("0", 0)).foregroundStyle(.secondary.opacity(0.4))
         }
         .chartForegroundStyleScale(domain: names, range: palette)
-        .chartYAxis { AxisMarks { v in AxisGridLine(); AxisValueLabel { if let d = v.as(Double.self) { Text("\(Int(d))%") } } } }
+        .readableAxes { Fmt.plainPct($0, 0) }
         .chartLegend(position: .bottom, alignment: .leading)
     }
 
     private func name(_ symbol: String) -> String { labels[symbol] ?? symbol }
+    private func emphasized(_ symbol: String) -> Bool { symbol == "SPX" || symbol == selected }
 }
 
 private struct ContributionChart: View {
@@ -375,5 +384,6 @@ private struct ContributionChart: View {
         }
         .chartForegroundStyleScale(["觀察名單貢獻": Self.watchColor, "其餘成分股": Self.restColor])
         .chartLegend(.hidden)
+        .readableAxes()
     }
 }

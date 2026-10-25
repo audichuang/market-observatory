@@ -3,6 +3,7 @@ import SwiftUI
 struct OverviewView: View {
     @Environment(SessionStore.self) private var session
     @Environment(\.dynamicTypeSize) private var dts
+    @Environment(\.openURL) private var openURL
     @ScaledMetric(relativeTo: .subheadline) private var dateWidth: CGFloat = 82
     @State private var state: LoadState<Overview> = .idle
     @State private var date: String?
@@ -128,52 +129,77 @@ struct OverviewView: View {
     private func content(_ o: Overview) -> some View {
         if let row = o.snapshot {
             let s = row.data
+            let viewingOld = o.revisions.first.map { $0.revision != row.revision } ?? false
             List {
-                Section {
-                    notices(o, s)
-                    kpis(s)
-                    periodReturns(s)
-                } footer: {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("第 \(row.revision) 版（\(row.reason)，\(Fmt.taipeiTime(row.createdAt))）")
-                        if o.revisions.first.map({ $0.revision != row.revision }) ?? false {
-                            Button("看最新版") {
-                                rev = nil
-                                reload()
-                            }
-                            .font(.footnote)
+                notices(o, s)
+                if viewingOld {
+                    HStack(spacing: 8) {
+                        Notice(kind: .info, text: "正在看第 \(row.revision) 版（\(row.reason)）")
+                        Button("看最新版") {
+                            rev = nil
+                            reload()
                         }
+                        .font(.footnote)
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
                     }
+                    .noticeRow()
                 }
-                .listRowSeparator(.hidden)
-                .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
 
-                attribution(s, restCount: o.restCount)
+                Section {
+                    IndexHero(s: s, createdAt: row.createdAt)
+                    kpis(s)
+                    maCard(s)
+                }
+                .cardRow()
 
-                // 展望是「今天往後」的預測，看舊日期時不顯示，免得誤以為屬於那一天。
-                if let f = o.forecast, o.viewingLatest {
-                    Section("下月展望") {
-                        LabeledContent("約 21 個交易日後上漲機率") {
-                            Text(Fmt.plainPct(f.probability * 100)).monospacedDigit().bold()
+                attribution(s, restCount: o.restCount, digests: o.digests ?? [])
+
+                Section {
+                    let shown = o.news.filter { $0.important ?? true }.prefix(5)
+                    if shown.isEmpty { Text("還沒有新聞。").foregroundStyle(.secondary) }
+                    ForEach(Array(shown)) { n in
+                        Button {
+                            if let u = URL(string: n.url) { openURL(u) }
+                        } label: {
+                            NewsRow(titleZh: n.titleZh, title: n.title, tone: nil, category: nil, symbols: n.symbols, publisher: n.publisher, publishedAt: n.publishedAt, titleLines: 2)
                         }
-                        LabeledContent("歷史基準率", value: Fmt.plainPct(f.baseRate * 100))
-                        LabeledContent("判讀") { CallBadge(call: f.call) }
-                        NavigationLink { OutlookView() } label: { Text("完整展望") }
+                        .buttonStyle(.plain)
                     }
+                    Button("全部新聞 →") { session.newsSectionRequest = 0; session.tab = .news }.font(.subheadline)
+                } header: {
+                    Text("最新新聞")
                 }
 
                 Section("未來三週事件") {
                     if o.events.isEmpty {
                         Text("三週內沒有登錄的事件。").foregroundStyle(.secondary)
                     }
-                    ForEach(o.events) { e in eventRow(e) }
-                    Button("完整日曆 →") { session.tab = .news }.font(.subheadline)
+                    ForEach(o.events.prefix(5)) { e in eventRow(e) }
+                    Button("完整日曆 →") { session.newsSectionRequest = 1; session.tab = .news }.font(.subheadline)
                 }
 
-                Section("最新新聞") {
-                    if o.news.isEmpty { Text("還沒有新聞。").foregroundStyle(.secondary) }
-                    ForEach(o.news) { n in NewsRow(title: n.title, url: n.url, publisher: n.publisher, publishedAt: n.publishedAt, symbols: n.symbols) }
-                    Button("全部新聞 →") { session.tab = .news }.font(.subheadline)
+                // 展望是「今天往後」的預測，看舊日期時不顯示，免得誤以為屬於那一天。
+                if let f = o.forecast, o.viewingLatest {
+                    Section("下月展望") {
+                        NavigationLink { OutlookView() } label: {
+                            ViewThatFits(in: .horizontal) {
+                                HStack {
+                                    Text("下月上漲機率")
+                                    Spacer()
+                                    Text(Fmt.plainPct(f.probability * 100)).font(.headline.monospacedDigit())
+                                    CallBadge(call: f.call)
+                                }
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("下月上漲機率")
+                                    HStack {
+                                        Text(Fmt.plainPct(f.probability * 100)).font(.headline.monospacedDigit())
+                                        CallBadge(call: f.call)
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
             .listStyle(.insetGrouped)
@@ -187,15 +213,19 @@ struct OverviewView: View {
     @ViewBuilder
     private func eventRow(_ e: EventBrief) -> some View {
         let day = Text(Fmt.dateWithWeekday(e.date)).font(.subheadline.monospacedDigit()).foregroundStyle(.secondary).lineLimit(1)
+        let titleLine = HStack(alignment: .firstTextBaseline, spacing: 6) {
+            if let sym = e.symbol { Text(sym).font(.subheadline.monospaced().weight(.semibold)).foregroundStyle(.tint) }
+            Text(e.title).font(.subheadline)
+        }
         if dts.isAccessibilitySize {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) { day; EventStatusBadge(status: e.status) }
-                Text(e.title).font(.subheadline)
+                titleLine
             }
         } else {
             HStack(alignment: .firstTextBaseline) {
                 day.frame(width: dateWidth, alignment: .leading)
-                Text(e.title).font(.subheadline)
+                titleLine
                 Spacer()
                 EventStatusBadge(status: e.status)
             }
@@ -205,16 +235,16 @@ struct OverviewView: View {
     @ViewBuilder
     private func notices(_ o: Overview, _ s: Snapshot) -> some View {
         if o.viewingLatest && s.tradeDate < o.expectedClose {
-            Notice(kind: .warn, text: "最新快照是 \(s.tradeDate)，但 \(o.expectedClose) 應該已收盤。最近一次抓價：\(lastRunText(o.lastPriceRun))。")
+            Notice(kind: .warn, text: "最新快照是 \(s.tradeDate)，但 \(o.expectedClose) 應該已收盤。最近一次抓價：\(lastRunText(o.lastPriceRun))。").noticeRow()
         }
         if !s.quality.mismatches.isEmpty {
-            Notice(kind: .bad, text: "收盤價來源不一致：\(s.quality.mismatches.joined(separator: "、"))。歸因數字可能有誤。")
+            Notice(kind: .bad, text: "收盤價來源不一致：\(s.quality.mismatches.joined(separator: "、"))。歸因數字可能有誤。").noticeRow()
         }
         if !s.quality.missing.isEmpty {
-            Notice(kind: .warn, text: "缺少當日收盤：\(s.quality.missing.joined(separator: "、"))。")
+            Notice(kind: .warn, text: "缺少當日收盤：\(s.quality.missing.joined(separator: "、"))。").noticeRow()
         }
         if let nt = s.notTracked, !nt.isEmpty {
-            Notice(kind: .info, text: "\(nt.joined(separator: "、")) 在這天還沒開始追蹤，沒有歸因資料。")
+            Notice(kind: .info, text: "\(nt.joined(separator: "、")) 在這天還沒開始追蹤，沒有歸因資料。").noticeRow()
         }
     }
 
@@ -225,31 +255,18 @@ struct OverviewView: View {
 
     @ViewBuilder
     private func kpis(_ s: Snapshot) -> some View {
-        if dts.isAccessibilitySize {
+        ViewThatFits(in: .horizontal) {
+            Grid(horizontalSpacing: 10, verticalSpacing: 10) {
+                GridRow { vixCard(s); watchlistCard(s) }
+                GridRow { highCard(s); spreadCard(s) }
+            }
             VStack(spacing: 10) {
-                spxCard(s)
                 vixCard(s)
-                spreadCard(s)
                 watchlistCard(s)
                 highCard(s)
-                maCard(s)
-            }
-        } else {
-            Grid(horizontalSpacing: 10, verticalSpacing: 10) {
-                GridRow { spxCard(s); vixCard(s) }
-                GridRow { spreadCard(s); watchlistCard(s) }
-                GridRow { highCard(s); maCard(s) }
+                spreadCard(s)
             }
         }
-    }
-
-    private func spxCard(_ s: Snapshot) -> some View {
-        Kpi(label: "S&P 500", value: Fmt.num(s.index.close)) {
-            HStack(spacing: 4) {
-                Delta(value: s.index.changePts)
-                Text("(\(Text(Fmt.pct(s.index.returnPct)).foregroundStyle(Color.tone(s.index.returnPct))))").foregroundStyle(.secondary)
-            }
-        } badge: { CheckBadge(status: s.index.check.status) }
     }
 
     private func vixCard(_ s: Snapshot) -> some View {
@@ -262,7 +279,7 @@ struct OverviewView: View {
     }
 
     private func spreadCard(_ s: Snapshot) -> some View {
-        Kpi(label: "等權重 RSP − 市值加權", value: Fmt.pct(s.breadth.spreadPct), tone: s.breadth.spreadPct) {
+        Kpi(label: "等權重 − 市值加權", value: Fmt.pct(s.breadth.spreadPct), tone: s.breadth.spreadPct) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("RSP \(Fmt.pct(s.breadth.rspReturnPct))")
                 Text("vs SPX \(Fmt.pct(s.breadth.spxReturnPct))")
@@ -273,7 +290,7 @@ struct OverviewView: View {
 
     private func watchlistCard(_ s: Snapshot) -> some View {
         Kpi(label: "名單合計貢獻", value: "\(Fmt.signed(s.mag7Total.contributionPts)) 點", tone: s.mag7Total.contributionPts) {
-            Text("占 \(s.mag7Total.shareOfMovePct.map { "\(Fmt.num($0, 0))%" } ?? "—") · 權重 \(Fmt.num(s.mag7Total.weightPct, 1))%").foregroundStyle(.secondary)
+            Text("占 \(s.mag7Total.shareOfMovePct.map { "\(Fmt.num($0, 0))%" } ?? "—") · 權重 \(Fmt.num(s.mag7Total.weightPct, 2))%").foregroundStyle(.secondary)
         }
     }
 
@@ -284,32 +301,23 @@ struct OverviewView: View {
     }
 
     private func maCard(_ s: Snapshot) -> some View {
-        Kpi(label: "收盤 vs 均線", value: nil) {
-            VStack(alignment: .leading, spacing: 3) {
-                MaRow(name: "20 日", close: s.index.close, ma: s.index.sma20)
-                MaRow(name: "60 日", close: s.index.close, ma: s.index.sma60)
-                MaRow(name: "200 日", close: s.index.close, ma: s.index.sma200)
+        let items: [(String, Double?)] = [("20 日線", s.index.sma20), ("60 日線", s.index.sma60), ("200 日線", s.index.sma200)]
+        return Kpi(label: "收盤 vs 均線", value: nil) {
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .top, spacing: 0) {
+                    ForEach(items, id: \.0) { name, ma in
+                        MaColumn(name: name, close: s.index.close, ma: ma)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+                VStack(alignment: .leading, spacing: 3) {
+                    ForEach(items, id: \.0) { name, ma in MaRow(name: name, close: s.index.close, ma: ma) }
+                }
+                .font(.footnote)
             }
-            .font(.footnote)
         }
     }
-
-    @ViewBuilder
-    private func periodReturns(_ s: Snapshot) -> some View {
-        let items: [PeriodReturn] = [
-            PeriodReturn(label: "近一週", value: s.index.weekPct),
-            PeriodReturn(label: "近一月", value: s.index.monthPct),
-            PeriodReturn(label: "今年以來", value: s.index.ytdPct),
-            PeriodReturn(label: "近一年", value: s.index.yearPct),
-        ]
-        if dts.isAccessibilitySize {
-            VStack(spacing: 8) { ForEach(items) { PeriodReturnCell(item: $0) } }
-        } else {
-            HStack(spacing: 8) { ForEach(items) { PeriodReturnCell(item: $0) } }
-        }
-    }
-
-    private func attribution(_ s: Snapshot, restCount: Int?) -> some View {
+    private func attribution(_ s: Snapshot, restCount: Int?, digests: [NewsDigest]) -> some View {
         let maxAbs = max(0.01, s.mag7.map { abs($0.contributionPts ?? 0) }.max() ?? 0, abs(s.rest.contributionPts ?? 0))
         return Section {
             ForEach(s.mag7) { r in
@@ -318,7 +326,13 @@ struct OverviewView: View {
                     session.tab = .history
                 } label: {
                     HStack {
-                        AttributionRow(title: r.key, subtitle: r.company, ret: r.returnPct, weight: r.weightPct, pts: r.contributionPts, share: r.shareOfMovePct, maxAbs: maxAbs, check: r.check)
+                        AttributionRow(
+                            title: r.key,
+                            subtitle: r.close.map { "\(r.company) · 收盤 \(Fmt.num($0, 2))" } ?? r.company,
+                            ret: r.returnPct, weight: r.weightPct, pts: r.contributionPts, share: r.shareOfMovePct,
+                            maxAbs: maxAbs, check: r.check,
+                            digest: digests.first(where: { $0.symbol == r.key })?.summary
+                        )
                         Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
                     }
                     .contentShape(Rectangle())
@@ -355,6 +369,17 @@ struct OverviewView: View {
                 )
                 Image(systemName: "chevron.right").font(.caption.weight(.semibold)).hidden()
             }
+            DisclosureGroup("說明") {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(s.weights.note)
+                    if s.weights.method == "rolled", let a = s.weights.asOf { Text("權重由 \(Fmt.fullDate(a)) 的持股推算。") }
+                    Text("其餘成分股 ＝ 指數減掉名單。")
+                    ForEach(s.quality.notes, id: \.self) { Text($0) }
+                    if !s.quality.pendingChecks.isEmpty { Text("尚待第二來源核對：\(s.quality.pendingChecks.joined(separator: "、"))") }
+                }
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            }
         } header: {
             HStack {
                 Text("名單對指數的點數貢獻")
@@ -362,51 +387,68 @@ struct OverviewView: View {
                 Button("編輯名單") { session.tab = .watchlist }.font(.caption)
             }
         } footer: {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("貢獻點數 = 前一交易日指數 × 前一日權重 × 當日報酬。\(s.weights.note)")
-                if s.weights.method == "rolled", let a = s.weights.asOf { Text("權重由 \(a) 的持股推算。") }
-                ForEach(s.quality.notes, id: \.self) { Text($0) }
-                if !s.quality.missing.isEmpty { Text("缺少當日收盤：\(s.quality.missing.joined(separator: "、"))") }
-                if !s.quality.pendingChecks.isEmpty { Text("尚待第二來源核對：\(s.quality.pendingChecks.joined(separator: "、"))") }
+            Text("貢獻點數 = 前一交易日指數 × 前一日權重 × 當日報酬。")
+        }
+    }
+}
+
+/// 指數 hero：收盤、漲跌、四個期間報酬與資料產出時間，一張全寬卡。
+private struct IndexHero: View {
+    let s: Snapshot
+    let createdAt: String?
+
+    private var items: [(String, Double?)] {
+        [("近一週", s.index.weekPct), ("近一月", s.index.monthPct), ("今年以來", s.index.ytdPct), ("近一年", s.index.yearPct)]
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Text("S&P 500").font(.caption).foregroundStyle(.secondary)
+                CheckBadge(status: s.index.check.status)
+            }
+            Text(Fmt.num(s.index.close)).font(.largeTitle.weight(.bold).monospacedDigit()).lineLimit(1).minimumScaleFactor(0.8)
+            HStack(spacing: 4) {
+                Delta(value: s.index.changePts)
+                Text("(\(Text(Fmt.pct(s.index.returnPct)).foregroundStyle(Color.tone(s.index.returnPct))))").foregroundStyle(.secondary)
+            }
+            .font(.headline)
+            periods.padding(.top, 4)
+            Text("資料 \(Fmt.taipeiTime(createdAt)) 產出").font(.caption2).foregroundStyle(.secondary)
+        }
+        .cardBackground()
+    }
+
+    private func cell(_ label: String, _ v: Double?) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label).font(.caption2).foregroundStyle(.secondary).lineLimit(1).fixedSize(horizontal: true, vertical: false)
+            Delta(value: v, percent: true).font(.subheadline.weight(.semibold)).lineLimit(1).fixedSize(horizontal: true, vertical: false)
+        }
+    }
+
+    private var periods: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .top, spacing: 0) {
+                ForEach(Array(items.enumerated()), id: \.offset) { i, it in
+                    if i > 0 { Divider().padding(.trailing, 8) }
+                    cell(it.0, it.1).frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 8) {
+                GridRow { cell(items[0].0, items[0].1); cell(items[1].0, items[1].1) }
+                GridRow { cell(items[2].0, items[2].1); cell(items[3].0, items[3].1) }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(spacing: 6) {
+                ForEach(Array(items.enumerated()), id: \.offset) { _, it in
+                    HStack {
+                        Text(it.0).font(.caption).foregroundStyle(.secondary)
+                        Spacer()
+                        Delta(value: it.1, percent: true).font(.subheadline.weight(.semibold))
+                    }
+                }
             }
         }
-    }
-}
-
-private struct PeriodReturn: Identifiable {
-    var id: String { label }
-    let label: String
-    let value: Double?
-}
-
-private struct PeriodReturnCell: View {
-    let item: PeriodReturn
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(item.label).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-            Delta(value: item.value, percent: true).font(.subheadline.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.7)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(8)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
-    }
-}
-
-/// 展望判讀：偏多紅、偏空綠（紅漲綠跌），不確定橘。
-private struct CallBadge: View {
-    let call: String
-    var body: some View {
-        let (text, color): (String, Color) = switch call {
-        case "up": ("偏多", .up)
-        case "down": ("偏空", .down)
-        default: ("不確定", .orange)
-        }
-        Text(text)
-            .font(.caption.weight(.semibold))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 2)
-            .background(color.opacity(0.12), in: Capsule())
-            .foregroundStyle(color)
     }
 }
 
@@ -417,6 +459,20 @@ private struct EventStatusBadge: View {
         case "estimated": Text("推估日期").font(.caption2).foregroundStyle(.orange)
         case "tentative": Text("暫定").font(.caption2).foregroundStyle(.orange)
         default: EmptyView()
+        }
+    }
+}
+
+/// 均線一欄：名稱、收盤離均線的距離、均線位置。
+private struct MaColumn: View {
+    let name: String
+    let close: Double
+    let ma: Double?
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(name).font(.caption2).foregroundStyle(.secondary).lineLimit(1).fixedSize(horizontal: true, vertical: false)
+            Delta(value: ma.map { (close / $0 - 1) * 100 }, percent: true).font(.subheadline.weight(.semibold)).lineLimit(1).fixedSize(horizontal: true, vertical: false)
+            Text(Fmt.num(ma, 0)).font(.caption2.monospacedDigit()).foregroundStyle(.secondary).lineLimit(1).fixedSize(horizontal: true, vertical: false)
         }
     }
 }
@@ -534,7 +590,7 @@ private struct Kpi<Detail: View, Badge: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 4) {
-                Text(label).font(.caption).foregroundStyle(.secondary).lineLimit(2).minimumScaleFactor(0.8)
+                Text(label).font(.caption).foregroundStyle(.secondary).lineLimit(2)
                 badge()
             }
             if let value {
@@ -542,13 +598,12 @@ private struct Kpi<Detail: View, Badge: View>: View {
                     .font(.title3.weight(.semibold).monospacedDigit())
                     .foregroundStyle(tone == nil ? Color.primary : Color.tone(tone))
                     .lineLimit(dts.isAccessibilitySize ? nil : 1)
-                    .minimumScaleFactor(0.6)
+                    .minimumScaleFactor(0.8)
             }
             detail().font(.caption2).fixedSize(horizontal: false, vertical: true)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .cardBackground()
     }
 }
 
@@ -562,6 +617,7 @@ private struct AttributionRow: View {
     let maxAbs: Double
     let check: String?
     var showsBar = true
+    var digest: String? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -578,6 +634,14 @@ private struct AttributionRow: View {
                         Text("權重 \(Fmt.num(weight, 2))%").foregroundStyle(.secondary)
                     }
                     .font(.caption.monospacedDigit())
+                }
+            }
+            if let digest {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text("AI").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                        .padding(.horizontal, 4)
+                        .overlay(Capsule().stroke(Color.secondary.opacity(0.6), lineWidth: 1))
+                    Text(digest).font(.footnote).foregroundStyle(.secondary).lineLimit(2).multilineTextAlignment(.leading)
                 }
             }
             if showsBar {
@@ -610,33 +674,5 @@ struct CenteredBar: View {
             .frame(height: 10)
         }
         .frame(height: 10)
-    }
-}
-
-struct NewsRow: View {
-    let title: String
-    let url: String
-    let publisher: String?
-    let publishedAt: String?
-    let symbols: String?
-    @Environment(\.openURL) private var openURL
-
-    var body: some View {
-        Button {
-            if let u = URL(string: url) { openURL(u) }
-        } label: {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title).font(.subheadline).foregroundStyle(.primary).multilineTextAlignment(.leading)
-                HStack(spacing: 6) {
-                    if let symbols, !symbols.isEmpty {
-                        Text(symbols.replacingOccurrences(of: ",", with: " · ")).font(.caption2.weight(.semibold)).foregroundStyle(.tint)
-                    }
-                    // published_at 只有日期（yyyy-MM-dd）；萬一帶了時間就換成台北時間。
-                    Text([publisher ?? "Nasdaq", publishedAt.map { $0.count == 10 ? Fmt.dateWithWeekday($0) : Fmt.taipeiTime($0) } ?? "日期不明"].joined(separator: " · "))
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-            }
-        }
     }
 }

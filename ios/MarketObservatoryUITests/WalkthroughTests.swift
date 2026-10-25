@@ -46,6 +46,28 @@ final class WalkthroughTests: XCTestCase {
         b.tap()
     }
 
+    /// 回上一頁：iOS 27 的返回鍵 identifier 是 "BackButton"（label 可能是上一頁標題或空白），
+    /// 而且 `navigationBars.buttons.element(boundBy: 0)` 不一定是返回鍵（工具列按鈕可能排前面），
+    /// 所以先找返回鍵、再找上一頁標題，最後用左緣滑動。
+    private func back(_ app: XCUIApplication, to title: String = "更多") {
+        let bar = app.navigationBars
+        let candidates = [bar.buttons["BackButton"], bar.buttons[title], app.buttons["BackButton"]]
+        if let b = candidates.first(where: { $0.exists && $0.isHittable }) {
+            b.tap()
+        } else {
+            let w = app.windows.firstMatch
+            let start = w.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5))
+            start.press(forDuration: 0.05, thenDragTo: w.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.5)))
+        }
+        XCTAssertTrue(app.navigationBars[title].waitForExistence(timeout: 5), "回不到「\(title)」")
+    }
+
+    private func open(_ app: XCUIApplication, _ label: String) {
+        let b = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", label)).firstMatch
+        XCTAssertTrue(b.waitForExistence(timeout: 5), "找不到「\(label)」")
+        b.tap()
+    }
+
     func test1_SignInAndVisitEveryScreen() throws {
         let app = XCUIApplication()
         app.launch()
@@ -88,24 +110,31 @@ final class WalkthroughTests: XCTestCase {
         tab(app, "更多")
         sleep(1)
         snap("06-more")
-        app.buttons["ETF 與定投試算"].tap()
+        open(app, "ETF 與定投試算")
         sleep(5)
         snap("07-etfs")
         app.swipeUp()
         sleep(1)
         snap("07b-dca")
-        app.navigationBars.buttons.element(boundBy: 0).tap()
-        app.buttons["下月展望"].tap()
+        back(app)
+        open(app, "下月展望")
         sleep(5)
         snap("08-outlook")
-        app.navigationBars.buttons.element(boundBy: 0).tap()
-        app.buttons["推播設定"].tap()
+        app.swipeUp()
+        sleep(1)
+        snap("08b-outlook-more")
+        back(app)
+        open(app, "推播設定")
         sleep(4)
         snap("09-push")
-        app.navigationBars.buttons.element(boundBy: 0).tap()
-        app.buttons.matching(NSPredicate(format: "label BEGINSWITH '帳號'")).firstMatch.tap()
+        app.swipeUp()
         sleep(1)
+        snap("09b-push-more")
+        back(app)
+        open(app, "帳號")
+        sleep(2)
         snap("10-account")
+        back(app)
     }
 
     func test2_DeleteAccount() throws {

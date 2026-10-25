@@ -14,7 +14,7 @@
 - `pages/*.server.ts` 與 `routes/api/v1/*` 都是薄殼：同一個畫面的網頁 loader 與 App API 呼叫 `src/server/` 的同一個函式（多半在 `views.ts`），網頁和 App 拿同一份資料；要改資料就改那個函式，不要在殼裡各寫一套。
 - `src/lib/` 不碰 D1、不看登入者：計算、上游來源的抓取與解析（`sources/`）、AI 提示詞，測試不用資料庫。新邏輯能放這裡就放這裡。
 - `src/server/` 是 D1 讀寫、帳號、推播與排程工作（`jobs.ts`）；`src/ui/` 是網頁元件，不 import `src/server/`。
-- `scripts/` 在本機跑、不部署：歷史回補與新聞 AI 排程。
+- `scripts/` 在本機跑、不部署。
 - `tests/` 的 D1 用 `tests/helpers/fake-cloudflare.ts` 的假件（會套用全部 migration）。
 
 ## 本專案
@@ -26,4 +26,4 @@
 - 正式站的觀察名單是使用者實際在用的資料：為了測試加減名單，測完要改回原狀。
 - 開放註冊：`cachedPage` 回呼算出的結果全站共用、會被快取，每個人不同的資料（名單、定投規劃）與要即時反映的資料不能放進去，要嘛在快取外套上，要嘛把名單放進快取鍵；排程一律用 `loadTrackedMembers`（聯集），單一使用者用 `loadWatchlist(db, key)`。
 - 新的後台功能放在 `/api/admin/` 底下：middleware 只放行站長，route 裡也要再用 `viewerOf(c)?.isOwner` 檢查。
-- 新聞 AI（翻譯、重點、「今天為什麼漲跌」）不在 Worker 裡呼叫模型：本機 Orca 排程（名稱開頭「市場觀測室：」）叫 Claude 跑 `scripts/ai-batch.ts`，答案經 `/api/admin/ai` 驗證後寫進 D1，網頁與 App 只讀 D1。新的 AI 內容照這條路加，並掛在現有的 `translate` 或 `daily` 底下（兩個排程只跑這兩種），不要在 route 或 cron 裡接模型。排程跑的是主 checkout 當下的分支，切到搬進 `web/` 以前的分支就會失敗；排程寫的是腳本的絕對路徑，搬動或改名要用 `orca automations edit` 一起改。
+- 新聞 AI（翻譯、重點、「今天為什麼漲跌」）不在 Worker 裡呼叫模型：本機 Orca 排程（名稱開頭「市場觀測室：」）叫 Claude 跑 `scripts/ai-batch.ts`，答案經 `/api/admin/ai` 驗證後寫進 D1，網頁與 App 只讀 D1。新的 AI 內容照這條路加，並掛在現有的 `translate` 或 `daily` 底下（兩個排程只跑這兩種），不要在 route 或 cron 裡接模型。排程跑的是主 checkout 當下的分支，那裡要一直停在有 `scripts/ai-batch.ts` 的分支，開分支做事用 worktree；排程寫的是腳本的絕對路徑，搬動或改名要用 `orca automations edit` 一起改。

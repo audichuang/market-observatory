@@ -304,6 +304,13 @@ struct Plan: Codable, Sendable, Equatable {
 }
 
 struct Etfs: Decodable, Sendable {
+    /// 單位都是百分比：actual 實際報酬、naive 倍數 × 指數報酬、drift = actual − naive。
+    struct Drift: Decodable, Sendable {
+        let actual: Double?
+        let naive: Double?
+        let drift: Double?
+    }
+
     struct Row: Decodable, Sendable, Identifiable {
         var id: String { ticker }
         let ticker: String
@@ -316,7 +323,8 @@ struct Etfs: Decodable, Sendable {
         let lastDate: String?
         let ytd: Double?
         let returns: [String: Double?]
-        let drift1y: Double?
+        /// 槓桿／反向 ETF 近一年「實際報酬 − 倍數 × S&P 500 報酬」（src/lib/analytics.ts leverageDrift）；1× ETF 或資料不足時為 null。
+        let drift1y: Drift?
         let note: String?
     }
 

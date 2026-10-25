@@ -398,3 +398,15 @@ test("NewsFeed 邏輯：只翻看得到的（其他組收合時不翻）、已�
   const merged = mergeTranslated(current, [{ id: "a", title_zh: "中", important: false }, { id: "zzz", title_zh: "x", important: true }]);
   assert.deepEqual(merged, [{ id: "a", title_zh: "中", points_zh: ["重點"], important: false, needs_ai: false }]);
 });
+
+test("NewsFeed 邏輯：換代號篩選後，舊代號送出的翻譯回應不能併回新列表", async () => {
+  const { isStaleTranslate, mergeTranslated } = await import("../src/ui/news-feed-logic.ts");
+  assert.equal(isStaleTranslate("AAPL", "NVDA"), true, "請求用 AAPL 送出，畫面已切到 NVDA");
+  assert.equal(isStaleTranslate("AAPL", null), true, "切回全部");
+  assert.equal(isStaleTranslate(null, "NVDA"), true);
+  assert.equal(isStaleTranslate("NVDA", "NVDA"), false);
+  assert.equal(isStaleTranslate(null, null), false);
+  // 沒擋的後果：舊代號算的 important 會蓋掉新畫面的分組
+  const cur = [{ id: "x", important: true, needs_ai: true }];
+  assert.equal(mergeTranslated(cur, [{ id: "x", important: false }])[0].important, false);
+});

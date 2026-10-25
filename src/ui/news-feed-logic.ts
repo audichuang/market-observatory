@@ -24,3 +24,8 @@ export function mergeTranslated<N extends { id: string }, T extends { id: string
     return t ? { ...n, ...t, needs_ai: false } : n;
   });
 }
+
+/** 翻譯請求帶的 symbol 跟畫面現在的篩選不同：回應的 important 是照舊篩選算的，不能併回新列表。 */
+export function isStaleTranslate(requestSymbol: string | null, currentSymbol: string | null): boolean {
+  return (requestSymbol ?? null) !== (currentSymbol ?? null);
+}

@@ -1,7 +1,7 @@
 // 新聞的 AI 加工（純函式）：提示詞、結構化輸出的 schema 與回應解析。讀者不一定懂英文，而且來源的新聞很雜：
 // 很多是選股標題黨、只順帶提到某家公司、或是不相干公司的債券目標價。AI 逐則翻成繁中、標利多利空與類別，
 // 並判斷「這則真正在講誰」（focus），沒在講名單公司也不是大盤總經的就當雜訊收起來。
-// 呼叫在使用者打開畫面時才發生（src/server/news-ai.ts），模型與參數見 src/server/anthropic.ts。
+// 呼叫由本機排程的 agent 執行（scripts/ai-batch.ts 撈待辦、產生提示詞，結果經 /api/admin/ai 寫回，見 src/server/ai-batch.ts）。
 
 export const NEWS_CATEGORIES = ["財報", "分析師", "產品與業務", "法規與訴訟", "總經與市場", "投資觀點"] as const;
 export type NewsTone = "positive" | "negative" | "neutral";
@@ -141,6 +141,44 @@ export function digestPrompt(d: DigestInput): Prompt {
 tone 是整體對股價偏 positive、negative 或 neutral。
 
 ${lines.join("\n")}`,
+  };
+}
+
+export interface MarketInput {
+  date: string;
+  close: number;
+  changePts: number | null;
+  returnPct: number | null;
+  vix: number | null;
+  vixChange: number | null;
+  /** 等權重減市值加權（百分點） */
+  spreadPct: number | null;
+  /** 追蹤名單裡貢獻絕對值最大的幾家 */
+  movers: { key: string; company: string; returnPct: number | null; contributionPts: number | null }[];
+  /** 名單以外其餘成分股的合計貢獻 */
+  restPts: number | null;
+  /** 這天大盤、總經的新聞標題（繁中優先） */
+  news: string[];
+}
+
+const signedNum = (n: number | null, digits: number, unit = "") => (n === null ? "無資料" : `${n >= 0 ? "+" : ""}${n.toFixed(digits)}${unit}`);
+
+/** 總覽最上面那段「今天為什麼漲跌」：只講整體，個股原因另有每家的重點。 */
+export function marketPrompt(m: MarketInput): Prompt {
+  const movers = m.movers.map((x) => `- ${x.company}（${x.key}）${signedNum(x.returnPct, 2, "%")}，貢獻 ${signedNum(x.contributionPts, 1, " 點")}`);
+  return {
+    system: `你是台灣的財經編輯，替看不懂英文的散戶寫每日美股收盤重點。${STYLE}`,
+    user: `S&P 500 ${m.date}（美東日期）收 ${m.close.toFixed(2)}，${signedNum(m.changePts, 2, " 點")}（${signedNum(m.returnPct, 2, "%")}）。
+VIX ${m.vix === null ? "無資料" : m.vix.toFixed(2)}（${signedNum(m.vixChange, 2)}）；等權重減市值加權 ${signedNum(m.spreadPct, 2, " 個百分點")}（負值代表大型權值股撐盤、多數股票較弱）。
+大型權值股的點數貢獻：
+${movers.join("\n") || "（無資料）"}
+其餘成分股合計 ${signedNum(m.restPts, 1, " 點")}。
+這天的大盤與總經新聞：
+${m.news.map((t, i) => `${i + 1}. ${t}`).join("\n") || "（沒有）"}
+
+用 2～3 句、合計不超過 100 個字，說明這天指數為什麼這樣走：是少數權值股帶動還是普遍漲跌、主要是誰、有沒有總經或消息面的原因。
+只根據上面的數字與新聞，不要編造原因；新聞看不出原因就只描述漲跌結構。不要用「根據資料」「綜合以上」這種開頭，不要逐檔列數字。
+tone 是這天整體偏 positive、negative 或 neutral。`,
   };
 }
 

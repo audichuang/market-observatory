@@ -2,10 +2,11 @@
 import type { WatchMember } from "./universe.ts";
 
 /**
- * 名單上限。每一檔都會讓排程多打幾個外部請求（Yahoo 收盤、Nasdaq 核對、新聞、財報日），
- * Cloudflare 免費方案每次執行最多 50 個外部子請求，12 家（最多約 15 個代號）還留得下餘裕。
+ * 名單上限。每一檔都會讓排程多打幾個外部請求（Yahoo 收盤、Nasdaq 核對、新聞、財報日）。
+ * Workers Paid 每次執行的外部請求上限很寬（見 SUBREQUEST_BUDGET），真正的限制是 Yahoo／Nasdaq 打太多會回 429，
+ * 以及總覽、走勢頁一次列太多家不好讀：30 家約 35 個代號，核對一次約 50 個請求。
  */
-export const MAX_WATCH = 12;
+export const MAX_WATCH = 30;
 
 export interface Holding {
   ticker: string;

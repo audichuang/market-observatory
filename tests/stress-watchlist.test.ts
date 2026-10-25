@@ -1,8 +1,9 @@
-// 壓力：名單 0→12 一家一家加、每加一家跑全部五支排程；移除再加回；重複跑的冪等；併發的加入／移除。
+// 壓力：名單 0→上限（30 家）一家一家加、每加一家跑全部五支排程；移除再加回；重複跑的冪等；併發的加入／移除。
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { FakeUpstream } from "./helpers/fake-cloudflare.ts";
-import { FIVE, type Sql, assertInvocation, assertSnapshotMatches, consistentSpx, invokeCron, latestSnapshot, seededDb } from "./helpers/stress-env.ts";
+import { MAX_WATCH } from "../src/lib/watchlist.ts";
+import { FILLERS, FIVE, type Sql, assertInvocation, assertSnapshotMatches, consistentSpx, invokeCron, latestSnapshot, seededDb } from "./helpers/stress-env.ts";
 
 const upstream = new FakeUpstream();
 let restore: () => void;
@@ -32,9 +33,11 @@ async function emptyListDb() {
   return { db, sql };
 }
 
-const GROW = ["NVDA", "goog", "brk.b", "FOXA", "NWS", "AAPL", " msft ", "AMZN", "META", "TSLA", "AVGO", "LLY"];
+const NAMED_GROW = ["NVDA", "goog", "brk.b", "FOXA", "NWS", "AAPL", " msft ", "AMZN", "META", "TSLA", "AVGO", "LLY"];
+// 12 家有名字的（含三家多股類）之後，用填充成分股補到名單上限。
+const GROW = [...NAMED_GROW, ...FILLERS.slice(0, MAX_WATCH - NAMED_GROW.length)];
 
-test("0→12：每加一家跑全部五支排程，額度、狀態、快照成員與歸因都正確", async (t) => {
+test("0→上限：每加一家跑全部五支排程，額度、狀態、快照成員與歸因都正確", async (t) => {
   const { db, sql } = await emptyListDb();
   const { addWatchSymbol, removeWatchSymbol } = await jobs();
   const { loadWatchlist } = await wl();
@@ -50,15 +53,15 @@ test("0→12：每加一家跑全部五支排程，額度、狀態、快照成�
     assertSnapshotMatches(`加入 ${s} 跑完排程`, sql, list, { checked: true });
   }
   const list = await loadWatchlist(db);
-  assert.deepEqual(list.map((m) => m.key), ["NVDA", "GOOGL", "BRK-B", "FOXA", "NWSA", "AAPL", "MSFT", "AMZN", "META", "TSLA", "AVGO", "LLY"]);
-  assert.equal(list.flatMap((m) => m.tickers).length, 15);
+  assert.deepEqual(list.map((m) => m.key), ["NVDA", "GOOGL", "BRK-B", "FOXA", "NWSA", "AAPL", "MSFT", "AMZN", "META", "TSLA", "AVGO", "LLY", ...FILLERS.slice(0, MAX_WATCH - 12)]);
+  assert.equal(list.flatMap((m) => m.tickers).length, MAX_WATCH + 3);
   t.diagnostic(`最後一輪各排程：${(await invokeCron(upstream, "daily-reference", db, sql)).requests} 個請求 (daily-reference)`);
 
   // 移除三家（含多股類的 GOOGL、FOXA），跑排程；再加回兩家
   for (const k of ["GOOGL", "FOXA", "LLY"]) assert.ok((await removeWatchSymbol(db, k)).ok);
   assert.ok(!(await removeWatchSymbol(db, "GOOG")).ok, "用非 key 的股類移除應失敗");
   let now = await loadWatchlist(db);
-  assert.equal(now.length, 9);
+  assert.equal(now.length, MAX_WATCH - 3);
   assertSnapshotMatches("移除三家後", sql, now);
   const ev = sql.prepare("SELECT COUNT(*) AS n FROM events WHERE kind='earnings' AND symbol IN ('GOOGL','FOXA','LLY')").get() as { n: number };
   assert.equal(ev.n, 0, "移除的公司未來財報事件應清掉");
@@ -87,12 +90,12 @@ test("0→12：每加一家跑全部五支排程，額度、狀態、快照成�
   assert.deepEqual(dupRev, [], "同一天同內容不應有兩個 revision");
 });
 
-test("名單滿 12 家：第 13 家、非成分股、重複、怪格式都在本地擋下，不打網路", async () => {
+test("名單滿上限：再多一家、非成分股、重複、怪格式都在本地擋下，不打網路", async () => {
   const { db } = await emptyListDb();
   const { addWatchSymbol } = await jobs();
   for (const s of GROW) assert.ok((await addWatchSymbol(db, s)).ok, s);
   const cases: [string, RegExp][] = [
-    ["JPM", /最多 12 家/],
+    ["JPM", new RegExp(`最多 ${MAX_WATCH} 家`)],
     ["XXXX", /不在最新的 S&P 500/],
     ["2602335D", /不在最新的 S&P 500/],
     ["ZERO", /不在最新的 S&P 500/],
@@ -110,20 +113,20 @@ test("名單滿 12 家：第 13 家、非成分股、重複、怪格式都在本
     assert.ok(!r.ok && re.test(r.error), `${JSON.stringify(input)} → ${JSON.stringify(r)}`);
     assert.equal(upstream.count, 0, `${JSON.stringify(input)} 打了 ${upstream.count} 個請求`);
   }
-  assert.equal((await (await wl()).loadWatchlist(db)).length, 12);
+  assert.equal((await (await wl()).loadWatchlist(db)).length, MAX_WATCH);
 });
 
-test("併發：11 家時同時加兩家，只有一家成功，名單 12 家不超過", async () => {
+test("併發：差一家滿時同時加兩家，只有一家成功，名單不超過上限", async () => {
   const { db } = await emptyListDb();
   const { addWatchSymbol } = await jobs();
-  for (const s of GROW.slice(0, 11)) assert.ok((await addWatchSymbol(db, s)).ok, s);
+  for (const s of GROW.slice(0, MAX_WATCH - 1)) assert.ok((await addWatchSymbol(db, s)).ok, s);
   upstream.reset();
-  const [a, b] = await Promise.all([addWatchSymbol(db, "LLY"), addWatchSymbol(db, "JPM")]);
+  const [a, b] = await Promise.all([addWatchSymbol(db, GROW[MAX_WATCH - 1]), addWatchSymbol(db, "JPM")]);
   assert.equal([a, b].filter((r) => r.ok).length, 1, JSON.stringify([a, b]));
   const loser = [a, b].find((r) => !r.ok) as { error: string };
-  assert.match(loser.error, /最多 12 家/);
+  assert.match(loser.error, new RegExp(`最多 ${MAX_WATCH} 家`));
   const list = await (await wl()).loadWatchlist(db);
-  assert.equal(list.length, 12);
+  assert.equal(list.length, MAX_WATCH);
 });
 
 test("併發：同一檔同時加兩次，不會重複；名單 10 家", async () => {

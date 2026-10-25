@@ -1,8 +1,9 @@
-// 壓力：名單滿 12 家時，上游不配合（spark 只回部分／回錯代號／對調收盤、429、503、多跳轉址、轉址迴圈、慢回應、單精度浮點）。
+// 壓力：名單滿上限（30 家）時，上游不配合（spark 只回部分／回錯代號／對調收盤、429、503、多跳轉址、轉址迴圈、慢回應、單精度浮點）。
 import assert from "node:assert/strict";
 import { after, before, beforeEach, test } from "node:test";
 import { FakeUpstream, type Rule } from "./helpers/fake-cloudflare.ts";
-import { type Sql, assertInvocation, assertSnapshotMatches, consistentSpx, invokeCron, latestSnapshot, seededDb } from "./helpers/stress-env.ts";
+import { MAX_WATCH } from "../src/lib/watchlist.ts";
+import { FILLERS, type Sql, assertInvocation, assertSnapshotMatches, consistentSpx, invokeCron, latestSnapshot, seededDb } from "./helpers/stress-env.ts";
 
 const upstream = new FakeUpstream();
 let restore: () => void;
@@ -14,7 +15,7 @@ beforeEach(() => {
   upstream.rules = [consistentSpx];
 });
 
-const ADDS = ["AVGO", "BRK-B", "FOXA", "NWSA", "LLY"];
+const ADDS = ["AVGO", "BRK-B", "FOXA", "NWSA", "LLY", ...FILLERS.slice(0, MAX_WATCH - 12)];
 async function fullListDb() {
   const { db, sql } = await seededDb();
   const { addWatchSymbol } = await import("../src/server/jobs.ts");
@@ -28,6 +29,8 @@ async function fullListDb() {
 }
 const list = async (db: D1Database) => (await import("../src/server/watchlist.ts")).loadWatchlist(db);
 const isSpark = (u: URL) => u.pathname.startsWith("/v7/finance/spark");
+/** 名單滿時 spark 要打幾個請求（每 20 檔一個）。 */
+const sparkCalls = async (db: D1Database) => Math.ceil(Object.keys((await import("../src/lib/universe.ts")).yahooSymbols(await list(db))).length / 20);
 
 
 /** 包一層 fetch：spark 的 JSON 先經過 edit 再回給程式。 */
@@ -44,7 +47,7 @@ function wrapSpark(edit: (result: any[]) => any[]) {
   return () => (globalThis.fetch = inner);
 }
 
-test("spark 只回一半代號：缺的逐檔補抓；01:10 那支的核對剛好用完剩下額度、27 檔全做", async () => {
+test("spark 只回一半代號：缺的逐檔補抓；01:10 那支的核對全部做完", async () => {
   const { db, sql } = await fullListDb();
   const undo = wrapSpark((r) => r.filter((_, i) => i % 2 === 0));
   try {
@@ -174,7 +177,7 @@ test("Cboe 與 spark 第一次 503、之後 OK：prices 成功", async () => {
   }, consistentSpx];
   const r = await invokeCron(upstream, "prices", db, sql);
   assertInvocation("prices（503→OK）", r);
-  assert.equal(r.requests, 8);
+  assert.equal(r.requests, (await sparkCalls(db)) * 2 + 2 * 2, "spark 與 Cboe 各重試一次");
 });
 
 const cboeHops = (hops: number): Rule => (u) => {
@@ -184,12 +187,12 @@ const cboeHops = (hops: number): Rule => (u) => {
   return null;
 };
 
-test("Cboe 3 跳轉址：每跳都記帳；retry 的核對仍做完 27 檔", async () => {
+test("Cboe 3 跳轉址：每跳都記帳；retry 的核對仍全部做完", async () => {
   const { db, sql } = await fullListDb();
   upstream.rules = [cboeHops(3), consistentSpx];
   const p = await invokeCron(upstream, "prices", db, sql);
   assertInvocation("prices（3 跳）", p);
-  assert.equal(p.requests, 2 + 4 + 4);
+  assert.equal(p.requests, (await sparkCalls(db)) + 4 + 4);
   const r = await invokeCron(upstream, "retry", db, sql);
   assertInvocation("retry（3 跳）", r);
 });
@@ -218,7 +221,7 @@ test("Cboe 轉址迴圈：最多 6 跳就放棄，不吃光額度", async () => 
   upstream.rules = [(u) => (u.host === "cdn-api.cboe.com" ? new Response(null, { status: 301, headers: { location: u.pathname } }) : null)];
   const p = await invokeCron(upstream, "prices", db, sql);
   assertInvocation("prices（迴圈）", p, { strictJobs: false });
-  assert.equal(p.requests, 2 + 6 + 6);
+  assert.equal(p.requests, (await sparkCalls(db)) + 6 + 6);
   assert.equal(p.runs[0].status, "partial", p.runs[0].summary);
 });
 

@@ -41,10 +41,10 @@ const snap = (over: Partial<Snapshot> = {}): Snapshot =>
     ...over,
   }) as unknown as Snapshot;
 
-test("收盤摘要：漲跌、名單合計、貢獻最大的一家、VIX；算不出漲跌就不發", () => {
+test("收盤摘要：漲跌、VIX、名單合計、貢獻最大的一家；算不出漲跌就不發", () => {
   const m = dailySummary(snap())!;
   assert.equal(m.title, "S&P 500 10/23 收盤 +0.85%");
-  assert.equal(m.body, "6,812.34（+57.40 點） · 名單合計 +23.1 點，占 40% · 最大 NVDA +30.1 點 · VIX 15.2");
+  assert.equal(m.body, "6,812.34（+57.40 點） · VIX 15.2 · 名單 +23.1 點（40%） · NVDA +30.1");
   assert.equal(dailySummary(snap({ index: { close: 1, changePts: null, returnPct: null } as never })), null);
 });
 

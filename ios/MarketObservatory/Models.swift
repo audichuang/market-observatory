@@ -317,8 +317,10 @@ struct Etfs: Decodable, Sendable {
         let name: String
         let issuer: String
         let multiple: Double
+        let grossFeePct: Double?
         let netFeePct: Double?
         let aumUsd: Double?
+        let aumAsOf: String?
         let close: Double?
         let lastDate: String?
         let ytd: Double?
@@ -479,6 +481,8 @@ struct OutlookPage: Decodable, Sendable {
             let target: Double
             let horizon: String?
             let asOf: String?
+            let note: String?
+            let sourceUrl: String?
         }
 
         struct Poll: Decodable, Sendable {
@@ -504,6 +508,8 @@ struct OutlookPage: Decodable, Sendable {
     let factset: [Factset]
     let strategists: Strategists?
     let horizon: Int
+    /// 有效樣本少於這個數的條件不採用（網頁顯示灰字）。
+    let minN: Int?
 }
 
 // MARK: - 推播

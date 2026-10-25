@@ -15,6 +15,13 @@
       "when": 1792882345122,
       "tag": "20261024225225_lumpy_centennial",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1792922272434,
+      "tag": "20261025095752_premium_black_bolt",
+      "breakpoints": true
     }
   ]
 }

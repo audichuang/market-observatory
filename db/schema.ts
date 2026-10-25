@@ -139,3 +139,36 @@ export const forecasts = sqliteTable("forecasts", {
   close: real("close").notNull(),
   createdAt: text("created_at").notNull(),
 });
+
+// App 註冊的推播裝置（APNs device token）。一個使用者可以有多台；list_key 是註冊時這個人的名單 key（src/server/account.ts），
+// 推播時用它找名單，不必在排程裡判斷誰是站長。environment：Xcode 直接跑的 debug 版走 sandbox，TestFlight／App Store 走 production。
+export const devices = sqliteTable(
+  "devices",
+  {
+    token: text("token").primaryKey(),
+    userId: text("user_id").notNull(),
+    listKey: text("list_key").notNull(),
+    environment: text("environment").notNull(),
+    appVersion: text("app_version"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+    lastError: text("last_error"),
+  },
+  (t) => [index("devices_user_idx").on(t.userId)],
+);
+
+// 已發出的推播（去重用）：收盤後的補抓排程會再跑一次收盤推播，同一天同一個人只發一次。id 是「種類:日期:user id」。
+export const pushLog = sqliteTable(
+  "push_log",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id").notNull(),
+    kind: text("kind").notNull(),
+    title: text("title").notNull(),
+    body: text("body").notNull(),
+    devices: integer("devices").notNull(),
+    delivered: integer("delivered").notNull(),
+    createdAt: text("created_at").notNull(),
+  },
+  (t) => [index("push_log_created_idx").on(t.createdAt)],
+);

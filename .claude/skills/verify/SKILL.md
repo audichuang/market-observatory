@@ -79,26 +79,76 @@ await page.screenshot({ path: "<RUN>/evidence/web/01-overview.png" });
 EOF
 ```
 
-- 把手：網頁幾乎沒有 ARIA label 或 data-testid（登入欄位沒有 accessible name），用**畫面上的中文字**（`text=…`、`loc=role:button[name='加入']`）、`input[type=email]`、`input[placeholder="…"]` 與網址（`/watchlist`、`/history?symbol=NVDA`）。各功能的實際把手在功能檔。
+- 把手：網頁幾乎沒有 ARIA label 或 data-testid（登入欄位沒有 accessible name），用**畫面上的中文字**、`input[type=email]`、`input[placeholder="…"]` 與網址（`/watchlist`、`/history?symbol=NVDA`）。各功能的實際把手在功能檔。
+- 選擇器要**只對到一個**：`text=NVIDIA` 這類寫法常同時對到表格連結與新聞標題，點到哪個看運氣。改用精確寫法：
+  - 標籤＋精確文字：`a.chip:text-is("NVDA")`、`h1:text-is("下月展望")`、`button:text-is("SPY 持股權重")`
+  - 網址：`loc=href:/history?symbol=NVDA`
+  - 角色：`loc=role:button[name='加入']`
+
+  `:has-text()` 只能放在選擇器最後（`li:has-text("AVGO") button` 會被拒）；要點某一列裡的按鈕，先用 `evaluate` 在那個按鈕標 `data-verify-target`，再點那個屬性。
+- **整頁導覽後先等 hydrate 再點。** `goto`、送出表單後跳頁，畫面先是伺服器輸出的 HTML，React 還沒接手前點擊會靜默失效（實測：登入後立刻按「登出」沒反應）。點之前等按鈕掛上 React：
+
+  ```js
+  await page.waitForFunction(() => { const b = [...document.querySelectorAll("button")].find(b => b.textContent.trim() === "登出"); return b && Object.keys(b).some(k => k.startsWith("__reactFiber")); }, undefined, { timeout: 10000 });
+  ```
+
 - 等待用 `waitForSelector`／`waitForFunction` 等畫面上的結果，不要用固定秒數。
 - 對帳：`await page.fetch("/api/v1/<端點>")` 用同一個登入 cookie 讀 API，跟畫面比。
 - 收尾：最後一輪 `await task.finish({ keep: [] })`。
 
-### iOS：XCUITest walkthrough＋針對改動的操作
+### iOS：XCUITest（walkthrough＋互動測試）
 
 ```sh
 printf '%s' 'verify-<run-id>-pw' > "$RUN/user.pw"; chmod 600 "$RUN/user.pw"
 "$S/ios-walkthrough.sh" <run-id> verify-<run-id>@example.test "$RUN/user.pw"
+"$S/ios-test.sh" <run-id> verify-<run-id>@example.test "$RUN/user.pw" VerifyInteractionTests/test02_Overview,VerifyInteractionTests/test03_History
 ```
 
-帳號要先在本機站註冊（網頁 drive 第一步就會建）。`WalkthroughTests/test1_SignInAndVisitEveryScreen` 登入後走過總覽、走勢、名單（打開加入畫面再取消）、新聞、日曆、更多 → ETF、展望、推播、帳號，共約 20 張截圖到 `$RUN/evidence/ios/`，xcresult（含錄影）在同目錄。**跑完要打開截圖看**：測試只確認找得到按鈕，不檢查字有沒有被切掉、顏色對不對、數字是不是 0。
+帳號要先在本機站註冊（網頁 drive 第一步就會建）。`ios-test.sh <run-id> <email> <密碼檔> <Class/test>[,...]` 先增量 `build-for-testing`（改過測試檔會帶進去）再跑指定的 test，連這次的本機站；截圖、`<ID>.txt` 與 xcresult 寫到 `$RUN/evidence/ios/`。`ios-walkthrough.sh` 就是它跑 `WalkthroughTests/test1_SignInAndVisitEveryScreen`：登入後逐頁截圖約 20 張（總覽、走勢、名單、新聞、日曆、更多 → ETF、展望、推播、帳號），只確認找得到按鈕。
 
-walkthrough 沒走到的互動（滑動刪除、對話框、選期間、推播點開）用：
+實際操作（切換、輸入、左滑、對話框、存了再讀回）在 `ios/MarketObservatoryUITests/VerifyInteractionTests.swift`，會改資料的 test 結束前改回基準：
+
+| test | 測案 |
+| --- | --- |
+| `test00_DumpTree` | 不是驗證：把總覽、走勢、ETF、我的規劃的無障礙樹寫成 `dump-*.txt`，摸索新畫面的 label 時用 |
+| `test02_Overview` | B2 市場指標展開、B5 其他交易日與回到最新、B4 點公司到走勢、B8 完整日曆 |
+| `test03_History` | C2 區間、C3 快速連點、C4 標的選單、C6 點統計表的列 |
+| `test04_Watchlist` | D2 加入 AVGO、D4 ZZZZ、D5 已在名單、D6–D8 左滑與確認、D9 點公司 |
+| `test05_NewsCalendar` | E3 代號篩選、E4 快速連點、E5 點 10/28、換月、今天 |
+| `test06_EtfsPlan` | F2 期間、F3 試算、F3b 設為預設再讀回、F4 出場漲幅 150、F5 每批投入 |
+| `test07_PushPrefs` | F8 關每日摘要、門檻 ±6.0%，離開再進來讀回，再改回 |
+| `test08_PushOpenDaily`、`test09_PushOpenEvents` | G1 前景橫幅、G2／G3 背景點開推播（要 shell 送推播，見下） |
+| `test10_SignOutAndErrors` | Z1 登出、A5 錯誤密碼、A2 短密碼，最後用正確密碼登回 |
+
+每個 test 把看到的畫面文字寫成 `<ID>.txt`（例如 `B5-older.txt`、`D2-added.txt`），拿去跟同帳號的 `/api/v1/*` 對帳。這些 test 寫死了寫測試當時本機站的資料（`2026-10-22`／`10/23` 交易日、`7/30 家 · 合計權重 34.01%`、事件日 10/28）；資料日期不同時先改 test 裡的字串，否則會 fail 在找不到元素。
+
+**08／09 要 shell 同時送推播**：test 只等橫幅出現再點，推播由 shell 在背景每 8 秒送一次，test 跑完用旗標檔停掉迴圈。迴圈、test、停止要寫在**同一個 Bash 呼叫**裡（shell 狀態不跨呼叫，`S`、`RUN` 也要在這個呼叫裡設）：
+
+```sh
+UDID=$(cat "$RUN/sim.udid"); STOP="$RUN/push.stop"; rm -f "$STOP"
+( while [ ! -f "$STOP" ]; do xcrun simctl push "$UDID" com.audichuang.observatory "$RUN/daily.json"; sleep 8; done ) &
+"$S/ios-test.sh" <run-id> verify-<run-id>@example.test "$RUN/user.pw" VerifyInteractionTests/test08_PushOpenDaily; touch "$STOP"; wait
+```
+
+（test09 換成 `$RUN/events.json`；payload 在 [推播功能檔](features/push.md)，daily 的 `date` 要等於 test08 斷言的 `2026-10-22`。）
+
+**跑完要逐張看截圖。** 測試通過只代表找得到元素、斷言的那一項成立，不代表畫面對：例如「市場指標」點了沒展開時，只斷言存在的舊版測試照樣過。字有沒有被切掉、顏色、數字是不是 0，都只能看圖。
+
+寫或改 XCUITest 時的坑（`VerifyInteractionTests` 裡都有對應寫法，照抄）：
+
+- 只有登入欄位有 identifier（`email`、`password`、`submit`），其他用畫面上的中文 label；不知道 label 就跑 `test00_DumpTree` 或在 test 裡 `note(..., app.debugDescription)`。
+- List 是 lazy 的：畫面外的列不在無障礙樹裡，`exists` 是 false。先捲到它出現（`reveal`）。
+- 數字鍵盤不會自己收，鍵盤擋住時清單也捲不動：按鍵盤上方的「完成」（取樹裡最後一個 label 為「完成」的按鈕）。
+- 清欄位：點欄位**右端**（`coordinate(withNormalizedOffset: (0.98, 0.5))`）再按 n+2 次刪除鍵；點中間時游標可能在字首，刪除鍵什麼都沒刪。
+- Picker 選單的選項會跟頁面上同名按鈕撞名（ETF 頁的「標的」選單 VOO 與 ETF 列表的 VOO）：取 `allElementsBoundByIndex.last`。
+- sheet 開著時，後面的畫面仍在樹裡：名單 sheet 的 AVGO 列與總覽的 AVGO 列同名，用「label 不含 收盤」指名 sheet 那列。斷言畫面切換要看 `isHittable` 或 sheet 的導覽列消失，只看元素 `exists` 會被 sheet 後面的畫面騙。
+- `xcodebuild` 測完常卡著不退出（`ios-test.sh` 看到結果行 60 秒後會停掉它），所以 xcresult 可能不完整、沒有錄影。失敗時靠 test 自己存的截圖與 `fail-*.txt`／dump，比 xcresult 可靠。
+
+不用點擊的操作直接用 `simctl`：
 
 - `xcrun simctl io <UDID> screenshot <路徑>` 截圖。
-- 推播：`xcrun simctl push <UDID> com.audichuang.observatory <payload.json>`（payload 在 [推播功能檔](features/push.md)）。
+- 推播：`xcrun simctl push <UDID> com.audichuang.observatory <payload.json>`。
 - 外觀與字級：`xcrun simctl ui <UDID> appearance dark|light`、`content_size accessibility-large|large`。
-- 需要點擊的：在 `WalkthroughTests` 加一個 test（用畫面上的中文 label；只有登入欄位有 identifier：`email`、`password`、`submit`），或交給 Codex 桌面版用 DeviceHub（`/Applications/Xcode.app/Contents/Applications/DeviceHub.app`）手動操作（codex skill）。
 
 ## Evidence
 

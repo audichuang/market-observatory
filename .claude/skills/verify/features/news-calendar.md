@@ -4,9 +4,9 @@
 
 ## Sub-features
 
-- `news-list`（E1）：標題、來源、時間；第一筆＝API `/api/v1/news` 的 `news[0].title`。
+- `news-list`（E1）：標題、來源、時間。網頁與 App 都把 `important: true` 的新聞排前面，其餘收在「其他 N 則」：第一筆＝API `/api/v1/news` 的 `news` 裡**第一個 `important` 為 true** 的 `title`（不是 `news[0]`）。
 - `news-open`（E2）：點新聞開原文，回來時列表位置合理。
-- `news-filter`（E3、E4）：代號篩選只剩該代號新聞＝`?symbol=` 的 API；快速連點停在最後一個。
+- `news-filter`（E3、E4）：代號篩選只剩該代號新聞；總則數（重要＋「其他 N 則」）＝`?symbol=` 的 API `news` 筆數，第一筆同 E1 規則；快速連點停在最後一個。
 - `calendar-month`（E5）：App 月曆週日開頭、今天有外圈；有事件的日子有點（FOMC 紅點、財報藍點）與圖例；點某天列出當天事件；換月、回「今天」；「接下來」列表點一列選到那天。
 - `calendar-web`：網頁 `/news` 的「即將到來」事件列表。
 - `news-refresh`（E6）：App 下拉重新整理只有一個轉圈。
@@ -22,10 +22,11 @@ Preconditions:
 
 - 基準狀態（`web-up.sh` 已跑過 `news` 與 `daily-reference` 排程）、測試帳號登入。
 
-- **列表。** `goto("/news")`，等 `text=新聞與事件日曆`；`fetch("/api/v1/news")` 的 `news[0].title` 出現在畫面上。截圖 `news-list.png`。
-- **篩選。** 點代號按鈕「NVDA」（`text="NVDA"` 精確比對），網址出現 `symbol=NVDA`，畫面第一筆＝`fetch("/api/v1/news?symbol=NVDA")` 的第一筆。
-- **App 日曆。** walkthrough 的 `05-news.png`、`05b-calendar.png`、`05c-calendar-day.png`（點了第一個有 FOMC 的日子）；核對點的顏色與當天事件數＝API `events` 該日期的筆數。
-- **Proof。** `news-list.png`、`news-nvda.png`、API JSON、App 三張截圖。
+- **列表。** `goto("/news")`，等 `text=新聞與事件日曆`；`fetch("/api/v1/news")`，畫面第一筆＝`news.find(n => n.important).title`。截圖 `news-list.png`。
+- **篩選。** 點代號篩選 `a.chip:text-is("NVDA")`（頁面上另有 `.mono` 的同名連結，`text=NVDA` 會對到多個），網址出現 `symbol=NVDA`；第一筆＝`fetch("/api/v1/news?symbol=NVDA")` 裡第一個 important 的，總則數＝該 API 的 `news.length`。截圖 `news-nvda.png`。
+- **App 列表與篩選。** `ios-test.sh … VerifyInteractionTests/test05_NewsCalendar`：`E3-nvda.txt` 對 `?symbol=NVDA` 的 API、`E4-rapid.txt` 停在 TSLA。
+- **App 日曆。** walkthrough 的 `05b-calendar.png`、`05c-calendar-day.png`；test05 的 `E5-day28.png`／`.txt`、`E5-next-month.png`、`E5-today.png`。核對點的顏色與當天事件數＝API `events` 該日期的筆數。label 有兩種，要指名對的那個：月曆的日期格是「10/28（三），有總經事件，有財報」（逗號分隔），「接下來」列表的列是「10/28（三）、MSFT、Microsoft 財報、2 天後」（頓號分隔）；`label CONTAINS '10/28'` 會先對到「接下來」那列。
+- **Proof。** `news-list.png`、`news-nvda.png`、API JSON、App 的 E3／E4／E5 截圖與 `.txt`。
 
 ## Gotchas
 

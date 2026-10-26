@@ -12,8 +12,9 @@
 
 ## 操作慣例
 
-- 網頁用 ego-browser（`ego-browser nodejs`），iOS 用 `ios-walkthrough.sh` 加 `simctl`；用法在 SKILL.md 的 Drive。
-- 把手用畫面上的中文字與網址；網頁幾乎沒有 ARIA label，App 只有登入欄位有 identifier。
+- 網頁用 ego-browser（`ego-browser nodejs`），iOS 用 `ios-walkthrough.sh`（逐頁截圖）、`ios-test.sh` 跑 `VerifyInteractionTests` 的互動測試，加上 `simctl`；用法與選擇器、XCUITest 的坑在 SKILL.md 的 Drive。
+- 把手用畫面上的中文字與網址；網頁幾乎沒有 ARIA label，App 只有登入欄位有 identifier。功能檔裡寫的是實測過的精確把手。
+- 已知 bug（另案修）會讓對應測案 fail：照實記 fail，不要改步驟讓它過。各功能檔的 Gotchas 列了目前已知的；修好後刪掉那一筆。
 - 每個功能從基準狀態開始；會改資料的（名單、定投規劃、推播偏好）做完要改回基準，並讀回確認。
 - 等畫面上的結果出現，不要固定 sleep。
 

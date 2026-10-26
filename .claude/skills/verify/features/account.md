@@ -25,8 +25,10 @@ Preconditions:
 - 基準狀態、`doctor.sh` 全 ✓；`verify-<run-id>@example.test` 還沒註冊。
 
 - **網頁註冊。** `page.goto("http://localhost:5181/login")`，`page.click("text=還沒有帳號？建立帳號")`，等 `loc=role:button[name='建立帳號']` 出現（等不到＝頁面沒 hydrate，跑 doctor），`fill("input[type=email]", …)`、`fill("input[type=password]", …)`，按「建立帳號」。20 秒內出現 `text=S&P 500 收盤`，網址是 `/`，右上顯示這個 email。
-- **短密碼。** 建立帳號模式下密碼填 `short` 按送出。瀏覽器的 `minLength=8` 原生提示擋下（網頁）；App 顯示中文「密碼至少 8 個字」類訊息（A2）。
-- **登入閘門。** 登出後 `goto("/watchlist")`：網址變 `/login?next=%2Fwatchlist`；登入後回到 `/watchlist`。`page.fetch("/api/v1/me")` 在登出狀態回 401。
+- **短密碼。** 建立帳號模式下密碼填 `short` 按送出（網頁）：表單沒送出，由瀏覽器原生 `minLength=8` 擋下，畫面上沒有自訂文字；`evaluate` 讀 `document.querySelector("input[type=password]").validationMessage` 是中文，網址仍是 `/login`。截圖 `account-signup-short.png`。App：test10 的 `A2-short.txt`（A2）。
+- **錯誤密碼。** 網頁登入模式填錯密碼送出，紅字出現在「登入」按鈕上方，截圖 `account-signin-wrong.png`；App：test10 的 `A5-wrong.png`／`.txt`（A5）。
+- **登出。** 網頁右上「登出」：登入或任何整頁跳轉後要先等 hydrate 再點（SKILL.md Drive 的 `waitForFunction`），否則點了沒反應。App：`ios-test.sh … VerifyInteractionTests/test10_SignOutAndErrors` 的 `Z1-signed-out.png`，test 最後會用正確密碼登回（Z1）。
+- **登入閘門。** 登出後 `goto("/watchlist")`：網址變 `/login?next=%2Fwatchlist`；登入後回到 `/watchlist`（截圖 `account-signin-next.png`）。`page.fetch("/api/v1/me")` 在登出狀態回 401。
 - **App 登入。** `ios-walkthrough.sh <run-id> <email> <密碼檔>`：`01-login.png` 是登入畫面，`02-overview.png` 已在總覽，底部五個分頁：總覽、走勢、新聞、更多（名單在總覽右上星號）。再 `simctl terminate` + `simctl launch` 一次，直接進總覽（A4）。
 - **App 刪除帳號。** 只對一次性帳號：`-only-testing:MarketObservatoryUITests/WalkthroughTests/test2_DeleteAccount`（環境變數同 walkthrough）。`11-delete-confirm.png` 是確認對話框、`12-after-delete.png` 回到登入畫面；之後用同帳密打 `POST /api/auth/sign-in/email` 要失敗。
 - **Proof。** `evidence/web/account-signup.png`（總覽＋右上 email）、`evidence/ios/01-login.png`、`02-overview.png`；刪除時加上登入失敗的 API 回應。

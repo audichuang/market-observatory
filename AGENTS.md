@@ -2,3 +2,8 @@
 
 - `web/` 是 Void 專案：改它底下的檔案前先讀 `web/AGENTS.md`（從 repo 根目錄開的 session 不一定會自動載入）；`npm`、`npx void`、`node scripts/*` 都在 `web/` 底下跑。
 - `ios/` 是獨立的 Xcode 專案（XcodeGen），只透過 `/api/v1` 與 Better Auth 的 `/api/auth/*`（登入）跟後端溝通。改了 `/api/v1` 的回應欄位，App 的 Codable 模型要一起改；要拿掉欄位，先確認 App 那邊是 optional，否則已安裝的舊版 App 會整頁解碼失敗。
+
+## 交付
+
+- 宣告完成、合併、部署或上傳 TestFlight 之前，照 `/verify`（`.claude/skills/verify/`）把改到的功能實際操作一遍並留證據；單元測試與 build 通過不等於驗證過。驗不到的項目要明說「未驗證：缺什麼」。
+- 功能地圖（`.claude/skills/verify/features/`）跟著功能改：新增或改變使用者看得到的行為時一起更新；定期用 `/maintain-verification-skill` 對帳。

@@ -93,6 +93,12 @@ final class VerifyInteractionTests: XCTestCase {
     private func replaceText(_ f: XCUIElement, _ v: String) {
         // 點欄位右端，游標才會在字尾（點中間可能落在字首，刪除鍵就刪不到東西）。
         if !f.exists { snap("fail-replaceText"); note("fail-replaceText", XCUIApplication().debugDescription) }
+        // 欄位貼在畫面下緣時會被浮動的分頁列蓋住，點下去其實點到分頁列：先小幅捲到畫面中間。
+        let win = XCUIApplication().windows.firstMatch
+        for _ in 0 ..< 4 where f.exists && f.frame.midY > win.frame.height * 0.6 {
+            win.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7)).press(forDuration: 0.05, thenDragTo: win.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45)))
+            sleep(1)
+        }
         f.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.5)).tap()
         let n = (f.value as? String)?.count ?? 0
         f.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: n + 2) + v)
@@ -109,6 +115,8 @@ final class VerifyInteractionTests: XCTestCase {
         let kpi = app.buttons.matching(NSPredicate(format: "label BEGINSWITH '市場指標'")).firstMatch
         XCTAssertTrue(kpi.waitForExistence(timeout: 15))
         note("B2-before", "value=\(kpi.value ?? "nil") hittable=\(kpi.isHittable)")
+        // 展開狀態存在 @AppStorage，上一輪留下「已展開」時先收起來，才驗得到「點了會展開」。
+        if (kpi.value as? String) == "已展開" { kpi.tap(); sleep(2) }
         kpi.tap(); sleep(2)
         snap("B2-kpi-expanded"); note("B2-kpi-expanded", "value=\(app.buttons.matching(NSPredicate(format: "label BEGINSWITH '市場指標'")).firstMatch.value ?? "nil")\n" + texts(app))
         XCTAssertEqual(app.buttons.matching(NSPredicate(format: "label BEGINSWITH '市場指標'")).firstMatch.value as? String, "已展開", "點了市場指標沒有展開")
@@ -249,11 +257,15 @@ final class VerifyInteractionTests: XCTestCase {
 
         func pick(_ picker: String, _ option: String) {
             let b = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", picker + "、")).firstMatch
-            reveal(app, b)
-            b.tap(); sleep(1)
-            // 頁面上的 ETF 列表也有同名按鈕（例如 VOO），選單是樹裡最後出現的那個。
-            let all = app.buttons.matching(NSPredicate(format: "label == %@", option)).allElementsBoundByIndex
-            if all.isEmpty { note("pick-\(picker)-\(option)", app.debugDescription) }
+            // 頁面上的 ETF 列表也有同名按鈕（例如 VOO），選單是樹裡最後出現的那個；選單開了才會多出一個。
+            let options = app.buttons.matching(NSPredicate(format: "label == %@", option))
+            let before = options.count
+            for _ in 0 ..< 3 {
+                reveal(app, b).tap(); sleep(1)
+                if options.count > before || (before == 0 && options.count > 0) { break }
+            }
+            let all = options.allElementsBoundByIndex
+            if all.count <= before && before > 0 || all.isEmpty { note("pick-\(picker)-\(option)", app.debugDescription) }
             XCTAssertFalse(all.isEmpty, "選單沒有 \(option)"); all.last!.tap(); sleep(2)
             XCTAssertTrue(app.buttons["\(picker)、\(option)"].waitForExistence(timeout: 5), "\(picker) 沒有變成 \(option)")
         }

@@ -14,6 +14,8 @@ UDID=$(cat "$RUN/sim.udid" 2>/dev/null) || die "先跑 ios-up.sh"
 OUT="$RUN/evidence/ios"
 mkdir -p "$OUT"
 NAME="$(echo "$TESTS" | tr '/,' '__')"
+# 一次跑多個 test 時名字會超過檔名上限（255 bytes）：改用前 60 字＋雜湊。
+[ ${#NAME} -le 100 ] || NAME="${NAME:0:60}_$(printf '%s' "$TESTS" | shasum | cut -c1-8)"
 rm -rf "$OUT/$NAME.xcresult"
 
 cd "$REPO/ios"

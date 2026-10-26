@@ -10,6 +10,7 @@ struct OverviewView: View {
     @State private var loadTask: Task<Void, Never>?
     @State private var loadID = 0
     @State private var showDates = false
+    @State private var expandedDigests: Set<String> = []
     @State private var showWatchlist = false
     @AppStorage("overview.showIndicators") private var showIndicators = false
 
@@ -338,24 +339,34 @@ struct OverviewView: View {
         let maxAbs = max(0.01, s.mag7.map { abs($0.contributionPts ?? 0) }.max() ?? 0, abs(s.rest.contributionPts ?? 0))
         return Section {
             ForEach(s.mag7) { r in
-                Button {
-                    session.historySymbol = r.key
-                    session.tab = .history
-                } label: {
-                    HStack {
-                        AttributionRow(
-                            title: r.key,
-                            subtitle: r.close.map { "\(r.company) · 收盤 \(Fmt.num($0, 2))" } ?? r.company,
-                            ret: r.returnPct, weight: r.weightPct, pts: r.contributionPts, share: r.shareOfMovePct,
-                            maxAbs: maxAbs, check: r.check,
-                            digest: digests.first(where: { $0.symbol == r.key })?.summary
-                        )
-                        Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
+                // 兩個互不相干的點擊目標：上面的 Button 跳到走勢，下面的摘要 Button 只就地展開／收合。
+                // 摘要在 Button 外面（兄弟節點），所以點摘要不會觸發跳頁。
+                VStack(alignment: .leading, spacing: 6) {
+                    Button {
+                        session.historySymbol = r.key
+                        session.tab = .history
+                    } label: {
+                        HStack {
+                            AttributionRow(
+                                title: r.key,
+                                subtitle: r.close.map { "\(r.company) · 收盤 \(Fmt.num($0, 2))" } ?? r.company,
+                                ret: r.returnPct, weight: r.weightPct, pts: r.contributionPts, share: r.shareOfMovePct,
+                                maxAbs: maxAbs, check: r.check
+                            )
+                            Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
+                        }
+                        .contentShape(Rectangle())
                     }
-                    .contentShape(Rectangle())
+                    .buttonStyle(.plain)
+                    .accessibilityHint("看 \(r.company) 的走勢")
+                    if let digest = digests.first(where: { $0.symbol == r.key })?.summary {
+                        AIDigestLine(text: digest, expanded: expandedDigests.contains(r.key)) {
+                            withAnimation {
+                                if !expandedDigests.insert(r.key).inserted { expandedDigests.remove(r.key) }
+                            }
+                        }
+                    }
                 }
-                .buttonStyle(.plain)
-                .accessibilityHint("看 \(r.company) 的走勢")
             }
             // The hidden chevron reserves the same trailing width as the stock rows,
             // so every bar shares one zero line and right edge.
@@ -646,7 +657,6 @@ private struct AttributionRow: View {
     let maxAbs: Double
     let check: String?
     var showsBar = true
-    var digest: String? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -663,14 +673,6 @@ private struct AttributionRow: View {
                         Text("權重 \(Fmt.num(weight, 2))%").foregroundStyle(.secondary)
                     }
                     .font(.caption.monospacedDigit())
-                }
-            }
-            if let digest {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text("AI").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
-                        .padding(.horizontal, 4)
-                        .overlay(Capsule().stroke(Color.secondary.opacity(0.6), lineWidth: 1))
-                    Text(digest).font(.footnote).foregroundStyle(.secondary).lineLimit(2).multilineTextAlignment(.leading)
                 }
             }
             if showsBar {
@@ -703,5 +705,41 @@ struct CenteredBar: View {
             .frame(height: 10)
         }
         .frame(height: 10)
+    }
+}
+
+/// 個股下面的 AI 摘要：預設 2 行，點一下就地展開成全文（獨立於整列的跳頁 Button）。
+struct AIDigestLine: View {
+    let text: String
+    let expanded: Bool
+    let toggle: () -> Void
+
+    var body: some View {
+        Button(action: toggle) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text("AI").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                    .padding(.horizontal, 4)
+                    .overlay(Capsule().stroke(Color.secondary.opacity(0.6), lineWidth: 1))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(text)
+                        .font(.footnote).foregroundStyle(.secondary)
+                        .lineLimit(expanded ? nil : 2)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: 2) {
+                        Text(expanded ? "收合" : "展開")
+                        Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                    }
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(Color.accentColor)
+                }
+                Spacer(minLength: 0)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("AI 摘要：\(text)")
+        .accessibilityValue(expanded ? "已展開" : "已收合")
+        .accessibilityHint(expanded ? "點兩下收合" : "點兩下展開")
     }
 }

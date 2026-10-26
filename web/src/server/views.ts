@@ -47,6 +47,18 @@ const memberKey = (members: WatchMember[]) => members.map((m) => m.tickers.join(
 
 // ── 總覽 ───────────────────────────────────────────────
 
+/** 首頁卡片：把紀錄 detail 裡的 drawdown（p、base）攤出來；舊列沒有就是 null。detail 本身不外露。 */
+function withDrawdown({ detail, ...f }: { trade_date: string; probability: number; base_rate: number; call: string; detail: string | null }) {
+  let drawdown: { p: number; base: number } | null = null;
+  try {
+    const d = detail ? (JSON.parse(detail) as { drawdown?: { p?: unknown; base?: unknown } }).drawdown : undefined;
+    if (typeof d?.p === "number" && typeof d.base === "number") drawdown = { p: d.p, base: d.base };
+  } catch {
+    // detail 壞掉就當沒有
+  }
+  return { ...f, drawdown };
+}
+
 export async function overviewView(c: ViewCtx, v: Viewer) {
   const db = readDb(c.env);
   const members = await membersOf(c, v);
@@ -61,9 +73,9 @@ export async function overviewView(c: ViewCtx, v: Viewer) {
       listSnapshotDates(db, 400),
       db.prepare("SELECT date, kind, symbol, title, status FROM events WHERE date >= ? AND date <= ? ORDER BY date LIMIT 60").bind(today, addDays(today, 21)).all<{ date: string; kind: string; symbol: string | null; title: string; status: string }>(),
       db.prepare("SELECT status, summary, finished_at FROM runs WHERE job = 'prices' ORDER BY id DESC LIMIT 1").first<{ status: string; summary: string; finished_at: string | null }>(),
-      db.prepare("SELECT trade_date, probability, base_rate, call FROM forecasts ORDER BY trade_date DESC LIMIT 1").first<{ trade_date: string; probability: number; base_rate: number; call: string }>(),
+      db.prepare("SELECT trade_date, probability, base_rate, call, detail FROM forecasts ORDER BY trade_date DESC LIMIT 1").first<{ trade_date: string; probability: number; base_rate: number; call: string; detail: string | null }>(),
     ]);
-    return { snapshot, revisions, dates, events: events.results, lastPriceRun, forecast };
+    return { snapshot, revisions, dates, events: events.results, lastPriceRun, forecast: forecast ? withDrawdown(forecast) : null };
   });
   const mine = new Set(members.map((m) => m.key));
   // 新聞的 AI 欄位會在使用者點開時才補上、全站共用：不放進頁面快取（快取只在資料版本變時更新），每次讀最新的。

@@ -78,7 +78,7 @@ export interface ModelConfig {
 }
 
 export const DEFAULT_MODEL: ModelConfig = {
-  version: "2026-10-g09",
+  version: "2026-10-l01",
   flags: [
     { id: "aboveSma200", basisId: "trend", compute: (c) => (c.sma200 === null ? null : c.close > c.sma200) },
     // VIX 一般狀態（<30）幾乎就是全部樣本，沒有資訊量，單獨成候選時跳過。
@@ -549,7 +549,23 @@ export interface Outlook {
   returnQuantiles: { cell: ReturnQuantiles | null; all: ReturnQuantiles | null };
   /** "up"／"down"／"inconclusive"：只有條件機率顯著不同於基準、且滾動驗證勝過基準時才給方向 */
   call: "up" | "down" | "inconclusive";
+  /** L12：四個固定評估項；call 不是 inconclusive 時四項一定都是 pass，任何一項 fail 則 call 一定是 inconclusive */
+  assessments: Assessments;
+  /** 相容舊欄位：由 assessments 推出的文字說明 */
   reasons: string[];
+}
+
+export type AssessStatus = "pass" | "fail" | "na";
+
+export interface Assessments {
+  /** 條件機率與基準率的差異：區間不含基準率才 pass；沒有可用的條件（只剩基準率）為 fail */
+  difference: { status: AssessStatus; condP: number | null; baseP: number; low: number | null; high: number | null };
+  /** 樣本：條件的有效樣本與段數、cell 在滾動驗證中的列數與連續區間數；沒有條件候選時 na */
+  sampleAdequacy: { status: AssessStatus; nEff: number | null; episodes: number | null; rows: number; runs: number };
+  /** 紀錄：所選 cell 的滾動驗證 BSS 下界 > 0 才 pass；cell 沒有任何列時 na */
+  trackRecord: { status: AssessStatus; cellBssLow: number | null; cellMde: number | null; globalBss: number | null; globalBssLow: number | null };
+  /** 資料新鮮度：VIX 落後 SPX 的交易日數不超過上限（上限 null 視為不限） */
+  dataFreshness: { status: AssessStatus; spxDate: string; vixDate: string | null; staleSessions: number | null };
 }
 
 export interface ReturnQuantiles {
@@ -611,10 +627,53 @@ export function cellGateOf(evals: CellEval[], cell: string): CellGate {
   return { rows: e.rows, runs: e.runs, bssLow: e.bssLow, validReplicates: e.validReplicates, passed };
 }
 
-/** G03 方向閘門：pick.distinct 且該 cell 通過 (b)(c)(d) 才給方向（buildOutlook 與回測腳本共用）。符號沿用 p ≥ 0.5（L01 的相對基準語意之後再改）。 */
-export function callOf(pick: { p: number; distinct: boolean }, gate: { passed: boolean }): "up" | "down" | "inconclusive" {
-  const conclusive = pick.distinct && gate.passed;
-  return !conclusive ? "inconclusive" : pick.p >= 0.5 ? "up" : "down";
+/**
+ * G03 方向閘門：pick.distinct 且該 cell 通過 (b)(c)(d) 才給方向（buildOutlook 與回測腳本共用）。
+ * L01：方向相對基準率——p > 基準率為 "up"（高於平常）、p < 基準率為 "down"（低於平常）、相等為 inconclusive；不再以 50% 為界。
+ * 基準率取 pick.base.p（Pick）或 pick.pBase（WalkRow）。
+ */
+export function callOf(pick: { p: number; distinct: boolean } & ({ base: { p: number } } | { pBase: number }), gate: { passed: boolean }): "up" | "down" | "inconclusive" {
+  if (!pick.distinct || !gate.passed) return "inconclusive";
+  const base = "base" in pick ? pick.base.p : pick.pBase;
+  return pick.p > base ? "up" : pick.p < base ? "down" : "inconclusive";
+}
+
+/** L12：由各評估項推出的文字說明（相容舊的 reasons 欄位）；每一句對應一個 fail。 */
+export function reasonsOf(a: Assessments, distinct: boolean, gate: CellGate): string[] {
+  const reasons: string[] = [];
+  if (a.difference.status !== "pass") reasons.push("目前條件下的上漲比例，信賴區間包含歷史基準率（或樣本不足），看不出差別");
+  if (a.trackRecord.globalBssLow === null) reasons.push("滾動驗證的預測次數不足 12 次");
+  else if (a.trackRecord.globalBssLow <= 0) reasons.push("滾動驗證中，這套條件機率沒有穩定勝過「永遠用基準率」");
+  if (distinct) {
+    if (gate.rows < MIN_CELL_ROWS) reasons.push(`目前這個條件組合在滾動驗證中只有 ${gate.rows} 列（需要 ${MIN_CELL_ROWS}），無法驗證`);
+    else if (gate.runs < MIN_CELL_RUNS) reasons.push(`目前這個條件組合在滾動驗證中只分成 ${gate.runs} 段連續區間（需要 ${MIN_CELL_RUNS}）`);
+    else if (gate.bssLow === null) reasons.push("目前這個條件組合的有效重抽次數不足，算不出 BSS 下界");
+    else if (gate.bssLow <= 0) reasons.push("目前這個條件組合在滾動驗證中沒有穩定勝過「永遠用基準率」");
+  }
+  if (a.dataFreshness.status === "fail") reasons.push(`VIX 落後 ${a.dataFreshness.staleSessions} 個交易日，資料不夠新`);
+  return reasons;
+}
+
+/** L12：四個固定評估項（純函式；buildOutlook 與測試共用）。 */
+export function assessmentsOf(args: { pick: Pick; evaluation: Evaluation; gate: CellGate; spxDate: string; vixDate: string | null; staleSessions: number | null; cfg: ModelConfig }): Assessments {
+  const { pick, evaluation, gate, cfg } = args;
+  const c = pick.conditional;
+  const cellEval = evaluation.byCell.find((e) => e.cell === pick.cell);
+  const sampleOk = !!c && c.nEff >= cfg.minEffectiveN && c.episodes >= cfg.minEpisodes && gate.rows >= MIN_CELL_ROWS && gate.runs >= MIN_CELL_RUNS;
+  const cap = cfg.vixMaxStaleSessions;
+  const fresh = args.staleSessions !== null && (cap === null || args.staleSessions <= cap);
+  return {
+    difference: { status: pick.distinct ? "pass" : "fail", condP: c?.p ?? null, baseP: pick.base.p, low: c?.low ?? null, high: c?.high ?? null },
+    sampleAdequacy: { status: !c ? "na" : sampleOk ? "pass" : "fail", nEff: c?.nEff ?? null, episodes: c?.episodes ?? null, rows: gate.rows, runs: gate.runs },
+    trackRecord: {
+      status: gate.rows === 0 ? "na" : gate.bssLow !== null && gate.bssLow > 0 ? "pass" : "fail",
+      cellBssLow: gate.bssLow,
+      cellMde: cellEval?.mde ?? null,
+      globalBss: evaluation.bss,
+      globalBssLow: evaluation.bssLow,
+    },
+    dataFreshness: { status: fresh ? "pass" : "fail", spxDate: args.spxDate, vixDate: args.vixDate, staleSessions: args.staleSessions },
+  };
 }
 
 export function buildOutlook(spx: Series, vix: Series, cfg: ModelConfig = DEFAULT_MODEL): Outlook | null {
@@ -630,17 +689,15 @@ export function buildOutlook(spx: Series, vix: Series, cfg: ModelConfig = DEFAUL
   if (!ddPick) return null;
   const ddEval = walkForward(obs, 504, undefined, undefined, cfg, "dd5");
   const cond = condOfPick(ddPick, last.regime, cfg);
-  const reasons: string[] = [];
-  if (!pick.distinct) reasons.push("目前條件下的上漲比例，信賴區間包含歷史基準率（或樣本不足），看不出差別");
-  if (evaluation.bssLow === null) reasons.push("滾動驗證的預測次數不足 12 次");
-  else if (evaluation.bssLow <= 0) reasons.push("滾動驗證中，這套條件機率沒有穩定勝過「永遠用基準率」");
-  if (pick.distinct) {
-    if (cellGate.rows < MIN_CELL_ROWS) reasons.push(`目前這個條件組合在滾動驗證中只有 ${cellGate.rows} 列（需要 ${MIN_CELL_ROWS}），無法驗證`);
-    else if (cellGate.runs < MIN_CELL_RUNS) reasons.push(`目前這個條件組合在滾動驗證中只分成 ${cellGate.runs} 段連續區間（需要 ${MIN_CELL_RUNS}）`);
-    else if (cellGate.bssLow === null) reasons.push("目前這個條件組合的有效重抽次數不足，算不出 BSS 下界");
-    else if (cellGate.bssLow <= 0) reasons.push("目前這個條件組合在滾動驗證中沒有穩定勝過「永遠用基準率」");
-  }
-  const call = callOf(pick, cellGate);
+  const vixSeen = vix.onOrBefore(last.date);
+  let vixIdx = -1;
+  if (vixSeen) for (let k = spx.points.length - 1; k >= 0; k--) if (spx.points[k].date <= vixSeen.date) { vixIdx = k; break; }
+  const staleSessions = vixIdx >= 0 ? obs.length - 1 - vixIdx : null;
+  const assessments = assessmentsOf({ pick, evaluation, gate: cellGate, spxDate: last.date, vixDate: vixSeen?.date ?? null, staleSessions, cfg });
+  const reasons = reasonsOf(assessments, pick.distinct, cellGate);
+  // 任何一項評估 fail，一律 inconclusive（與頁面上四列固定評估項不矛盾）。
+  const anyFail = Object.values(assessments).some((x) => x.status === "fail");
+  const call = anyFail ? "inconclusive" : callOf(pick, cellGate);
   return {
     modelVersion: cfg.version,
     asOf: last.date,
@@ -656,6 +713,7 @@ export function buildOutlook(spx: Series, vix: Series, cfg: ModelConfig = DEFAUL
     drawdown: { pick: ddPick, evaluation: ddEval, cellGate: cellGateOf(ddEval.byCell, ddPick.cell), scored: drawdownScored(ddPick, ddEval, cfg) },
     returnQuantiles: { cell: returnQuantiles(obs, last.date, cond), all: returnQuantiles(obs, last.date) },
     call,
+    assessments,
     reasons,
   };
 }

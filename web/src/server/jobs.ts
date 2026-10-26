@@ -535,6 +535,7 @@ export async function recordForecast(db: D1Database): Promise<ForecastRecord> {
         JSON.stringify({
           vixDate: S, vix: vixToday, spxCheck: status, recordedLagSessions: lag,
           cellGate: outlook.cellGate,
+          assessments: outlook.assessments,
           drawdown: { p: outlook.drawdown.pick.p, base: outlook.drawdown.pick.base.p, scored: outlook.drawdown.scored, cellGate: outlook.drawdown.cellGate },
         }),
       )

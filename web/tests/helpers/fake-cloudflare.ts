@@ -51,6 +51,7 @@ export function weekdays(n: number, end = latestExpectedClose()): string[] {
 const hash = (s: string) => [...s].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
 /** 每檔固定的假價格：同一代號同一天在 Yahoo、Nasdaq、Cboe 都一樣，交叉核對會是 match。 */
 export const fakeClose = (symbol: string, date: string) => {
+  if (symbol === "^GSPC") symbol = "SPX"; // Yahoo 的 ^GSPC 與 Cboe 的 SPX 是同一個指數，核對才會 match
   const base = 50 + (hash(symbol) % 400);
   const day = Math.round((Date.parse(date) - Date.parse("2020-01-01")) / 86400000);
   return Math.round(base * (1 + day * 0.0002) * 100) / 100;

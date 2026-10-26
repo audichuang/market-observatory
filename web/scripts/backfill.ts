@@ -66,7 +66,14 @@ for (let part = 0; ; part++) {
   if (r.summary.includes(`第 ${part + 1}/${part + 1} 段`)) break;
 }
 // 1b. SPX／VIX 十年窗口之前的歷史（Cboe，約 30 與 35 年）。
-await backfillIndexHistory();
+// 失敗不擋後面不需要它的步驟：先記下錯誤，全部跑完再印出並以非零結束。
+let historyError: unknown = null;
+try {
+  await backfillIndexHistory();
+} catch (e) {
+  historyError = e;
+  console.error(`歷史步驟失敗，先繼續其他步驟：${e instanceof Error ? e.message : e}`);
+}
 // 2. Nasdaq 全段交叉核對。
 for (let part = 0; ; part++) {
   const r = await run("backfill-checks", { part });
@@ -83,5 +90,9 @@ for (let done = 0; done < totalSessions; done += 60) {
   const d = new Date(`${first}T12:00:00Z`);
   d.setUTCDate(d.getUTCDate() - 1);
   upTo = d.toISOString().slice(0, 10);
+}
+if (historyError) {
+  console.error(`回補未完成：${historyError instanceof Error ? historyError.message : historyError}`);
+  process.exit(1);
 }
 console.log("回補完成");

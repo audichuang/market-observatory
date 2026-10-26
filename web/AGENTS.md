@@ -27,3 +27,5 @@
 - 開放註冊：`cachedPage` 回呼算出的結果全站共用、會被快取，每個人不同的資料（名單、定投規劃）與要即時反映的資料不能放進去，要嘛在快取外套上，要嘛把名單放進快取鍵；排程一律用 `loadTrackedMembers`（聯集），單一使用者用 `loadWatchlist(db, key)`。
 - 新的後台功能放在 `/api/admin/` 底下：middleware 只放行站長，route 裡也要再用 `viewerOf(c)?.isOwner` 檢查。
 - 新聞 AI（翻譯、重點、「今天為什麼漲跌」）不在 Worker 裡呼叫模型：本機 Orca 排程（名稱開頭「市場觀測室：」）叫 Claude 跑 `scripts/ai-batch.ts`，答案經 `/api/admin/ai` 驗證後寫進 D1，網頁與 App 只讀 D1。新的 AI 內容照這條路加，並掛在現有的 `translate` 或 `daily` 底下（兩個排程只跑這兩種），不要在 route 或 cron 裡接模型。排程跑的是主 checkout 當下的分支，那裡要一直停在有 `scripts/ai-batch.ts` 的分支，開分支做事用 worktree；排程寫的是腳本的絕對路徑，搬動或改名要用 `orca automations edit` 一起改。
+- 新開的 worktree 沒有 `.void`（gitignore 的生成物），typecheck 會報 TS5083 與一堆假錯：先在 `web/` 跑 `npx void prepare`。
+- 改下月展望模型（`src/lib/forecast.ts` 的 `DEFAULT_MODEL`、旗標、門檻）：先把定義與採用門檻寫進 `docs/forecast.md` 的「事前登記」並合併，再用 `scripts/backtest.ts` 跑完整歷史、照登記的規則決定；結果寫回「試驗登記」，`DEFAULT_MODEL.version` 要升。

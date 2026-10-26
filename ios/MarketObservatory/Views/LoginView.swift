@@ -4,6 +4,7 @@ import SwiftUI
 
 struct LoginView: View {
     @Environment(SessionStore.self) private var session
+    @Environment(\.colorScheme) private var colorScheme
     @State private var mode: Mode = .signIn
     @State private var email = ""
     @State private var password = ""
@@ -40,7 +41,9 @@ struct LoginView: View {
                 } onCompletion: { result in
                     Task { await apple(result) }
                 }
-                .signInWithAppleButtonStyle(.black)
+                // Apple 規範：深色背景用白色按鈕，淺色用黑色；換外觀時 style 不會自己重畫，用 id 強制重建。
+                .signInWithAppleButtonStyle(colorScheme == .dark ? .white : .black)
+                .id(colorScheme)
                 .frame(height: 50)
                 .disabled(busy)
 

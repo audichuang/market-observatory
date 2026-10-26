@@ -81,7 +81,8 @@ struct OverviewView: View {
 
     private var title: String {
         guard let t = state.value?.snapshot?.tradeDate else { return "市場總覽" }
-        return "S&P 500 \(Fmt.dateWithWeekday(t))"
+        // 大字級時大標題放不下「S&P 500 10/23（五）」會被截成「S&P 500 10/2…」；日期是關鍵，只留日期（指數卡第一行就是 S&P 500）。
+        return dts.isAccessibilitySize ? Fmt.dateWithWeekday(t) : "S&P 500 \(Fmt.dateWithWeekday(t))"
     }
 
     /// 換日期：取消還在跑的請求，免得舊的回應蓋掉新的。
@@ -657,22 +658,29 @@ private struct AttributionRow: View {
     let maxAbs: Double
     let check: String?
     var showsBar = true
+    @Environment(\.dynamicTypeSize) private var dts
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 1) {
+            // 大字級時左右並排放不下：副標（收盤價）會被截、% 會被擠到下一行，改成上下排列、全部靠左。
+            if dts.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 2) {
                     Text(title).font(.headline)
-                    Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    Text(subtitle).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    points
+                    figures(alignment: .leading)
                 }
-                Spacer()
-                VStack(alignment: .trailing, spacing: 1) {
-                    Text("\(Fmt.signed(pts)) 點").font(.headline.monospacedDigit()).foregroundStyle(Color.tone(pts))
-                    HStack(spacing: 6) {
-                        Text(Fmt.pct(ret)).foregroundStyle(Color.tone(ret))
-                        Text("權重 \(Fmt.num(weight, 2))%").foregroundStyle(.secondary)
+            } else {
+                HStack(alignment: .firstTextBaseline) {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(title).font(.headline)
+                        Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     }
-                    .font(.caption.monospacedDigit())
+                    Spacer()
+                    VStack(alignment: .trailing, spacing: 1) {
+                        points
+                        figures(alignment: .trailing)
+                    }
                 }
             }
             if showsBar {
@@ -683,6 +691,21 @@ private struct AttributionRow: View {
             }
         }
         .padding(.vertical, 2)
+    }
+
+    private var points: some View {
+        Text("\(Fmt.signed(pts)) 點").font(.headline.monospacedDigit()).foregroundStyle(Color.tone(pts))
+    }
+
+    /// 漲跌與權重：每個數字不斷行；一行放不下時上下排，不截字。
+    private func figures(alignment: HorizontalAlignment) -> some View {
+        let ret = Text(Fmt.pct(self.ret)).foregroundStyle(Color.tone(self.ret)).fixedSize()
+        let weight = Text("權重 \(Fmt.num(self.weight, 2))%").foregroundStyle(.secondary).fixedSize()
+        return ViewThatFits(in: .horizontal) {
+            HStack(spacing: 6) { ret; weight }
+            VStack(alignment: alignment, spacing: 1) { ret; weight }
+        }
+        .font(.caption.monospacedDigit())
     }
 }
 

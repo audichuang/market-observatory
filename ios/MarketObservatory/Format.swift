@@ -168,8 +168,10 @@ struct CallBadge: View {
             .font(.caption.weight(.semibold))
             .padding(.horizontal, 8)
             .padding(.vertical, 2)
-            .background(color.opacity(0.12), in: Capsule())
+            // 大字級時徽章會換成多行，Capsule 的半圓兩端會裁掉文字；用圓角矩形，單行時看起來一樣。
+            .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             .foregroundStyle(color)
+            .fixedSize(horizontal: false, vertical: true)
     }
 }
 

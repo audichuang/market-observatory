@@ -366,6 +366,7 @@ struct OutlookView: View {
     private func content(_ p: OutlookPage) -> some View {
         let minN = p.minN ?? 30
         return List {
+            Text("以美元計、不含股息的 S&P 500 價格指數；台幣結果另受匯率影響").font(.caption).foregroundStyle(.secondary).noticeRow()
             if let o = p.outlook {
                 Section {
                     VStack(alignment: .leading, spacing: 6) {
@@ -393,6 +394,7 @@ struct OutlookView: View {
                             CallBadge(call: o.call, mde: o.evaluation?.mde)
                             Text("歷史基準率 \(Fmt.plainPct(o.pick.base.p * 100))").font(.subheadline)
                         }
+                        Text(Self.callWhy[o.call] ?? Self.callWhy["inconclusive"]!).font(.footnote).foregroundStyle(.secondary)
                         if let f = p.frequency {
                             VStack(alignment: .leading, spacing: 2) {
                                 if let up = f.up { Text("\(up)。") }
@@ -401,7 +403,6 @@ struct OutlookView: View {
                             .font(.footnote).foregroundStyle(.secondary)
                             .padding(.top, 2)
                         }
-                        Text("以美元計、不含股息的 S&P 500 價格指數；台幣結果另受匯率影響").font(.caption).foregroundStyle(.secondary)
                         Text("對每月定期定額：這不是加碼或停扣的訊號，它描述下個月可能的波動。").font(.footnote.weight(.semibold))
                     }
                     .padding(.vertical, 6)
@@ -428,7 +429,7 @@ struct OutlookView: View {
                     }
                 } footer: {
                     // 標題說明已經寫了「看不出差別」時，不再重複同一句理由；項目符號用懸掛縮排。
-                    let reasons = o.reasons.filter { !(o.pick.distinct != true && o.pick.conditional != nil && $0.contains("看不出差別")) }
+                    let reasons = o.reasons.filter { !(o.pick.distinct != true && o.pick.conditional != nil && $0.contains("看不出差別") && (o.pick.shrinkWeight ?? 0) == 0) }
                     VStack(alignment: .leading, spacing: 4) {
                         ForEach(reasons, id: \.self) { r in
                             // 只有一條時直接當說明文字，不要孤零零一個項目符號。
@@ -442,7 +443,7 @@ struct OutlookView: View {
                 }
 
                 Section {
-                    ForEach(p.cells) { c in cellRow(c, minN: minN, minEpisodes: p.minEpisodes) }
+                    ForEach(p.cells) { c in cellRow(c, isBase: c.id == p.cells.first?.id, minN: minN, minEpisodes: p.minEpisodes) }
                 } header: {
                     Text(p.minEpisodes == nil ? "各條件下的歷史上漲比例" : "樣本內：各條件下的歷史上漲比例")
                 } footer: {
@@ -471,6 +472,12 @@ struct OutlookView: View {
         .listStyle(.insetGrouped)
         .refreshable { await load() }
     }
+
+    private static let callWhy = [
+        "up": "目前條件下的上漲機率明顯高於歷史基準（平常），且滾動驗證勝過基準",
+        "down": "目前條件下的上漲機率明顯低於歷史基準（平常），且滾動驗證勝過基準",
+        "inconclusive": "目前的訊號不足以把機率拉離歷史基準",
+    ]
 
     private static let basisLabels = [
         "base": "歷史基準率",
@@ -538,8 +545,8 @@ struct OutlookView: View {
 
     private func assessmentRow(_ name: String, _ status: String, _ line1: String, _ line2: String) -> some View {
         let (text, color): (String, Color) = switch status {
-        case "pass": ("通過", .up)
-        case "fail": ("未通過", .down)
+        case "pass": ("通過", .down)
+        case "fail": ("未通過", .up)
         default: ("不適用", .secondary)
         }
         return HStack(alignment: .top, spacing: 8) {
@@ -723,9 +730,8 @@ struct OutlookView: View {
     }
 
     /// 兩行版面：第一行條件名稱（加「目前」標章）與機率，第二行區間與樣本數從左緣開始、滿寬。
-    private func cellRow(_ c: OutlookPage.Cell, minN: Int, minEpisodes: Int?) -> some View {
-        // 基準率列（標籤含「基準率」）不受段數限制；其餘條件有效樣本與段數都要夠。
-        let isBase = c.label.contains("基準率")
+    private func cellRow(_ c: OutlookPage.Cell, isBase: Bool, minN: Int, minEpisodes: Int?) -> some View {
+        // 基準率列（第一列）不受段數限制；其餘條件有效樣本與段數都要夠。
         let thinEpisodes = minEpisodes.map { m in !isBase && (c.rate?.episodes ?? m) < m } ?? false
         let weak = (c.rate?.nEff ?? 0) < Double(minN) || thinEpisodes
         return VStack(alignment: .leading, spacing: 2) {

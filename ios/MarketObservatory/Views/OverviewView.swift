@@ -149,12 +149,14 @@ struct OverviewView: View {
                                         Text("下月上漲機率")
                                         Spacer()
                                         Text(Fmt.plainPct(f.probability * 100)).font(.headline.monospacedDigit())
+                                        Text("平常 \(Fmt.plainPct(f.baseRate * 100))").font(.caption).foregroundStyle(.secondary)
                                         CallBadge(call: f.call)
                                     }
                                     VStack(alignment: .leading, spacing: 4) {
                                         Text("下月上漲機率")
                                         HStack {
                                             Text(Fmt.plainPct(f.probability * 100)).font(.headline.monospacedDigit())
+                                            Text("平常 \(Fmt.plainPct(f.baseRate * 100))").font(.caption).foregroundStyle(.secondary)
                                             CallBadge(call: f.call)
                                         }
                                     }

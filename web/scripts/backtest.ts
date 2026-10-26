@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { Series } from "../src/lib/analytics.ts";
 import { addDays } from "../src/lib/calendar.ts";
-import { DEFAULT_MODEL, HORIZON, MIN_EFFECTIVE_N, MIN_EPISODES, VIX_STRESS, buildObservations, buildOutlook, evaluateRows, type ModelConfig, type WalkRow } from "../src/lib/forecast.ts";
+import { EVAL_SEED, DEFAULT_MODEL, SEASON_MODEL, VRP_MODEL, HORIZON, MIN_EFFECTIVE_N, MIN_EPISODES, VIX_STRESS, buildObservations, buildOutlook, evaluateRows, type ModelConfig, type WalkRow } from "../src/lib/forecast.ts";
 import { EVAL_DEFAULTS, PHASES, bootstrapCI, brierOf, bssOf, intersectRegimes, mcStdErr, nullPairedBss, pairedBrierDiffMcStdErr, pairedBrierDiffPhase, pairedMcStdErr, pairedPhaseAveraged, phaseAverageFromCells, phaseCells, phaseGrid, pointInTimeCalls } from "../src/lib/forecast-eval.ts";
 import { CBOE_URLS, parseCboeCsv } from "../src/lib/sources/cboe.ts";
 
@@ -15,6 +15,8 @@ import { CBOE_URLS, parseCboeCsv } from "../src/lib/sources/cboe.ts";
 // pre-g03 = G03／G08 之前的預設（同一組 p；舊區塊 bootstrap 3/1000；方向閘門用舊規則：distinct 且全域 bssLow > 0，見 legacyCalls），只供記錄對照。
 const VARIANTS: Record<string, ModelConfig> = {
   base: DEFAULT_MODEL,
+  vrp: VRP_MODEL,
+  season: SEASON_MODEL,
   "pre-g03": { ...DEFAULT_MODEL, version: "2026-10-g01", bootstrap: { kind: "block", blockSize: 3, resamples: 1000 } },
   hard: { ...DEFAULT_MODEL, version: "2026-10-g04", shrinkK: null },
   shrink40: DEFAULT_MODEL,
@@ -167,7 +169,11 @@ for (const name of names) {
   if (paired) lines.push(`配對相位平均 BSS（${name} vs ${refName}）${ci(paired.mean, paired.ci.low, paired.ci.high)}；格 ${paired.cycles.used}/${paired.cycles.total}，捨去 ${paired.cycles.dropped}`);
   if (pairedDiff) lines.push(`配對相位平均 Brier 差（${name} − ${refName}，> 0 表示 ${name} 較差）${fmt(pairedDiff.mean, 5)} [${fmt(pairedDiff.ci.low, 5)}, ${fmt(pairedDiff.ci.high, 5)}]；格 ${pairedDiff.cycles.used}/${pairedDiff.cycles.total}；差的下界 MC 標準誤（種子 1..5 的 sd）${fmt(pairedDiffMc!.se, 5)}（${pairedDiffMc!.values.map((v) => fmt(v, 5)).join(", ")}）`);
   if (pairedMc) lines.push(`配對下界 MC 標準誤（決策用，種子 1..5 的 sd）${fmt(pairedMc.se, 4)}（${pairedMc.values.map((v) => fmt(v)).join(", ")}）；|下界| < 2×SE 視為不確定`);
-  if (entry.nullThreshold) lines.push(`L08 虛無門檻（20 組最大值）${fmt((entry.nullThreshold as { threshold: number }).threshold)}`);
+  if (entry.nullThreshold) {
+    const nt = entry.nullThreshold as { values: number[]; threshold: number };
+    lines.push(`L08 虛無值（${nt.values.length} 組，種子 ${EVAL_SEED}+j）${nt.values.map((v) => fmt(v, 4)).join(", ")}`);
+    lines.push(`L08 虛無門檻（20 組最大值）${fmt(nt.threshold)}`);
+  }
 }
 if (args.null && names.length < 2) mainLines.push("", "--null 需要至少兩個變體（參考 + 候選）；略過");
 lines.push(...mainLines, "", "== 敏感度（不用於決策）", ...(sensLines.length ? sensLines : ["（本次未跑）"]));

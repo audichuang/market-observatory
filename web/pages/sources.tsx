@@ -17,6 +17,7 @@ const JOB_LABEL: Record<string, string> = {
   snapshots: "重算近 30 天快照",
   "backfill-prices": "回補十年日線（分段）",
   "backfill-checks": "回補交叉核對（分段）",
+  "backfill-index-history": "回補 SPX／VIX 更早歷史（Cboe）",
 };
 
 const NO_SECOND_SOURCE = new Set(["USDTWD", "VIX"]);

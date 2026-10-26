@@ -2,6 +2,9 @@ import { sql } from "void/db";
 import { index, integer, primaryKey, real, sqliteTable, text } from "void/schema-d1";
 
 // 日線：主來源（Yahoo chart／Cboe）一列一筆，交叉核對來源寫在 check_* 欄。
+// SPX／VIX 的來源規則：Yahoo 窗口（約十年）內 Yahoo 是主來源、Cboe 只做交叉核對（寫 check_*）；
+// 窗口之前 Cboe 是主來源（source='cboe'）、沒有第二來源所以不核對（check_* 為空）。
+// 窗口之前的列由 backfill-index-history 用 ON CONFLICT DO NOTHING 補，不改窗口內任何一列。
 export const prices = sqliteTable(
   "prices",
   {

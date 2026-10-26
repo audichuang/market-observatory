@@ -72,7 +72,7 @@ npx void secret put SIWA_PRIVATE_KEY < AuthKey_<Key ID>.p8
 MO_URL=https://<worker>.workers.dev MO_EMAIL=… MO_PASSWORD=… node scripts/backfill.ts --sessions 500
 ```
 
-只補不存在或收盤有變的列；每一段都會寫進 `runs` 表，可在「資料來源」頁看到。
+只補不存在或收盤有變的列；每一段都會寫進 `runs` 表，可在「資料來源」頁看到。只想補 SPX／VIX 更早的 Cboe 歷史（1975／1990 起）時加 `--history-only`。
 
 ### 新聞 AI（本機排程）
 

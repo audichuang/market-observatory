@@ -13,3 +13,4 @@ ios/build/
 ios/*.xcodeproj/xcuserdata/
 ios/*.xcodeproj/project.xcworkspace/xcuserdata/
 .ai-batch
+.backtest

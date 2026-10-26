@@ -714,6 +714,8 @@ test("harness：paired／MC／null 都帶 label，up 與 dd5 結果不同", () =
   // 預設 label 仍是 up
   assert.equal(pairedPhaseAveraged(obs, obs, DEFAULT_MODEL, cand, opts).mean, u.paired);
   assert.deepEqual(nullPairedBss(obs, obs, DEFAULT_MODEL, cand, { N: 3 }).values, u.nul);
+});
+
 // ---- G06 VRP 試驗候選（非預設） ----
 const growth = (n: number) => Array.from({ length: n }, (_, i) => 100 * Math.exp(0.01 * i)); // 每日對數報酬 1%
 

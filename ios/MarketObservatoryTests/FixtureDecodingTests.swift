@@ -19,6 +19,52 @@ struct FixtureDecodingTests {
     @Test func historyForSymbol() throws { _ = try decodeFixture("history_symbol_NVDA_months_3", as: History.self) }
     @Test func news() throws { _ = try decodeFixture("news", as: NewsPage.self) }
     @Test func outlook() throws { _ = try decodeFixture("outlook", as: OutlookPage.self) }
+    // 舊版（沒有 L01 欄位）的 fixture 要照樣解得開，新欄位全是 optional。
+    @Test func oldOutlookHasNoNewFields() throws {
+        let p = try decodeFixture("outlook", as: OutlookPage.self)
+        #expect(p.outlook?.drawdown == nil)
+        #expect(p.outlook?.assessments == nil)
+        #expect(p.liveTrack == nil)
+    }
+
+    @Test func outlookL01() throws {
+        let p = try decodeFixture("outlook_2026-10-l01", as: OutlookPage.self)
+        let o = try #require(p.outlook)
+        #expect(o.modelVersion == "2026-10-l01")
+        #expect(o.historyStart == "1990-01-02")
+        #expect(o.pick.shrinkWeight != nil)
+        #expect(o.pick.cell != nil)
+        #expect(o.pick.conditional?.episodes == 24)
+        #expect(o.evaluation?.mde != nil)
+        #expect(o.cellGate?.passed == false)
+        let d = try #require(o.drawdown)
+        #expect(d.scored == true)
+        #expect(d.cellGate?.passed == true)
+        #expect(o.returnQuantiles?.cell?.n == 6892)
+        let a = try #require(o.assessments)
+        #expect(a.difference?.status == "fail")
+        #expect(a.sampleAdequacy?.status == "pass")
+        #expect(a.trackRecord?.status == "fail")
+        #expect(a.dataFreshness?.status == "pass")
+        #expect(o.globalCaveat != nil)
+        #expect(p.liveTrack?.tooFew == true)
+        #expect(p.frequency?.dd5 != nil)
+        #expect(p.minEpisodes == 8)
+        #expect(p.cells.first?.rate?.episodes == 1)
+    }
+
+    @Test func overviewL01() throws {
+        let o = try decodeFixture("overview_2026-10-l01", as: Overview.self)
+        #expect(o.forecast?.drawdown == nil) // 正式站當天沒有 drawdown
+    }
+
+    @Test func forecastBriefWithDrawdown() throws {
+        let json = #"{"trade_date":"2026-10-23","probability":0.65,"base_rate":0.64,"call":"inconclusive","drawdown":{"p":0.12,"base":0.17,"scored":false}}"#
+        let f = try API.decoder.decode(ForecastBrief.self, from: Data(json.utf8))
+        #expect(f.drawdown?.scored == false)
+        #expect(f.drawdown?.base == 0.17)
+    }
+
     @Test func watchlist() throws { _ = try decodeFixture("watchlist", as: Watchlist.self) }
     @Test func push() throws { _ = try decodeFixture("push", as: PushStatus.self) }
 

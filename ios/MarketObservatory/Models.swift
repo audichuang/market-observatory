@@ -193,6 +193,14 @@ struct ForecastBrief: Decodable, Sendable {
     let probability: Double
     let baseRate: Double
     let call: String
+    let drawdown: Drawdown?
+
+    /// 下月出現 ≥5% 跌幅的機率；scored 為 false 表示該模型沒通過驗證。
+    struct Drawdown: Decodable, Sendable {
+        let p: Double
+        let base: Double
+        let scored: Bool
+    }
 }
 
 // MARK: - 走勢
@@ -411,18 +419,61 @@ struct OutlookPage: Decodable, Sendable {
                 let p, low, high: Double
                 let nEff: Double?
                 let days: Int?
+                let episodes: Int?
             }
             let p: Double
             let basis: String
+            let cell: String?
             let base: Base
             let conditional: Base?
             let distinct: Bool?
+            let shrinkWeight: Double?
         }
 
         struct Evaluation: Decodable, Sendable {
             let points: Int
             let hitRate, baseHitRate, brier, brierBase, bss, bssLow, bssHigh: Double?
             let firstDate, lastDate: String?
+            let mde: Double?
+        }
+
+        struct CellGate: Decodable, Sendable {
+            let rows, runs: Int?
+            let bssLow: Double?
+            let validReplicates: Int?
+            let passed: Bool?
+        }
+
+        struct Drawdown: Decodable, Sendable {
+            let pick: Pick
+            let evaluation: Evaluation?
+            let scored: Bool
+            let cellGate: CellGate?
+        }
+
+        struct Quantiles: Decodable, Sendable {
+            let p10, p50, p90: Double
+            let n: Int?
+        }
+
+        struct ReturnQuantiles: Decodable, Sendable {
+            let cell: Quantiles?
+            let all: Quantiles?
+        }
+
+        /// 四個評估項；status 為 pass／fail／na，其餘數字依項目而異。
+        struct Assessment: Decodable, Sendable {
+            let status: String
+            let condP, baseP, low, high: Double?
+            let nEff: Double?
+            let episodes, rows, runs: Int?
+            let cellBssLow, cellMde, globalBss, globalBssLow: Double?
+            let spxDate, vixDate: String?
+            let staleSessions: Int?
+        }
+
+        struct Assessments: Decodable, Sendable {
+            let difference, sampleAdequacy, trackRecord, dataFreshness: Assessment?
         }
 
         struct Regime: Decodable, Sendable {
@@ -430,6 +481,8 @@ struct OutlookPage: Decodable, Sendable {
             let vixStress: Bool
         }
 
+        let modelVersion: String?
+        let historyStart: String?
         let asOf: String
         let close: Double
         let sma200: Double?
@@ -437,8 +490,26 @@ struct OutlookPage: Decodable, Sendable {
         let regime: Regime?
         let pick: Pick
         let evaluation: Evaluation?
+        let cellGate: CellGate?
+        let drawdown: Drawdown?
+        let returnQuantiles: ReturnQuantiles?
+        let assessments: Assessments?
+        let globalCaveat: String?
         let call: String
         let reasons: [String]
+    }
+
+    /// 上線後實際紀錄（不重疊、已到期的列）；tooFew 時不報分數。
+    struct LiveTrack: Decodable, Sendable {
+        let n: Int
+        let resolvedAll: Int?
+        let tooFew: Bool
+        let bss, brier, brierBase, upShare: Double?
+    }
+
+    struct Frequency: Decodable, Sendable {
+        let up: String?
+        let dd5: String?
     }
 
     struct Forecast: Decodable, Sendable, Identifiable {
@@ -448,6 +519,8 @@ struct OutlookPage: Decodable, Sendable {
         let base: Double?
         let call: String
         let close: Double?
+        let modelVersion: String?
+        let historyStart: String?
         let resolvedOn: String?
         let up: Bool?
     }
@@ -468,6 +541,7 @@ struct OutlookPage: Decodable, Sendable {
         let high: Double
         let nEff: Double
         let days: Int
+        let episodes: Int?
     }
 
     struct Cell: Decodable, Sendable, Identifiable {
@@ -535,6 +609,8 @@ struct OutlookPage: Decodable, Sendable {
     let outlook: Outlook?
     let cells: [Cell]
     let track: Track?
+    let liveTrack: LiveTrack?
+    let frequency: Frequency?
     let recent: [Forecast]?
     let consensus: Consensus?
     let factset: [Factset]
@@ -542,6 +618,8 @@ struct OutlookPage: Decodable, Sendable {
     let horizon: Int
     /// 有效樣本少於這個數的條件不採用（網頁顯示灰字）。
     let minN: Int?
+    /// 條件成立的日子分成不到這個段數的條件不採用（基準率除外）。
+    let minEpisodes: Int?
 }
 
 // MARK: - 推播

@@ -366,19 +366,52 @@ struct OutlookView: View {
     private func content(_ p: OutlookPage) -> some View {
         let minN = p.minN ?? 30
         return List {
+            Text("以美元計、不含股息的 S&P 500 價格指數；台幣結果另受匯率影響").font(.caption).foregroundStyle(.secondary).noticeRow()
             if let o = p.outlook {
                 Section {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("約 \(p.horizon) 個交易日後 S&P 500 較高的機率").font(.subheadline).foregroundStyle(.secondary)
+                        if let d = o.drawdown {
+                            Text("下個月出現 ≥5% 跌幅的機率").font(.subheadline).foregroundStyle(.secondary)
+                            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                Text(Fmt.plainPct(d.pick.p * 100, 0)).font(.largeTitle.weight(.bold).monospacedDigit())
+                                Text("（平常 \(Fmt.plainPct(d.pick.base.p * 100, 0))）").font(.subheadline).foregroundStyle(.secondary)
+                            }
+                            if !d.scored {
+                                Text("未通過驗證，只供參考")
+                                    .font(.caption.weight(.semibold))
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 2)
+                                    .background(Color.orange.opacity(0.12), in: Capsule())
+                                    .foregroundStyle(Color.orange)
+                            }
+                            Divider().padding(.vertical, 4)
+                        }
+                        Text(o.drawdown == nil ? "約 \(p.horizon) 個交易日後 S&P 500 較高的機率" : "上漲機率（約 \(p.horizon) 個交易日後較高）")
+                            .font(.subheadline).foregroundStyle(.secondary)
                         Text(Fmt.plainPct(o.pick.p * 100)).font(.largeTitle.weight(.bold).monospacedDigit())
                         Text(intervalText(o.pick)).font(.footnote).foregroundStyle(.secondary)
                         HStack(spacing: 8) {
-                            CallBadge(call: o.call)
+                            CallBadge(call: o.call, mde: o.evaluation?.mde)
                             Text("歷史基準率 \(Fmt.plainPct(o.pick.base.p * 100))").font(.subheadline)
                         }
+                        Text(Self.callWhy[o.call] ?? Self.callWhy["inconclusive"]!).font(.footnote).foregroundStyle(.secondary)
+                        if let f = p.frequency {
+                            VStack(alignment: .leading, spacing: 2) {
+                                if let up = f.up { Text("\(up)。") }
+                                if let dd = f.dd5 { Text("\(dd)。") }
+                            }
+                            .font(.footnote).foregroundStyle(.secondary)
+                            .padding(.top, 2)
+                        }
+                        Text("對每月定期定額：這不是加碼或停扣的訊號，它描述下個月可能的波動。").font(.footnote.weight(.semibold))
                     }
                     .padding(.vertical, 6)
+                    if let q = o.returnQuantiles?.cell { quantileText(q, all: o.returnQuantiles?.all, horizon: p.horizon) }
+                    if let a = o.assessments { assessmentRows(a) }
+                    if let c = o.globalCaveat, !c.isEmpty { Text(c).font(.caption).foregroundStyle(.secondary) }
                     LabeledContent("資料日", value: Fmt.fullDate(o.asOf))
+                    if let h = o.historyStart { LabeledContent("樣本起點", value: h) }
+                    if let v = o.modelVersion { LabeledContent("模型版本", value: v) }
                     LabeledContent("S&P 500 vs 200 日線") {
                         VStack(alignment: .trailing, spacing: 1) {
                             Delta(value: o.sma200.map { (o.close / $0 - 1) * 100 }, digits: 2, percent: true)
@@ -396,7 +429,7 @@ struct OutlookView: View {
                     }
                 } footer: {
                     // 標題說明已經寫了「看不出差別」時，不再重複同一句理由；項目符號用懸掛縮排。
-                    let reasons = o.reasons.filter { !(o.pick.distinct != true && o.pick.conditional != nil && $0.contains("看不出差別")) }
+                    let reasons = o.reasons.filter { !(o.pick.distinct != true && o.pick.conditional != nil && $0.contains("看不出差別") && (o.pick.shrinkWeight ?? 0) == 0) }
                     VStack(alignment: .leading, spacing: 4) {
                         ForEach(reasons, id: \.self) { r in
                             // 只有一條時直接當說明文字，不要孤零零一個項目符號。
@@ -410,11 +443,15 @@ struct OutlookView: View {
                 }
 
                 Section {
-                    ForEach(p.cells) { c in cellRow(c, minN: minN) }
+                    ForEach(p.cells) { c in cellRow(c, isBase: c.id == p.cells.first?.id, minN: minN, minEpisodes: p.minEpisodes) }
                 } header: {
-                    Text("各條件下的歷史上漲比例")
+                    Text(p.minEpisodes == nil ? "各條件下的歷史上漲比例" : "樣本內：各條件下的歷史上漲比例")
                 } footer: {
-                    Text("重疊的 \(p.horizon) 日窗口不是獨立樣本，有效樣本以天數 ÷ \(p.horizon) 計；有效樣本少於 \(minN) 的條件不採用（灰字）。")
+                    if let me = p.minEpisodes {
+                        Text("樣本內：這張表用全部歷史算出，同一批資料也用來挑條件，只描述過去、不代表預測力（預測力看下面的滾動驗證與上線後紀錄）。重疊的 \(p.horizon) 日窗口不是獨立樣本，有效樣本以「天數 ÷ \(p.horizon)」計；有效樣本少於 \(minN)、或條件成立的日子分成不到 \(me) 段（段與段相隔至少 \(p.horizon) 個交易日）的條件不採用，標為「樣本不足」（灰字）；基準率不受此限。")
+                    } else {
+                        Text("重疊的 \(p.horizon) 日窗口不是獨立樣本，有效樣本以天數 ÷ \(p.horizon) 計；有效樣本少於 \(minN) 的條件不採用（灰字）。")
+                    }
                 }
                 if let ev = o.evaluation { evaluationSection(ev, horizon: p.horizon) }
                 forecastSection(p)
@@ -436,11 +473,20 @@ struct OutlookView: View {
         .refreshable { await load() }
     }
 
+    private static let callWhy = [
+        "up": "目前條件下的上漲機率明顯高於歷史基準（平常），且滾動驗證勝過基準",
+        "down": "目前條件下的上漲機率明顯低於歷史基準（平常），且滾動驗證勝過基準",
+        "inconclusive": "目前的訊號不足以把機率拉離歷史基準",
+    ]
+
     private static let basisLabels = [
         "base": "歷史基準率",
         "trend": "200 日線條件",
         "vix": "VIX 條件",
         "trend+vix": "200 日線 × VIX 條件",
+        "vrp": "VIX 與已實現波動差條件",
+        "season": "季節條件",
+        "trend+vrp": "200 日線 × VIX 與已實現波動差條件",
     ]
 
     /// 0.594 → 「59%」（跟網頁的 pct() 一樣取整數）
@@ -448,12 +494,75 @@ struct OutlookView: View {
 
     private func intervalText(_ pick: OutlookPage.Outlook.Pick) -> String {
         let basis = Self.basisLabels[pick.basis] ?? pick.basis
+        if let w = pick.shrinkWeight, w > 0, let cond = pick.conditional {
+            return "收縮後 \(Fmt.plainPct(pick.p * 100, 1))（基準 \(Fmt.plainPct(pick.base.p * 100, 1))、條件 \(Fmt.plainPct(cond.p * 100, 1))、權重 \(String(format: "%.2f", w))）· 依據：\(basis)"
+        }
         if let cond = pick.conditional, pick.distinct != true {
             return "採歷史基準率（95% 區間 \(ratio(pick.base.low))～\(ratio(pick.base.high))）；「\(basis)」下為 \(Fmt.plainPct(cond.p * 100))，區間 \(ratio(cond.low))～\(ratio(cond.high)) 包含基準率，看不出差別"
         }
         let low = pick.conditional?.low ?? pick.base.low
         let high = pick.conditional?.high ?? pick.base.high
         return "95% 區間 \(ratio(low))～\(ratio(high)) · 依據：\(basis)"
+    }
+
+    private func f3(_ v: Double?) -> String { Fmt.num(v, 3) }
+
+    private func quantileText(_ q: OutlookPage.Outlook.Quantiles, all: OutlookPage.Outlook.Quantiles?, horizon: Int) -> some View {
+        func r(_ v: Double) -> String { String(format: "%+.1f%%", v * 100) }
+        var meta = "描述統計，不計分"
+        if let n = q.n { meta = "\(n) 個交易日；" + meta }
+        if let a = all { meta += "；不分條件：\(r(a.p10))／\(r(a.p50))／\(r(a.p90))" }
+        return VStack(alignment: .leading, spacing: 2) {
+            Text("過去類似情況 \(horizon) 個交易日報酬：10% 機率低於 \(r(q.p10))、一半低於 \(r(q.p50))、90% 低於 \(r(q.p90))").font(.footnote)
+            Text("（\(meta)）").font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    /// 四個固定評估項（與 call 同一份資料）。
+    @ViewBuilder
+    private func assessmentRows(_ a: OutlookPage.Outlook.Assessments) -> some View {
+        if let d = a.difference {
+            assessmentRow("差異", d.status,
+                "條件 \(Fmt.plainPct(d.condP.map { $0 * 100 }, 1)) vs 平常 \(Fmt.plainPct(d.baseP.map { $0 * 100 }, 1))",
+                d.low == nil ? "沒有可用的條件" : "95% 區間 \(ratio(d.low))～\(ratio(d.high))")
+        }
+        if let s = a.sampleAdequacy {
+            assessmentRow("樣本", s.status,
+                s.nEff == nil ? "沒有可用的條件" : "有效樣本 \(Int((s.nEff ?? 0).rounded()))、\(s.episodes ?? 0) 段",
+                "驗證 \(s.rows ?? 0) 列、\(s.runs ?? 0) 段")
+        }
+        if let t = a.trackRecord {
+            assessmentRow("紀錄", t.status,
+                "此條件 BSS 下界 \(f3(t.cellBssLow))（最小可偵測 \(f3(t.cellMde))）",
+                "整體 BSS \(f3(t.globalBss))")
+        }
+        if let f = a.dataFreshness {
+            assessmentRow("資料新鮮度", f.status,
+                "SPX \(f.spxDate ?? "—")、VIX \(f.vixDate ?? "—")",
+                f.staleSessions.map { "VIX 落後 \($0) 個交易日" } ?? "—")
+        }
+    }
+
+    private func assessmentRow(_ name: String, _ status: String, _ line1: String, _ line2: String) -> some View {
+        let (text, color): (String, Color) = switch status {
+        case "pass": ("通過", .down)
+        case "fail": ("未通過", .up)
+        default: ("不適用", .secondary)
+        }
+        return HStack(alignment: .top, spacing: 8) {
+            Text(name).font(.subheadline).frame(width: 78, alignment: .leading)
+            Text(text)
+                .font(.caption.weight(.semibold))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 2)
+                .background(color.opacity(0.12), in: Capsule())
+                .foregroundStyle(color)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(line1).font(.footnote)
+                Text(line2).font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .accessibilityElement(children: .combine)
     }
 
     private func evaluationSection(_ ev: OutlookPage.Outlook.Evaluation, horizon: Int) -> some View {
@@ -470,16 +579,35 @@ struct OutlookView: View {
                     Text("95% 區間 \(Fmt.num(ev.bssLow, 3))～\(Fmt.num(ev.bssHigh, 3))").font(.caption2).foregroundStyle(.secondary)
                 }
             }
+            if let mde = ev.mde { LabeledContent("最小可偵測 BSS", value: Fmt.num(mde, 2)) }
         } header: {
-            Text("滾動驗證")
+            Text("滾動驗證（walk-forward）")
         } footer: {
             Text("BSS = 1 − Brier ÷ 基準 Brier；區間下限 > 0 才代表穩定勝過基準率")
         }
     }
 
     private func forecastSection(_ p: OutlookPage) -> some View {
-        Section("實際發出的預測") {
-            if let t = p.track {
+        Section {
+            if let lt = p.liveTrack {
+                if lt.n == 0 {
+                    Text("每天收盤後記錄一次，\(p.horizon) 個交易日後才能對帳；目前還沒有到期的預測。")
+                        .font(.footnote).foregroundStyle(.secondary)
+                } else if lt.tooFew {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text("樣本太少")
+                            .font(.caption.weight(.semibold))
+                            .padding(.horizontal, 8).padding(.vertical, 2)
+                            .background(Color.orange.opacity(0.12), in: Capsule())
+                            .foregroundStyle(Color.orange)
+                        Text("只有 \(lt.n) 個獨立月份（少於 12），不報分數。只取不重疊的列：從第一筆紀錄起每 \(p.horizon) 個交易日一列。")
+                            .font(.footnote).foregroundStyle(.secondary)
+                    }
+                } else {
+                    Text("BSS \(Fmt.num(lt.bss, 3))（對照紀錄當時存下的基準率）· n = \(lt.n) 個獨立月份 · 實際上漲 \(Fmt.plainPct(lt.upShare.map { $0 * 100 }))。只取不重疊的列，與上面兩種分數分開看。")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+            } else if let t = p.track {
                 LabeledContent("已對帳", value: "\(t.n) 次")
                 LabeledContent("Brier（越低越好）", value: "\(Fmt.num(t.brier, 3))（基準 \(Fmt.num(t.brierBase, 3))）")
                 LabeledContent("實際上漲比例", value: Fmt.plainPct(t.upShare * 100))
@@ -492,6 +620,9 @@ struct OutlookView: View {
                     Text(f.date).monospacedDigit()
                     Text(Fmt.plainPct(f.p * 100)).monospacedDigit()
                     Text(callText(f.call)).foregroundStyle(.secondary)
+                    if p.liveTrack != nil {
+                        Text(f.modelVersion ?? "舊版紀錄").font(.caption).foregroundStyle(.secondary)
+                    }
                     Spacer()
                     if let up = f.up {
                         Text(up ? "後來上漲" : "後來下跌").foregroundStyle(up ? Color.up : Color.down)
@@ -501,6 +632,10 @@ struct OutlookView: View {
                 }
                 .font(.subheadline)
             }
+        } header: {
+            Text(p.liveTrack == nil ? "實際發出的預測" : "上線後實際紀錄")
+        } footer: {
+            if p.liveTrack != nil { Text("合併所有已發布的模型版本；這是和樣本內、滾動驗證分開的第三種分數。") }
         }
     }
 
@@ -595,8 +730,10 @@ struct OutlookView: View {
     }
 
     /// 兩行版面：第一行條件名稱（加「目前」標章）與機率，第二行區間與樣本數從左緣開始、滿寬。
-    private func cellRow(_ c: OutlookPage.Cell, minN: Int) -> some View {
-        let weak = (c.rate?.nEff ?? 0) < Double(minN)
+    private func cellRow(_ c: OutlookPage.Cell, isBase: Bool, minN: Int, minEpisodes: Int?) -> some View {
+        // 基準率列（第一列）不受段數限制；其餘條件有效樣本與段數都要夠。
+        let thinEpisodes = minEpisodes.map { m in !isBase && (c.rate?.episodes ?? m) < m } ?? false
+        let weak = (c.rate?.nEff ?? 0) < Double(minN) || thinEpisodes
         return VStack(alignment: .leading, spacing: 2) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 // 不讓「VIX ≥ 30」這類門檻在運算子旁斷行；要換行就在「，」之後。
@@ -621,7 +758,7 @@ struct OutlookView: View {
                 }
             }
             if let r = c.rate {
-                Text("\(Fmt.plainPct(r.low * 100, 0))–\(Fmt.plainPct(r.high * 100, 0)) · 樣本 \(Int(r.nEff.rounded())) 個月\(weak ? " · 樣本不足" : "")")
+                Text("\(Fmt.plainPct(r.low * 100, 0))–\(Fmt.plainPct(r.high * 100, 0)) · 樣本 \(Int(r.nEff.rounded())) 個月\(r.episodes.map { "／\($0) 段" } ?? "")\(weak ? " · 樣本不足" : "")")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -632,9 +769,9 @@ struct OutlookView: View {
 
     private func callText(_ call: String) -> String {
         switch call {
-        case "up": "偏多"
-        case "down": "偏空"
-        default: "沒有明確方向"
+        case "up": "高於平常"
+        case "down": "低於平常"
+        default: "偵測不到 skill"
         }
     }
 }

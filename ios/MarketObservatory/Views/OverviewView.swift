@@ -143,18 +143,35 @@ struct OverviewView: View {
                 if let f = o.forecast, o.viewingLatest {
                     Section("下月展望") {
                         NavigationLink { OutlookView() } label: {
-                            ViewThatFits(in: .horizontal) {
-                                HStack {
-                                    Text("下月上漲機率")
-                                    Spacer()
-                                    Text(Fmt.plainPct(f.probability * 100)).font(.headline.monospacedDigit())
-                                    CallBadge(call: f.call)
-                                }
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text("下月上漲機率")
+                            VStack(alignment: .leading, spacing: 8) {
+                                ViewThatFits(in: .horizontal) {
                                     HStack {
+                                        Text("下月上漲機率")
+                                        Spacer()
                                         Text(Fmt.plainPct(f.probability * 100)).font(.headline.monospacedDigit())
+                                        Text("平常 \(Fmt.plainPct(f.baseRate * 100))").font(.caption).foregroundStyle(.secondary)
                                         CallBadge(call: f.call)
+                                    }
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text("下月上漲機率")
+                                        HStack {
+                                            Text(Fmt.plainPct(f.probability * 100)).font(.headline.monospacedDigit())
+                                            Text("平常 \(Fmt.plainPct(f.baseRate * 100))").font(.caption).foregroundStyle(.secondary)
+                                            CallBadge(call: f.call)
+                                        }
+                                    }
+                                }
+                                if let d = f.drawdown {
+                                    ViewThatFits(in: .horizontal) {
+                                        HStack {
+                                            Text("≥5% 跌幅機率")
+                                            Spacer()
+                                            drawdownValue(d)
+                                        }
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            Text("≥5% 跌幅機率")
+                                            HStack { drawdownValue(d) }
+                                        }
                                     }
                                 }
                             }
@@ -167,6 +184,21 @@ struct OverviewView: View {
         } else {
             ContentUnavailableView("還沒有任何快照", systemImage: "chart.bar", description: Text("等收盤後的排程抓到資料就會出現。"))
                 .refreshable { await load() }
+        }
+    }
+
+    /// 跌幅機率：數字、平常值，沒通過驗證時加標籤。
+    @ViewBuilder
+    private func drawdownValue(_ d: ForecastBrief.Drawdown) -> some View {
+        Text(Fmt.plainPct(d.p * 100)).font(.headline.monospacedDigit())
+        Text("平常 \(Fmt.plainPct(d.base * 100))").font(.caption).foregroundStyle(.secondary)
+        if !d.scored {
+            Text("未通過驗證")
+                .font(.caption.weight(.semibold))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 2)
+                .background(Color.orange.opacity(0.12), in: Capsule())
+                .foregroundStyle(Color.orange)
         }
     }
 

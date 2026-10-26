@@ -156,11 +156,13 @@ struct CheckBadge: View {
 /// 展望判讀：偏多紅、偏空綠（紅漲綠跌），不確定橘。
 struct CallBadge: View {
     let call: String
+    /// 滾動驗證的最小可偵測 BSS；沒有方向時附在標籤上。
+    var mde: Double?
     var body: some View {
         let (text, color): (String, Color) = switch call {
-        case "up": ("偏多", .up)
-        case "down": ("偏空", .down)
-        default: ("不確定", .orange)
+        case "up": ("高於平常", .up)
+        case "down": ("低於平常", .down)
+        default: (mde.map { "偵測不到 skill（最小可偵測 BSS 約 \(String(format: "%.2f", $0))）" } ?? "偵測不到 skill", .orange)
         }
         Text(text)
             .font(.caption.weight(.semibold))

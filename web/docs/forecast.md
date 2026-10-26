@@ -58,8 +58,8 @@
 | --- | --- |
 | G04 | `MIN_EPISODES` = 8。條件成立的日子，若距上一個成立日 ≥ 21 個交易日，算新的一段。候選條件需 nEff ≥ 30 且段數 ≥ 8；基準率不受此限。無條件採用。 |
 | G01 收縮 | p = (k·p_base + n·p_cond)/(k+n)，k = 40，n = cond.nEff。k = 20、80 只做敏感度分析，不用來挑選。採用規則：配對 Brier 差（收縮 − 硬切換）的 95% 區間下界 > 0（顯著變差）才否決，否則採用。 basis 為 base 時 p = p_base。否決用相位平均的配對 Brier 差，區間依 L02 方法。 |
-| G03 方向 | 要給方向，當下 basis 自己的 walk-forward 須 bssLow > 0、列數 ≥ 30、同 basis 連續段數 ≥ 8。 |
-| G08 不確定度 | stationary bootstrap，平均區塊長 6 列，2000 次重抽，固定種子（不依賴列數）。最小可偵測 BSS（MDE）= 2.8 × BSS 的 bootstrap 標準差；標準差為 0 時為 null。UI 把「不確定」改成「偵測不到 skill（最小可偵測 BSS 約 X）」。 採用：`tests/forecast.test.ts` 的合成 regime 測試照常通過，且隨機漫步序列在每個相位都是 inconclusive；否則否決。 |
+| G03 方向 | 要給方向須同時滿足：(a) pick.distinct；(b) cell = 今天所選候選條件的各旗標及其值（例如 aboveSma200=true、vixStress=false），basis 名稱只是標籤，驗證一律以 cell 為單位；在現行單一相位（offset 0）walk-forward 中，屬於該 cell 的列數 ≥ 30；(c) 在 offset 0 walk-forward 的列序列裡，相鄰列都屬於該 cell 的最長連續區間，數量 ≥ 8；(d) 該 cell 的 bssLow > 0：對全部 walk-forward 列做 G08 stationary bootstrap，每次重抽只用屬於該 cell 的列計算 BSS，取 2.5% 分位。採用：全域相位平均 BSS 不變即採用（它只改出結論條件，不改 p）。 |
+| G08 不確定度 | stationary bootstrap，平均區塊長 6 列，2000 次重抽，固定種子（不依賴列數）。最小可偵測 BSS（MDE）= 2.8 × BSS 的 bootstrap 標準差；標準差為 0 時為 null。UI 把「不確定」改成「偵測不到 skill（最小可偵測 BSS 約 X）」。 採用：(1) 新增一組合成測試，trend 兩側各有至少 8 段（段與段相隔 ≥ 21 個交易日），在 G04 生效下 p 與基準率可區分、walk-forward BSS > 0；(2) 隨機漫步序列在每個相位都是 inconclusive；(3) `tests/forecast.test.ts` 原本段數不足的 regime fixture 改為斷言 G04 生效時退回基準率。三項都通過才採用，否則否決。 |
 | L01 方向語意 | 方向判斷相對基準率：conclusive 時 p > base 叫「高於平常」，p < base 叫「低於平常」，不再以 50% 為界。API 的 call 值仍是 up/down/inconclusive（App 相容），只改語意與文字。 |
 | G09／L04 | dd5 是第二個計分目標，排在補歷史與預測紀錄之後優先做。採用條件：該目標 bssLow > 0，且所用 cell nEff ≥ 30、段數 ≥ 8；否則只顯示並標「未通過驗證」。21 日報酬第 10／50／90 百分位只顯示、不計分。 |
 
@@ -80,7 +80,7 @@
 | 1：G06 VRP（取代 `vixStress`，不新增） | VRP_t = VIX_t²/12 − Σ_{k=0..20}(100·ln(S_{t−k}/S_{t−k−1}))²。VRP 高於「1990-01-02 起到今天（含）的 expanding 中位數」為 true；累積 252 個 VRP 值前為 null。 | [[trend, vrp],[vrp],[trend]]，不跳過任何一側 | 配對 BSS = 1 − Brier(候選)／Brier(參考)，在同一批日期上計算。參考模型 = 執行當下的 DEFAULT_MODEL（記下其 version）。採用：相位平均配對 BSS 的 bootstrap 下界 > 0，且高於 L08 門檻；候選條件的選用仍受 G04（nEff ≥ 30、段數 ≥ 8）約束。否決：相位平均配對 BSS 點估計 ≤ 0。不論結果都記入試驗登記。 |
 | 2：季節性 winter | 11–4 月為 true，basis 為 `season`。 | [[trend,vix,winter],[trend,vix],[vix],[trend,winter],[winter],[trend]] | 同名額 1。 |
 
-執行順序：名額 1 先定案，名額 2 的參考模型是名額 1 定案後的 DEFAULT_MODEL。若 VRP 採用，名額 2 候選順序中的 vix 一律改為 vrp，且不跳過任何一側；否則沿用現行 vix 跳過規則。basis 名稱為成員以 + 連接（如 trend+vix+season）。winter 以預測日 t 的月份判定。最終模型 = 名額 2 定案後的 DEFAULT_MODEL。
+執行順序：名額 1 先定案，名額 2 的參考模型是名額 1 定案後的 DEFAULT_MODEL。若 VRP 採用，名額 2 候選順序中的 vix 一律改為 vrp，且不跳過任何一側；否則沿用現行 vix 跳過規則。basis 名稱為成員以 + 連接（如 trend+vix+season）。winter 以預測日 t 的月份判定。最終模型 = 名額 2 定案後的 DEFAULT_MODEL。未達採用條件的任何結果（包括點估計 > 0 但下界 ≤ 0、未高於 L08 門檻、L03 判為不確定、統計量無法計算）一律視為否決：保留參考模型，該名額即定案。
 
 機制與事前驗屍（L13）：
 

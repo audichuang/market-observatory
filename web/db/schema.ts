@@ -171,6 +171,14 @@ export const forecasts = sqliteTable("forecasts", {
   call: text("call").notNull(),
   close: real("close").notNull(),
   createdAt: text("created_at").notNull(),
+  // G02：寫入後不可改（同一交易日第一次寫入為準）；以下欄位讓每一筆都能還原到產生它的模型。舊列沒有這些值（null）。
+  modelVersion: text("model_version"),
+  regime: text("regime"), // JSON：當天的旗標，例如 {"aboveSma200":true,"vixStress":false}
+  condP: real("cond_p"),
+  condNEff: real("cond_n_eff"),
+  bssLow: real("bss_low"),
+  historyStart: text("history_start"),
+  detail: text("detail"), // JSON，留給之後新增的欄位
 });
 
 // App 註冊的推播裝置（APNs device token）。一個使用者可以有多台；list_key 是註冊時這個人的名單 key（src/server/account.ts），

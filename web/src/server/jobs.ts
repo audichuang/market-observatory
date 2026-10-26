@@ -9,7 +9,7 @@ import { type FactsetInsight, fetchInsight, latestInsightUrl } from "../lib/sour
 import { YAHOO_SOURCE, fetchYahooDaily, fetchYahooLastCloses, fetchYahooSpark } from "../lib/sources/yahoo.ts";
 import { Budget } from "../lib/sources/http.ts";
 import { type ApnsConfig, notifyClose, notifyEvents } from "./push.ts";
-import { buildOutlook } from "../lib/forecast.ts";
+import { DEFAULT_MODEL, buildOutlook, vixAt } from "../lib/forecast.ts";
 import { rotationPicks } from "../lib/consensus.ts";
 import { easternDate } from "../lib/calendar.ts";
 import { EQUAL_WEIGHT_SYMBOL, FX_SYMBOL, INDEX_SYMBOL, VIX_SYMBOL, type WatchMember, nasdaqCheckSymbols, watchTickers, yahooSymbols } from "../lib/universe.ts";
@@ -195,16 +195,20 @@ async function jobPrices(db: D1Database, _opts: JobOptions, budget: Budget): Pro
   }
   const snaps = await rebuildSnapshots(db, "收盤資料更新");
   detail.snapshots = snaps.created;
+  let forecast: ForecastRecord | null = null;
   try {
-    detail.forecast = await recordForecast(db);
+    forecast = await recordForecast(db);
+    detail.forecast = forecast.message;
+    // VIX 過期是資料新鮮度問題，讓這次抓價標成 partial；「資料不足」（例如還沒補歷史）只記在 detail，不拖累抓價狀態。
+    if (forecast.outcome === "skipped") detail.forecastSkipped = forecast.reason;
   } catch (e) {
     detail.forecast = errText(e);
   }
   const failedNames = Object.keys(failed);
   const total = entries.length + 1;
   return {
-    status: failedNames.length === 0 && stale.length === 0 ? "ok" : failedNames.length > total / 2 ? "failed" : "partial",
-    summary: `更新 ${total - failedNames.length}/${total} 檔；失敗 ${failedNames.join(",") || "無"}；尚無 ${expected} 收盤 ${stale.join(",") || "無"}${rebasedSymbols.length ? `；偵測到分割 ${rebasedSymbols.map((s) => `${s}×${({ ...pending, ...rebased })[s].toFixed(3)}`).join(",")}` : ""}；新快照 ${snaps.created.join(",") || "無"}`,
+    status: failedNames.length === 0 && stale.length === 0 && forecast?.reason !== "vix-stale" ? "ok" : failedNames.length > total / 2 ? "failed" : "partial",
+    summary: `更新 ${total - failedNames.length}/${total} 檔；失敗 ${failedNames.join(",") || "無"}；尚無 ${expected} 收盤 ${stale.join(",") || "無"}${rebasedSymbols.length ? `；偵測到分割 ${rebasedSymbols.map((s) => `${s}×${({ ...pending, ...rebased })[s].toFixed(3)}`).join(",")}` : ""}；新快照 ${snaps.created.join(",") || "無"}${forecast?.outcome === "skipped" ? `；預測：${forecast.message}` : ""}`,
     detail,
   };
 }
@@ -444,19 +448,52 @@ async function jobEvents(db: D1Database, _opts: JobOptions, budget: Budget): Pro
   };
 }
 
-/** 用最新收盤計算「約 21 個交易日後是否上漲」並存檔（同一天重算就覆蓋），之後拿實際結果對帳。 */
-export async function recordForecast(db: D1Database) {
+export interface ForecastRecord {
+  /** recorded：新寫入；exists：這個交易日已有紀錄，沒有覆蓋；skipped：沒有產生預測 */
+  outcome: "recorded" | "exists" | "skipped";
+  message: string;
+  /** 只有 skipped 才有：vix-stale＝VIX 超過 3 個交易日沒更新；insufficient＝資料不足 */
+  reason?: "vix-stale" | "insufficient";
+}
+
+/**
+ * 用最新收盤計算「約 21 個交易日後是否上漲」並存檔，之後拿實際結果對帳。
+ * G02：紀錄寫入後不可改，同一交易日第一次寫入為準（ON CONFLICT DO NOTHING）；model_version、regime 等欄位讓每一筆都能還原到產生它的模型。
+ */
+export async function recordForecast(db: D1Database): Promise<ForecastRecord> {
   const loaded = await loadPrices(db, [INDEX_SYMBOL, VIX_SYMBOL], "0000-01-01");
-  const outlook = buildOutlook(loaded.series[INDEX_SYMBOL], loaded.series[VIX_SYMBOL]);
-  if (!outlook) return "資料不足，未產生預測";
-  await db
+  const spx = loaded.series[INDEX_SYMBOL];
+  const vix = loaded.series[VIX_SYMBOL];
+  const outlook = buildOutlook(spx, vix);
+  if (!outlook) {
+    const last = spx.points.length - 1;
+    const stale = last >= 0 && DEFAULT_MODEL.vixMaxStaleSessions !== null && vix.points.length > 0 && vixAt(spx, vix, last, DEFAULT_MODEL.vixMaxStaleSessions) === null;
+    return stale
+      ? { outcome: "skipped", reason: "vix-stale", message: `VIX 超過 ${DEFAULT_MODEL.vixMaxStaleSessions} 個交易日未更新（最新 ${vix.points.at(-1)?.date}，SPX 到 ${spx.points[last].date}），未產生預測` }
+      : { outcome: "skipped", reason: "insufficient", message: "資料不足，未產生預測" };
+  }
+  const res = await db
     .prepare(
-      `INSERT INTO forecasts (trade_date, probability, base_rate, basis, call, close, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(trade_date) DO UPDATE SET probability = excluded.probability, base_rate = excluded.base_rate, basis = excluded.basis, call = excluded.call, close = excluded.close, created_at = excluded.created_at`,
+      `INSERT INTO forecasts (trade_date, probability, base_rate, basis, call, close, created_at, model_version, regime, cond_p, cond_n_eff, bss_low, history_start, detail)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(trade_date) DO NOTHING`,
     )
-    .bind(outlook.asOf, outlook.pick.p, outlook.pick.base.p, outlook.pick.basis, outlook.call, outlook.close, nowIso())
+    .bind(
+      outlook.asOf, outlook.pick.p, outlook.pick.base.p, outlook.pick.basis, outlook.call, outlook.close, nowIso(),
+      outlook.modelVersion, JSON.stringify(outlook.regime), outlook.pick.conditional?.p ?? null, outlook.pick.conditional?.nEff ?? null,
+      outlook.evaluation.bssLow, outlook.historyStart, JSON.stringify({}),
+    )
     .run();
-  return `${outlook.asOf} 上漲機率 ${(outlook.pick.p * 100).toFixed(1)}%（${outlook.call}）`;
+  const recorded = (res.meta?.changes ?? 0) > 0;
+  const text = `${outlook.asOf} 上漲機率 ${(outlook.pick.p * 100).toFixed(1)}%（${outlook.call}）`;
+  return recorded
+    ? { outcome: "recorded", message: `${text}，新記錄` }
+    : { outcome: "exists", message: `${outlook.asOf} 已有紀錄，未覆蓋（紀錄寫入後不可改）` };
+}
+
+/** recordForecast 的結果轉成工作狀態：沒產生預測＝partial，原因寫進 detail。 */
+function forecastStatus(f: ForecastRecord): "ok" | "partial" {
+  return f.outcome === "skipped" ? "partial" : "ok";
 }
 
 // 目標價抓權重前 200 檔（約占指數 85% 權重），EPS 修正只抓前 100 檔：每次 16 檔約 25 個子請求。
@@ -573,7 +610,10 @@ const JOBS: Record<JobName, (db: D1Database, opts: JobOptions, budget: Budget) =
   events: jobEvents,
   analysts: jobAnalysts,
   factset: jobFactset,
-  forecast: async (db) => ({ status: "ok", summary: await recordForecast(db), detail: {} }),
+  forecast: async (db) => {
+    const f = await recordForecast(db);
+    return { status: forecastStatus(f), summary: f.message, detail: { outcome: f.outcome, ...(f.reason ? { reason: f.message } : {}) } };
+  },
   snapshots: async (db, opts) => {
     const sessions = Math.min(Math.max(opts.sessions ?? 30, 1), 120);
     const r = await rebuildSnapshots(db, opts.upTo ? "歷史重算" : "手動重算", sessions, opts.upTo);

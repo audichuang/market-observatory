@@ -32,7 +32,11 @@ function ForecastBlock({ outlook, cells, horizon, minN, minEpisodes, trackPanel 
       <div className="label">上漲機率</div>
       <div className="outlook-value">{pct(pick.p)}</div>
       <div className="sub">
-        {pick.distinct || !pick.conditional ? (
+        {pick.shrinkWeight > 0 && pick.conditional ? (
+          <>
+            收縮後 {pct(pick.p, 1)}（基準 {pct(pick.base.p, 1)}、條件 {pct(pick.conditional.p, 1)}、權重 {pick.shrinkWeight.toFixed(2)}）· 依據：{BASIS[pick.basis]}
+          </>
+        ) : pick.distinct || !pick.conditional ? (
           <>95% 區間 {pct(pick.conditional?.low ?? pick.base.low)}～{pct(pick.conditional?.high ?? pick.base.high)} · 依據：{BASIS[pick.basis]}</>
         ) : (
           <>

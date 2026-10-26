@@ -5,7 +5,7 @@ import { DEFAULT_MODEL, HORIZON, MIN_EPISODES, buildObservations, buildOutlook, 
 
 const day = (i: number) => new Date(Date.UTC(2015, 0, 1) + i * 864e5).toISOString().slice(0, 10);
 // G04 之前的舊行為（不設段數門檻、不凍結窗口、不限 VIX 陳舊度）：既有測試的意圖不變，改用它來跑。
-const LEGACY: ModelConfig = { ...DEFAULT_MODEL, minEpisodes: 0, baseWindowStart: null, vixMaxStaleSessions: null };
+const LEGACY: ModelConfig = { ...DEFAULT_MODEL, shrinkK: null, minEpisodes: 0, baseWindowStart: null, vixMaxStaleSessions: null };
 const series = (closes: number[]) => new Series(closes.map((close, i) => ({ date: day(i), close })));
 
 test("Wilson 區間：樣本越多越窄、p 在區間內", () => {
@@ -172,7 +172,7 @@ test("條件區間包含基準率時，輸出的機率是基準率，不是條�
   const vix = series(closes.map(() => 15));
   const obs = buildObservations(spx, vix);
   for (const regime of [{ aboveSma200: true, vixStress: false }, { aboveSma200: false, vixStress: false }]) {
-    const pick = pickProbability(obs, day(2599), regime)!;
+    const pick = pickProbability(obs, day(2599), regime, { ...DEFAULT_MODEL, shrinkK: null })!; // 硬切換路徑（G01 採用後預設為收縮）
     if (pick.distinct) assert.equal(pick.p, pick.conditional!.p);
     else assert.equal(pick.p, pick.base.p);
   }
@@ -250,16 +250,16 @@ test("walkForward = evaluateRows(walkForwardRows)；只有趨勢旗標的模型�
   const o = buildOutlook(series(spx), series(vix), trendOnly)!;
   assert.equal(o.modelVersion, "test-trend");
   assert.equal(o.pick.basis, "trend");
-  assert.equal(buildOutlook(series(spx), series(vix))!.modelVersion, "2026-10-g04");
+  assert.equal(buildOutlook(series(spx), series(vix))!.modelVersion, "2026-10-g01");
 
   // dates 只算指定日期。
   const some = rows.slice(0, 3).map((r) => r.date);
   assert.deepEqual(walkForwardRows(tObs, trendOnly, { dates: some }).map((r) => r.date), some);
 });
 
-// 特徵測試（DEFAULT_MODEL，G04 生效）：數值由 2026-10-g04 的程式算出並固定；一個選到 trend+vix，一個退回基準率。
+// 特徵測試（DEFAULT_MODEL，G04 生效）：數值由 2026-10-g01（G01 收縮 k=40 已採用）的程式算出並固定；一個選到 trend+vix，一個退回基準率。
 const defaultPinned: [string, number[], ReturnType<typeof roundEval>, number, string, string, Record<string, number>][] = [
-  ["alt300x8000", alternating(8000, 300), { points: 346, hitRate: 0.609826589595, baseHitRate: 0.505780346821, brier: 0.21534051263, brierBase: 0.25404237914, bss: 0.152344135026, bssLow: 0.060026830024, bssHigh: 0.24071305595, firstDate: "2016-12-24", lastDate: "2036-10-25" }, 0.770627919045, "trend+vix", "up", { base: 171, "trend+vix": 175 }],
+  ["alt300x8000", alternating(8000, 300), { points: 346, hitRate: 0.609826589595, baseHitRate: 0.505780346821, brier: 0.217984235643, brierBase: 0.25404237914, bss: 0.141937513022, bssLow: 0.069892530683, bssHigh: 0.212958654559, firstDate: "2016-12-24", lastDate: "2036-10-25" }, 0.721968536106, "trend+vix", "up", { base: 171, "trend+vix": 175 }],
   ["alt600x3000-fallback", alt600, { points: 108, hitRate: 0.481481481481, baseHitRate: 0.518518518519, brier: 0.267705074275, brierBase: 0.267705074275, bss: 0, bssLow: 0, bssHigh: 0, firstDate: "2016-12-24", lastDate: "2023-02-18" }, 0.568345323741, "base", "inconclusive", { base: 108 }],
 ];
 
@@ -316,7 +316,8 @@ test("G01 收縮：shrinkK = nEff 時恰為基準率與條件機率的中點；s
   const closes = alternating(8000, 300);
   const obs = buildObservations(series(closes), series(closes.map(() => 15)));
   const last = obs.at(-1)!;
-  const hard = pickProbability(obs, last.date, last.regime!)!;
+  const HARD = { ...DEFAULT_MODEL, shrinkK: null };
+  const hard = pickProbability(obs, last.date, last.regime!, HARD)!;
   assert.equal(hard.basis, "trend+vix");
   assert.equal(hard.shrinkWeight, 0);
   const n = hard.conditional!.nEff;

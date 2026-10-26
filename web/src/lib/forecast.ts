@@ -59,7 +59,7 @@ export interface ModelConfig {
 }
 
 export const DEFAULT_MODEL: ModelConfig = {
-  version: "2026-10-g04",
+  version: "2026-10-g01",
   flags: [
     { id: "aboveSma200", basisId: "trend", compute: (c) => (c.sma200 === null ? null : c.close > c.sma200) },
     // VIX 一般狀態（<30）幾乎就是全部樣本，沒有資訊量，單獨成候選時跳過。
@@ -68,7 +68,7 @@ export const DEFAULT_MODEL: ModelConfig = {
   candidates: [["aboveSma200", "vixStress"], ["vixStress"], ["aboveSma200"]],
   minEffectiveN: MIN_EFFECTIVE_N,
   minEpisodes: MIN_EPISODES,
-  shrinkK: null,
+  shrinkK: 40,
   bootstrap: { blockSize: 3, resamples: 1000 },
   baseWindowStart: "1990-01-02",
   vixMaxStaleSessions: 3,

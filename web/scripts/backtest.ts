@@ -14,10 +14,10 @@ import { CBOE_URLS, parseCboeCsv } from "../src/lib/sources/cboe.ts";
 // 變體登錄：base／hard = 現行 DEFAULT_MODEL；shrink40 = G01 收縮 k=40；shrink20／shrink80 只做敏感度。
 const VARIANTS: Record<string, ModelConfig> = {
   base: DEFAULT_MODEL,
-  hard: DEFAULT_MODEL,
-  shrink40: { ...DEFAULT_MODEL, version: `${DEFAULT_MODEL.version}+shrink40`, shrinkK: 40 },
-  shrink20: { ...DEFAULT_MODEL, version: `${DEFAULT_MODEL.version}+shrink20`, shrinkK: 20 },
-  shrink80: { ...DEFAULT_MODEL, version: `${DEFAULT_MODEL.version}+shrink80`, shrinkK: 80 },
+  hard: { ...DEFAULT_MODEL, version: "2026-10-g04", shrinkK: null },
+  shrink40: DEFAULT_MODEL,
+  shrink20: { ...DEFAULT_MODEL, version: "2026-10-g04+shrink20", shrinkK: 20 },
+  shrink80: { ...DEFAULT_MODEL, version: "2026-10-g04+shrink80", shrinkK: 80 },
 };
 const SENSITIVITY = new Set(["shrink20", "shrink80"]);
 // 目標登錄：dd5 的標籤與計分在之後的票接上（forecast.ts 的 label 選項）。

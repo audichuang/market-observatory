@@ -33,6 +33,8 @@ test("同一交易日第二次寫入不覆蓋；新欄位都有值", async () =>
   const row1 = sql.prepare("SELECT * FROM forecasts ORDER BY trade_date").all() as Record<string, unknown>[];
   assert.equal(row1.length, 5); // 補記最近 5 個交易日
   assert.match(msg1.message, /新記錄/);
+  // 摘要顯示在站長的資料來源頁：結論與原因代碼要換成中文，不能漏出 up／down／inconclusive、vix-pending 之類的代碼。
+  assert.doesNotMatch(msg1.message, /\b(up|down|inconclusive)\b|[a-z]+-[a-z]+/);
 
   // 最後一天的收盤改了、再算一次：紀錄不變。
   sql.prepare("UPDATE prices SET close = close * 0.5 WHERE symbol = 'SPX' AND date = (SELECT MAX(date) FROM prices WHERE symbol = 'SPX')").run();

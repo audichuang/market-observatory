@@ -2,6 +2,23 @@ import { useState } from "react";
 import { auth } from "void/client";
 import type { Props } from "./login.server";
 
+/** Better Auth 的錯誤訊息是英文，依錯誤碼換成中文（與 iOS 的 API.translateAuth 一致）；沒對應到的不顯示原文。 */
+const AUTH_ERRORS: Record<string, string> = {
+  INVALID_EMAIL_OR_PASSWORD: "Email 或密碼不正確",
+  INVALID_PASSWORD: "Email 或密碼不正確",
+  USER_ALREADY_EXISTS: "這個 Email 已經註冊過，請直接登入",
+  USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL: "這個 Email 已經註冊過，請直接登入",
+  PASSWORD_TOO_SHORT: "密碼至少 8 個字",
+  PASSWORD_TOO_LONG: "密碼太長",
+  INVALID_EMAIL: "Email 格式不正確",
+  FAILED_TO_CREATE_SESSION: "無法建立登入狀態，請稍後再試",
+  FAILED_TO_CREATE_USER: "無法建立帳號，請稍後再試",
+};
+
+function authErrorText(code: string | undefined, mode: "signin" | "signup") {
+  return (code && AUTH_ERRORS[code]) || (mode === "signin" ? "登入失敗，請稍後再試" : "建立帳號失敗，請稍後再試");
+}
+
 export default function LoginPage({ next }: Props) {
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [email, setEmail] = useState("");
@@ -19,7 +36,7 @@ export default function LoginPage({ next }: Props) {
         : await auth.signUp.email({ email, password, name: email.split("@")[0] });
     setPending(false);
     if (res.error) {
-      setError(res.error.message || "登入失敗");
+      setError(authErrorText(res.error.code, mode));
       return;
     }
     window.location.href = next;

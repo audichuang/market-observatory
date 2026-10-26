@@ -101,7 +101,7 @@ export default function Overview({ snapshot, dates, expectedClose, news, digests
           </div>
           <div className="sub" style={{ flex: 1 }}>
             <span className={`badge ${forecast.call === "up" ? "ok" : forecast.call === "down" ? "bad" : "warn"}`}>
-              {forecast.call === "up" ? "高於平常" : forecast.call === "down" ? "低於平常" : "偵測不到 skill"}
+              {forecast.call === "up" ? "高於平常" : forecast.call === "down" ? "低於平常" : "偵測不到預測力"}
             </span>
           </div>
           <span aria-hidden>→</span>

@@ -11,7 +11,7 @@ const pct = (v: number | null | undefined, d = 0) => (v === null || v === undefi
 const CALL: Record<string, [string, string, string]> = {
   up: ["ok", "高於平常", "目前條件下的上漲機率明顯高於歷史基準（平常），且滾動驗證勝過基準"],
   down: ["bad", "低於平常", "目前條件下的上漲機率明顯低於歷史基準（平常），且滾動驗證勝過基準"],
-  inconclusive: ["warn", "偵測不到 skill", "目前的訊號不足以把機率拉離歷史基準"],
+  inconclusive: ["warn", "偵測不到預測力", "目前的訊號不足以把機率拉離歷史基準"],
 };
 
 const BASIS: Record<string, string> = {
@@ -55,7 +55,7 @@ function ForecastBlock({ outlook, cells, horizon, minN, minEpisodes, trackPanel,
   const { pick, evaluation: ev } = outlook;
   const [cls, baseLabel, why] = CALL[outlook.call];
   // G08：沒有方向時註明最小可偵測 BSS（標準差為 0 則不寫數字）。
-  const label = outlook.call === "inconclusive" && ev.mde !== null ? `偵測不到 skill（最小可偵測 BSS 約 ${ev.mde.toFixed(2)}）` : baseLabel;
+  const label = outlook.call === "inconclusive" && ev.mde !== null ? `偵測不到預測力（最小可偵測 BSS 約 ${ev.mde.toFixed(2)}）` : baseLabel;
   return (
     <>
 

@@ -23,8 +23,11 @@ export function CenteredBar({ value, max }: { value: number | null; max: number 
   );
 }
 
+const RUN_STATUS_TEXT: Record<string, string> = { ok: "成功", partial: "部分成功", failed: "失敗", running: "執行中" };
+export const runStatusText = (status: string) => RUN_STATUS_TEXT[status] ?? status;
+
 export function RunStatusBadge({ status }: { status: string }) {
   const cls = status === "ok" ? "ok" : status === "partial" || status === "running" ? "warn" : "bad";
-  const text = { ok: "成功", partial: "部分成功", failed: "失敗", running: "執行中" }[status] ?? status;
+  const text = runStatusText(status);
   return <span className={`badge ${cls}`}>{text}</span>;
 }

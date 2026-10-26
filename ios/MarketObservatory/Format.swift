@@ -162,7 +162,7 @@ struct CallBadge: View {
         let (text, color): (String, Color) = switch call {
         case "up": ("高於平常", .up)
         case "down": ("低於平常", .down)
-        default: (mde.map { "偵測不到 skill（最小可偵測 BSS 約 \(String(format: "%.2f", $0))）" } ?? "偵測不到 skill", .orange)
+        default: (mde.map { "偵測不到預測力（最小可偵測 BSS 約 \(String(format: "%.2f", $0))）" } ?? "偵測不到預測力", .orange)
         }
         Text(text)
             .font(.caption.weight(.semibold))

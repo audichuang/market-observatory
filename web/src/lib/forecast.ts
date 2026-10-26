@@ -3,7 +3,7 @@
 // 研究結論（見 docs/forecast.md）：分析師目標價、策略師目標、廣度、VIX 期限結構對一個月方向都沒有穩定預測力；
 // 只有「是否在 200 日線之上」與「VIX ≥ 30」有微弱、樣本少的差異。所以這裡刻意保守：
 // - 預設輸出歷史基準率；條件機率只在有效樣本夠、且信賴區間不含基準率時才採用；
-// - 用滾動（walk-forward）驗證算 Brier skill score；方向要過 G03 的 cell 閘門，否則標「偵測不到 skill」。
+// - 用滾動（walk-forward）驗證算 Brier skill score；方向要過 G03 的 cell 閘門，否則標「偵測不到預測力」。
 // 所有計算只用「當下已知」的資料：第 t 天的標籤要等到 t+21 天收盤後才算已知。
 
 import { Series, smaSeries } from "./analytics.ts";

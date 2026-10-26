@@ -771,7 +771,7 @@ struct OutlookView: View {
         switch call {
         case "up": "高於平常"
         case "down": "低於平常"
-        default: "偵測不到 skill"
+        default: "偵測不到預測力"
         }
     }
 }

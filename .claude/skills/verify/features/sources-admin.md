@@ -19,7 +19,7 @@ Preconditions:
 - 基準狀態。站長在 ego-browser 登入要用 `$RUN/owner.pw` 的密碼：在腳本裡用 `fs.readFile` 讀檔填進欄位，不要印出來。
 
 - **站長頁面。** 站長登入後 `goto("/sources")`，等 `text=資料來源與品質`；截圖 `sources.png`。執行紀錄最上面幾筆是 `web-up.sh` 跑的回補與排程。
-- **手動執行。** 在「手動執行」按 `weights`（`text="weights"`），等執行紀錄多一筆；`curl -b $RUN/owner.cj …/api/v1/…` 不需要，紀錄就在畫面上。截圖 `sources-manual-run.png`。
+- **手動執行。** 在「手動執行」按「SPY 持股權重」（`loc=role:button[name='SPY 持股權重']`；按鈕都顯示中文工作名，`notify-close`／`notify-events` 是「發送收盤推播」「發送今日事件推播」），等執行紀錄多一筆；`curl -b $RUN/owner.cj …/api/v1/…` 不需要，紀錄就在畫面上。截圖 `sources-manual-run.png`。
 - **非站長。** 測試帳號 `page.fetch("/api/admin/run?job=weights", { method: "POST" })` 回 403、`{"error":"只有站長能執行"}`。
 - **Proof。** `sources.png`、`sources-manual-run.png`、403 的回應。
 

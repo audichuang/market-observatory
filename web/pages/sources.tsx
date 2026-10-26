@@ -1,6 +1,6 @@
 import { useRouter, useShared } from "@void/react";
 import { useState } from "react";
-import { CheckBadge, RunStatusBadge } from "../src/ui/bits.tsx";
+import { CheckBadge, RunStatusBadge, runStatusText } from "../src/ui/bits.tsx";
 import { num, taipeiTime } from "../src/ui/format.ts";
 import type { CheckStatus } from "../src/lib/snapshot.ts";
 import type { Props } from "./sources.server";
@@ -15,10 +15,18 @@ const JOB_LABEL: Record<string, string> = {
   factset: "FactSet 週報",
   forecast: "重算下月展望",
   snapshots: "重算近 30 天快照",
+  "notify-close": "發送收盤推播",
+  "notify-events": "發送今日事件推播",
   "backfill-prices": "回補十年日線（分段）",
   "backfill-checks": "回補交叉核對（分段）",
   "backfill-index-history": "回補 SPX／VIX 更早歷史（Cboe）",
 };
+
+const label = (job: string) => JOB_LABEL[job] ?? job;
+
+/** D1 裡存的來源代碼（src/lib/sources/*_SOURCE）換成來源名稱 */
+const SOURCE_LABEL: Record<string, string> = { "yahoo-chart": "Yahoo chart", cboe: "Cboe", nasdaq: "Nasdaq" };
+const sourceName = (s: string | null) => (s ? SOURCE_LABEL[s] ?? s : "");
 
 const NO_SECOND_SOURCE = new Set(["USDTWD", "VIX"]);
 
@@ -42,10 +50,10 @@ export default function SourcesPage({ expected, freshness, mismatches, runs, wei
     try {
       const res = await fetch(`/api/admin/run?job=${job}`, { method: "POST" });
       const body = (await res.json()) as { status?: string; summary?: string; error?: string };
-      setMessage(`${JOB_LABEL[job]}：${body.status ?? res.status} ${body.summary ?? body.error ?? ""}`);
+      setMessage(`${label(job)}：${body.status ? runStatusText(body.status) : `錯誤 ${res.status}`} ${body.summary ?? body.error ?? ""}`);
       router.refresh();
-    } catch (e) {
-      setMessage(`${JOB_LABEL[job]} 失敗：${String(e)}`);
+    } catch {
+      setMessage(`${label(job)} 失敗：連不上伺服器或回應格式不對，請稍後再試`);
     } finally {
       setBusy(null);
     }
@@ -74,7 +82,7 @@ export default function SourcesPage({ expected, freshness, mismatches, runs, wei
         <div className="chips">
           {jobs.filter((j) => !j.startsWith("backfill")).map((j) => (
             <button key={j} className="secondary" disabled={busy !== null} onClick={() => trigger(j)}>
-              {busy === j ? "執行中…" : JOB_LABEL[j] ?? j}
+              {busy === j ? "執行中…" : label(j)}
             </button>
           ))}
         </div>
@@ -121,10 +129,10 @@ export default function SourcesPage({ expected, freshness, mismatches, runs, wei
                   <td className="mono">{f.link ? <a href={f.link} target="_blank" rel="noreferrer">{f.symbol}</a> : f.symbol}</td>
                   <td>{f.date} {f.symbol !== "USDTWD" && f.date < expected && <span className="badge warn">落後</span>}</td>
                   <td className="num">{num(f.close)}</td>
-                  <td className="meta">{f.source}</td>
+                  <td className="meta">{sourceName(f.source)}</td>
                   <td>
                     <CheckBadge status={(f.check_status as CheckStatus) ?? (NO_SECOND_SOURCE.has(f.symbol) ? "unavailable" : "pending")} />
-                    {f.check_close !== null && f.check_status === "mismatch" && <span className="meta"> {f.check_source} {num(f.check_close)}</span>}
+                    {f.check_close !== null && f.check_status === "mismatch" && <span className="meta"> {sourceName(f.check_source)} {num(f.check_close)}</span>}
                   </td>
                   <td className="meta hide-sm">{taipeiTime(f.fetched_at)}</td>
                 </tr>
@@ -141,7 +149,7 @@ export default function SourcesPage({ expected, freshness, mismatches, runs, wei
             <thead><tr><th>標的</th><th>日期</th><th className="num">主來源</th><th className="num">第二來源</th></tr></thead>
             <tbody>
               {mismatches.map((m) => (
-                <tr key={`${m.symbol}-${m.date}`}><td className="mono">{m.symbol}</td><td>{m.date}</td><td className="num">{num(m.close, 4)}</td><td className="num">{num(m.check_close, 4)} <span className="meta">{m.check_source}</span></td></tr>
+                <tr key={`${m.symbol}-${m.date}`}><td className="mono">{m.symbol}</td><td>{m.date}</td><td className="num">{num(m.close, 4)}</td><td className="num">{num(m.check_close, 4)} <span className="meta">{sourceName(m.check_source)}</span></td></tr>
               ))}
             </tbody>
           </table>
@@ -155,7 +163,7 @@ export default function SourcesPage({ expected, freshness, mismatches, runs, wei
             <li key={r.id}>
               <div style={{ display: "flex", gap: ".5rem", alignItems: "center", flexWrap: "wrap" }}>
                 <RunStatusBadge status={r.status} />
-                <strong>{JOB_LABEL[r.job] ?? r.job}</strong>
+                <strong>{label(r.job)}</strong>
                 <span className="meta">{taipeiTime(r.started_at)} · {r.trigger.startsWith("cron") ? "排程" : "手動"}</span>
               </div>
               <div className="meta">{r.summary}</div>

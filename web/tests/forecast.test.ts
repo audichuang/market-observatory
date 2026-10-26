@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Series } from "../src/lib/analytics.ts";
-import { DEFAULT_MODEL, EVAL_SEED, HORIZON, condOfPick, drawdownScored, returnQuantiles, MIN_CELL_ROWS, MIN_CELL_RUNS, MIN_EPISODES, MIN_VALID_REPLICATES, buildObservations, buildOutlook, callOf, cellEvaluations, cellGateOf, conditionalRate, evaluateRows, mulberry32, pickProbability, sdOf, stationaryBootstrapIndices, walkForward, walkForwardRows, wilson, type CellEval, type ModelConfig, type Observation, type WalkRow } from "../src/lib/forecast.ts";
+import { DEFAULT_MODEL, EVAL_SEED, HORIZON, condOfPick, drawdownScored, returnQuantiles, MIN_CELL_ROWS, MIN_CELL_RUNS, MIN_EPISODES, MIN_VALID_REPLICATES, buildObservations, buildOutlook, callOf, cellEvaluations, cellGateOf, conditionalRate, evaluateRows, mulberry32, pickProbability, sdOf, stationaryBootstrapIndices, VRP_MODEL, VRP_MIN_VALUES, vrpAt, vrpHighSeries, walkForward, walkForwardRows, wilson, type CellEval, type ModelConfig, type Observation, type WalkRow } from "../src/lib/forecast.ts";
 import { PHASES, bssOf, nullPairedBss, pairedBrierDiffMcStdErr, pairedBrierDiffPhase, pairedMcStdErr, pairedPhaseAveraged, phaseGrid, pointInTimeCalls } from "../src/lib/forecast-eval.ts";
 
 const day = (i: number) => new Date(Date.UTC(2015, 0, 1) + i * 864e5).toISOString().slice(0, 10);
@@ -714,4 +714,70 @@ test("harness：paired／MC／null 都帶 label，up 與 dd5 結果不同", () =
   // 預設 label 仍是 up
   assert.equal(pairedPhaseAveraged(obs, obs, DEFAULT_MODEL, cand, opts).mean, u.paired);
   assert.deepEqual(nullPairedBss(obs, obs, DEFAULT_MODEL, cand, { N: 3 }).values, u.nul);
+// ---- G06 VRP 試驗候選（非預設） ----
+const growth = (n: number) => Array.from({ length: n }, (_, i) => 100 * Math.exp(0.01 * i)); // 每日對數報酬 1%
+
+test("VRP 公式：VIX²/12 減 21 日已實現變異（百分點平方和）", () => {
+  const closes = growth(40);
+  // 21 個日報酬各 1%（百分點 1）→ 21；VIX 20 → 400/12
+  assert.ok(Math.abs(vrpAt(closes, 30, 20)! - (400 / 12 - 21)) < 1e-9);
+  // 只有最近一天跳 2%：Σ = 4 + 20×1
+  const c2 = closes.slice();
+  for (let i = 30; i < c2.length; i++) c2[i] *= Math.exp(0.01);
+  assert.ok(Math.abs(vrpAt(c2, 30, 20)! - (400 / 12 - 24)) < 1e-9);
+  // 需要 closes[i−21]；不足或 VIX 缺值為 null
+  assert.equal(vrpAt(closes, 20, 20), null);
+  assert.notEqual(vrpAt(closes, 21, 20), null);
+  assert.equal(vrpAt(closes, 30, null), null);
+});
+
+test("vrpHigh：累積 252 個 VRP 值前為 null，之後起算", () => {
+  const n = 300;
+  const dates = Array.from({ length: n }, (_, i) => day(i));
+  const out = vrpHighSeries(dates, growth(n), Array.from({ length: n }, (_, i) => 10 + i * 0.1));
+  // 第 21 天起才有 VRP，第 21+251 = 272 天才累積到 252 個
+  assert.equal(VRP_MIN_VALUES, 252);
+  assert.ok(out.slice(0, 272).every((x) => x === null));
+  assert.notEqual(out[272], null);
+  // VIX 遞增 → VRP 遞增 → 永遠高於中位數
+  assert.ok(out.slice(272).every((x) => x === true));
+  // VIX 缺值的日子為 null，且不計入 252
+  const gap = vrpHighSeries(dates, growth(n), Array.from({ length: n }, (_, i) => (i === 100 ? null : 10 + i * 0.1)));
+  assert.equal(gap[100], null);
+  assert.equal(gap[272], null);
+  assert.notEqual(gap[273], null);
+});
+
+test("vrpHigh：expanding 中位數含今天，且要嚴格大於", () => {
+  const n = 274;
+  const dates = Array.from({ length: n }, (_, i) => day(i));
+  // 前 252 個值（index 21..272）：126 個 VIX 10、126 個 VIX 30；今天（index 273）VIX 25
+  const vix = Array.from({ length: n }, (_, i) => (i < 21 ? 10 : i < 147 ? 10 : i === 273 ? 25 : 30));
+  const out = vrpHighSeries(dates, growth(n), vix);
+  // 不含今天時中位數 = (10²+30²)/2 /12 − 21 對應 VIX² = 500，25² = 625 會判 true；含今天時今天就是中位數，嚴格大於 → false
+  assert.equal(out[273], false);
+  // 早於 1990-01-02 的日期為 null
+  const early = vrpHighSeries(Array.from({ length: n }, (_, i) => new Date(Date.UTC(1980, 0, 1) + i * 864e5).toISOString().slice(0, 10)), growth(n), vix);
+  assert.ok(early.every((x) => x === null));
+});
+
+test("VRP 候選設定：旗標與候選順序、不跳過；預設模型的旗標不變", () => {
+  assert.deepEqual(VRP_MODEL.flags.map((f) => f.id), ["aboveSma200", "vrpHigh"]);
+  assert.deepEqual(VRP_MODEL.candidates, [["aboveSma200", "vrpHigh"], ["vrpHigh"], ["aboveSma200"]]);
+  assert.ok(VRP_MODEL.flags.every((f) => f.skipSingleWhen === undefined));
+  assert.equal(VRP_MODEL.version, `${DEFAULT_MODEL.version}+vrp`);
+  assert.deepEqual(DEFAULT_MODEL.flags.map((f) => f.id), ["aboveSma200", "vixStress"]);
+  assert.deepEqual(DEFAULT_MODEL.candidates, [["aboveSma200", "vixStress"], ["vixStress"], ["aboveSma200"]]);
+});
+
+test("VRP 候選的觀測值：regime 含 vrpHigh；預設模型的 regime 不含", () => {
+  const n = 600;
+  const spx = new Series(Array.from({ length: n }, (_, i) => ({ date: new Date(Date.UTC(1990, 0, 2) + i * 864e5).toISOString().slice(0, 10), close: 100 + i + 3 * Math.sin(i) })));
+  const vix = new Series(spx.points.map((p, i) => ({ date: p.date, close: 15 + 5 * Math.sin(i / 7) })));
+  const v = buildObservations(spx, vix, VRP_MODEL);
+  const d = buildObservations(spx, vix);
+  const lastV = v.at(-1)!.regime!;
+  assert.deepEqual(Object.keys(lastV), ["aboveSma200", "vrpHigh"]);
+  assert.deepEqual(Object.keys(d.at(-1)!.regime!), ["aboveSma200", "vixStress"]);
+  assert.equal(v.findIndex((o) => o.regime), 272);
 });

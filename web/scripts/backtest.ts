@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { Series } from "../src/lib/analytics.ts";
 import { addDays } from "../src/lib/calendar.ts";
-import { DEFAULT_MODEL, HORIZON, MIN_EFFECTIVE_N, MIN_EPISODES, VIX_STRESS, buildObservations, buildOutlook, evaluateRows, type ModelConfig, type WalkRow } from "../src/lib/forecast.ts";
+import { DEFAULT_MODEL, VRP_MODEL, HORIZON, MIN_EFFECTIVE_N, MIN_EPISODES, VIX_STRESS, buildObservations, buildOutlook, evaluateRows, type ModelConfig, type WalkRow } from "../src/lib/forecast.ts";
 import { EVAL_DEFAULTS, PHASES, bootstrapCI, brierOf, bssOf, intersectRegimes, mcStdErr, nullPairedBss, pairedBrierDiffMcStdErr, pairedBrierDiffPhase, pairedMcStdErr, pairedPhaseAveraged, phaseAverageFromCells, phaseCells, phaseGrid, pointInTimeCalls } from "../src/lib/forecast-eval.ts";
 import { CBOE_URLS, parseCboeCsv } from "../src/lib/sources/cboe.ts";
 
@@ -15,6 +15,7 @@ import { CBOE_URLS, parseCboeCsv } from "../src/lib/sources/cboe.ts";
 // pre-g03 = G03／G08 之前的預設（同一組 p；舊區塊 bootstrap 3/1000；方向閘門用舊規則：distinct 且全域 bssLow > 0，見 legacyCalls），只供記錄對照。
 const VARIANTS: Record<string, ModelConfig> = {
   base: DEFAULT_MODEL,
+  vrp: VRP_MODEL,
   "pre-g03": { ...DEFAULT_MODEL, version: "2026-10-g01", bootstrap: { kind: "block", blockSize: 3, resamples: 1000 } },
   hard: { ...DEFAULT_MODEL, version: "2026-10-g04", shrinkK: null },
   shrink40: DEFAULT_MODEL,

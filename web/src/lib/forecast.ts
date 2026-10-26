@@ -37,6 +37,8 @@ export interface FlagCtx {
   sma200: number | null;
   /** 當日（或之前最近一天）的 VIX；缺值為 null */
   vix: number | null;
+  /** G06 試驗：VRP 高於 expanding 中位數；只有 cfg.flags 含 vrpHigh 時才預先計算（見 vrpHighSeries），否則為 undefined */
+  vrpHigh?: boolean | null;
 }
 
 export interface FlagDef {
@@ -94,6 +96,13 @@ export const DEFAULT_MODEL: ModelConfig = {
 /** 計分目標：up = 21 日後收高；dd5（D4）= t+1..t+21 任一收盤 ≤ t 日收盤 × 0.95。兩者標籤在同一天（t+21 收盤）才知道。 */
 export type Label = "up" | "dd5";
 export const DD5_THRESHOLD = 0.95;
+/** G06 試驗候選（非預設）：以 vrpHigh 取代 vixStress，兩側都不跳過。 */
+export const VRP_MODEL: ModelConfig = {
+  ...DEFAULT_MODEL,
+  version: `${DEFAULT_MODEL.version}+vrp`,
+  flags: [DEFAULT_MODEL.flags[0], { id: "vrpHigh", basisId: "vrp", compute: (c) => c.vrpHigh ?? null }],
+  candidates: [["aboveSma200", "vrpHigh"], ["vrpHigh"], ["aboveSma200"]],
+};
 
 export interface Rate {
   /** 標籤為真的比例（up：上漲；dd5：出現 ≥5% 回撤） */
@@ -149,12 +158,53 @@ export function vixAt(spx: Series, vix: Series, i: number, maxStale: number | nu
   return v.close;
 }
 
+/** G06 的 expanding 中位數起點與最少 VRP 筆數。 */
+export const VRP_START = "1990-01-02";
+export const VRP_MIN_VALUES = 252;
+
+/**
+ * VRP_t = VIX_t²/12 − Σ_{k=0..20}(100·ln(S_{t−k}/S_{t−k−1}))²；需要 closes[i−21..i]，不足或 vix 為 null 回 null。
+ */
+export function vrpAt(closes: number[], i: number, vix: number | null): number | null {
+  if (vix === null || i < 21) return null;
+  let rv = 0;
+  for (let k = 0; k <= 20; k++) rv += (100 * Math.log(closes[i - k] / closes[i - k - 1])) ** 2;
+  return (vix * vix) / 12 - rv;
+}
+
+/**
+ * 逐日 vrpHigh：VRP_t 大於「VRP_START 起到 t（含）所有可算的 VRP」的中位數（偶數個取中間兩個平均）為 true；
+ * 累積不到 VRP_MIN_VALUES 個值、或當日算不出 VRP 為 null。vix[i] 是第 i 天已套用 M5 落後規則的 VIX。
+ */
+export function vrpHighSeries(dates: string[], closes: number[], vix: (number | null)[]): (boolean | null)[] {
+  const sorted: number[] = [];
+  return dates.map((d, i) => {
+    if (d < VRP_START) return null;
+    const v = vrpAt(closes, i, vix[i]);
+    if (v === null) return null;
+    let lo = 0;
+    let hi = sorted.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (sorted[mid] < v) lo = mid + 1;
+      else hi = mid;
+    }
+    sorted.splice(lo, 0, v);
+    if (sorted.length < VRP_MIN_VALUES) return null;
+    const n = sorted.length;
+    const median = n % 2 ? sorted[(n - 1) / 2] : (sorted[n / 2 - 1] + sorted[n / 2]) / 2;
+    return v > median;
+  });
+}
+
 /** 把 SPX 與 VIX 對齊成逐日觀測值；任一旗標算不出來（200 日線不足、VIX 缺值）的日子 regime 為 null。 */
 export function buildObservations(spx: Series, vix: Series, cfg: ModelConfig = DEFAULT_MODEL): Observation[] {
   const pts = spx.points;
   const sma = smaSeries(pts, 200);
+  const vixs = pts.map((_, i) => vixAt(spx, vix, i, cfg.vixMaxStaleSessions));
+  const vrpHigh = cfg.flags.some((f) => f.id === "vrpHigh") ? vrpHighSeries(pts.map((p) => p.date), pts.map((p) => p.close), vixs) : null;
   return pts.map((p, i) => {
-    const ctx: FlagCtx = { date: p.date, index: i, close: p.close, sma200: sma[i], vix: vixAt(spx, vix, i, cfg.vixMaxStaleSessions) };
+    const ctx: FlagCtx = { date: p.date, index: i, close: p.close, sma200: sma[i], vix: vixs[i], ...(vrpHigh ? { vrpHigh: vrpHigh[i] } : {}) };
     let regime: RegimeFlags | null = {};
     for (const f of cfg.flags) {
       if (cfg.baseWindowStart !== null && p.date < cfg.baseWindowStart) {

@@ -551,6 +551,8 @@ export interface Outlook {
   call: "up" | "down" | "inconclusive";
   /** L12：四個固定評估項；call 不是 inconclusive 時四項一定都是 pass，任何一項 fail 則 call 一定是 inconclusive */
   assessments: Assessments;
+  /** 整體滾動驗證的提醒（不放進 reasons）；沒有為 null */
+  globalCaveat: string | null;
   /** 相容舊欄位：由 assessments 推出的文字說明 */
   reasons: string[];
 }
@@ -638,20 +640,27 @@ export function callOf(pick: { p: number; distinct: boolean } & ({ base: { p: nu
   return pick.p > base ? "up" : pick.p < base ? "down" : "inconclusive";
 }
 
-/** L12：由各評估項推出的文字說明（相容舊的 reasons 欄位）；每一句對應一個 fail。 */
-export function reasonsOf(a: Assessments, distinct: boolean, gate: CellGate): string[] {
+/** L12：由各評估項推出的文字說明（相容舊的 reasons 欄位）；只來自 fail 的項目，所以不會跟 call 矛盾。全域滾動驗證的提醒另見 globalCaveatOf。 */
+export function reasonsOf(a: Assessments): string[] {
   const reasons: string[] = [];
-  if (a.difference.status !== "pass") reasons.push("目前條件下的上漲比例，信賴區間包含歷史基準率（或樣本不足），看不出差別");
-  if (a.trackRecord.globalBssLow === null) reasons.push("滾動驗證的預測次數不足 12 次");
-  else if (a.trackRecord.globalBssLow <= 0) reasons.push("滾動驗證中，這套條件機率沒有穩定勝過「永遠用基準率」");
-  if (distinct) {
-    if (gate.rows < MIN_CELL_ROWS) reasons.push(`目前這個條件組合在滾動驗證中只有 ${gate.rows} 列（需要 ${MIN_CELL_ROWS}），無法驗證`);
-    else if (gate.runs < MIN_CELL_RUNS) reasons.push(`目前這個條件組合在滾動驗證中只分成 ${gate.runs} 段連續區間（需要 ${MIN_CELL_RUNS}）`);
-    else if (gate.bssLow === null) reasons.push("目前這個條件組合的有效重抽次數不足，算不出 BSS 下界");
-    else if (gate.bssLow <= 0) reasons.push("目前這個條件組合在滾動驗證中沒有穩定勝過「永遠用基準率」");
+  if (a.difference.status === "fail") reasons.push("目前條件下的上漲比例，信賴區間包含歷史基準率（或樣本不足），看不出差別");
+  const s = a.sampleAdequacy;
+  if (s.status === "fail") {
+    if (s.rows < MIN_CELL_ROWS) reasons.push(`目前這個條件組合在滾動驗證中只有 ${s.rows} 列（需要 ${MIN_CELL_ROWS}），無法驗證`);
+    else if (s.runs < MIN_CELL_RUNS) reasons.push(`目前這個條件組合在滾動驗證中只分成 ${s.runs} 段連續區間（需要 ${MIN_CELL_RUNS}）`);
+    else reasons.push("目前這個條件的有效樣本或獨立段數不足");
   }
-  if (a.dataFreshness.status === "fail") reasons.push(`VIX 落後 ${a.dataFreshness.staleSessions} 個交易日，資料不夠新`);
+  const t = a.trackRecord;
+  if (t.status === "fail") reasons.push(t.cellBssLow === null ? "目前這個條件組合的有效重抽次數不足，算不出 BSS 下界" : "目前這個條件組合在滾動驗證中沒有穩定勝過「永遠用基準率」");
+  if (a.dataFreshness.status === "fail") reasons.push(`VIX 落後 ${a.dataFreshness.staleSessions ?? "太多"} 個交易日，資料不夠新`);
   return reasons;
+}
+
+/** 全域滾動驗證的提醒（不是 call 的理由，頁面另列淡色小字）；沒有要提醒的回 null。 */
+export function globalCaveatOf(evaluation: { bssLow: number | null }): string | null {
+  if (evaluation.bssLow === null) return "整體滾動驗證的預測次數不足 12 次";
+  if (evaluation.bssLow <= 0) return "整體滾動驗證中，這套模型沒有穩定勝過「永遠用基準率」；方向只看此條件自己的驗證";
+  return null;
 }
 
 /** L12：四個固定評估項（純函式；buildOutlook 與測試共用）。 */
@@ -694,7 +703,7 @@ export function buildOutlook(spx: Series, vix: Series, cfg: ModelConfig = DEFAUL
   if (vixSeen) for (let k = spx.points.length - 1; k >= 0; k--) if (spx.points[k].date <= vixSeen.date) { vixIdx = k; break; }
   const staleSessions = vixIdx >= 0 ? obs.length - 1 - vixIdx : null;
   const assessments = assessmentsOf({ pick, evaluation, gate: cellGate, spxDate: last.date, vixDate: vixSeen?.date ?? null, staleSessions, cfg });
-  const reasons = reasonsOf(assessments, pick.distinct, cellGate);
+  const reasons = reasonsOf(assessments);
   // 任何一項評估 fail，一律 inconclusive（與頁面上四列固定評估項不矛盾）。
   const anyFail = Object.values(assessments).some((x) => x.status === "fail");
   const call = anyFail ? "inconclusive" : callOf(pick, cellGate);
@@ -714,6 +723,7 @@ export function buildOutlook(spx: Series, vix: Series, cfg: ModelConfig = DEFAUL
     returnQuantiles: { cell: returnQuantiles(obs, last.date, cond), all: returnQuantiles(obs, last.date) },
     call,
     assessments,
+    globalCaveat: globalCaveatOf(evaluation),
     reasons,
   };
 }

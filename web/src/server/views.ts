@@ -49,10 +49,10 @@ const memberKey = (members: WatchMember[]) => members.map((m) => m.tickers.join(
 
 /** 首頁卡片：把紀錄 detail 裡的 drawdown（p、base）攤出來；舊列沒有就是 null。detail 本身不外露。 */
 function withDrawdown({ detail, ...f }: { trade_date: string; probability: number; base_rate: number; call: string; detail: string | null }) {
-  let drawdown: { p: number; base: number } | null = null;
+  let drawdown: { p: number; base: number; scored: boolean } | null = null;
   try {
-    const d = detail ? (JSON.parse(detail) as { drawdown?: { p?: unknown; base?: unknown } }).drawdown : undefined;
-    if (typeof d?.p === "number" && typeof d.base === "number") drawdown = { p: d.p, base: d.base };
+    const d = detail ? (JSON.parse(detail) as { drawdown?: { p?: unknown; base?: unknown; scored?: unknown } }).drawdown : undefined;
+    if (typeof d?.p === "number" && typeof d.base === "number") drawdown = { p: d.p, base: d.base, scored: d.scored === true };
   } catch {
     // detail 壞掉就當沒有
   }

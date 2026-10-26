@@ -1,31 +1,41 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { LIVE_MIN_N, liveTrackOf, naturalFrequency, outOfTen } from "../src/lib/communication.ts";
-import { DEFAULT_MODEL, assessmentsOf, buildOutlook, type Assessments, type CellGate } from "../src/lib/forecast.ts";
+import { LIVE_MIN_N, liveTrackOf, naturalFrequency, outOfCent, outOfTen } from "../src/lib/communication.ts";
+import { DEFAULT_MODEL, assessmentsOf, reasonsOf, buildOutlook, type Assessments, type CellGate } from "../src/lib/forecast.ts";
 import { Series } from "../src/lib/analytics.ts";
 
 const day = (i: number) => new Date(Date.UTC(2020, 0, 1) + i * 864e5).toISOString().slice(0, 10);
 const rate = (p: number, episodes: number) => ({ p, days: 1000, nEff: 47, episodes, low: p - 0.1, high: p + 0.1 });
 
-test("自然頻率：每 10 次、四捨五入、依據段數", () => {
+test("自然頻率：每 100 次、用收縮後 pick.p、不顯著時只講平常", () => {
   assert.equal(outOfTen(0.64), 6);
-  assert.equal(outOfTen(0.65), 7);
-  assert.equal(outOfTen(0.049), 0);
+  assert.equal(outOfCent(0.6395), 64);
+  // 正式站實際數字：up p 0.6517 / base 0.6395，不顯著
   assert.equal(
-    naturalFrequency(rate(0.82, 9), rate(0.69, 24), "up"),
-    "過去像今天這樣的時期，大約每 10 次有 8 次 21 個交易日後收高（平常是每 10 次有 7 次），依據 9 段獨立時期",
+    naturalFrequency({ p: 0.6517, base: rate(0.6395, 24), conditional: rate(0.66, 14) }, "up", false),
+    "與平常差不多：過去大約每 100 次有 64 次 21 個交易日後收高",
+  );
+  // 顯著：兩個數字都顯示，附段數
+  assert.equal(
+    naturalFrequency({ p: 0.82, base: rate(0.69, 24), conditional: rate(0.9, 9) }, "up", true),
+    "過去像今天這樣的時期，大約每 100 次有 82 次 21 個交易日後收高（平常是每 100 次有 69 次），依據 9 段獨立時期",
+  );
+  // drawdown 已計分：12 vs 17
+  assert.equal(
+    naturalFrequency({ p: 0.1192, base: rate(0.1659, 24), conditional: rate(0.1, 11) }, "dd5", true),
+    "過去像今天這樣的時期，大約每 100 次有 12 次 21 個交易日內出現 ≥5% 回撤（平常是每 100 次有 17 次），依據 11 段獨立時期",
   );
   assert.equal(
-    naturalFrequency(rate(0.31, 11), rate(0.18, 24), "dd5"),
-    "過去像今天這樣的時期，大約每 10 次有 3 次 21 個交易日內出現 ≥5% 回撤（平常是每 10 次有 2 次），依據 11 段獨立時期",
+    naturalFrequency({ p: 0.1192, base: rate(0.1659, 24), conditional: null }, "dd5", false),
+    "與平常差不多：過去大約每 100 次有 17 次 21 個交易日內出現 ≥5% 回撤",
   );
-  // 沒有條件時用基準率
-  assert.match(naturalFrequency(null, rate(0.7, 24), "up"), /每 10 次有 7 次.*平常是每 10 次有 7 次.*依據 24 段/);
+  // basis 為 base（沒有條件）：不印段數
+  assert.ok(!/段/.test(naturalFrequency({ p: 0.7, base: rate(0.7, 24), conditional: null }, "up", true)));
 });
 
 // 每天一列的假 forecasts；SPX 每天 +1（一定上漲），所以結果可預期。
 const points = Array.from({ length: 400 }, (_, i) => ({ date: day(i), close: 100 + i }));
-const fakeRows = (idxs: number[], p = 0.7, base = 0.6) => idxs.map((i) => ({ date: day(i), p, base }));
+const fakeRows = (idxs: number[], p = 0.7, base = 0.6) => idxs.map((i) => ({ date: day(i), p, base, close: points[i].close }));
 
 test("上線後紀錄只取不重疊列：從第一筆起每 21 個交易日", () => {
   const all = fakeRows(Array.from({ length: 200 }, (_, i) => 50 + i));
@@ -101,4 +111,27 @@ test("buildOutlook：assessments 與 call 不矛盾（多種合成序列）", ()
     if (!o) continue;
     consistent(o.assessments, o.call, `seed ${seed}`);
   }
+});
+
+test("A2：上線後紀錄以存下的起始收盤對帳，事後改歷史價不影響", () => {
+  const idxs = Array.from({ length: LIVE_MIN_N }, (_, k) => 20 + 21 * k);
+  const rows = fakeRows(idxs, 0.9, 0.6);
+  const before = liveTrackOf(rows, points);
+  // 歷史序列的起始價被事後改成很高（若用它對帳，結果會變成下跌）
+  const revised = points.map((p, i) => (idxs.includes(i) ? { ...p, close: p.close * 10 } : p));
+  assert.deepEqual(liveTrackOf(rows, revised), before);
+  // 存下的起始收盤高於 21 日後 → 下跌
+  const down = liveTrackOf(rows.map((r) => ({ ...r, close: 1e6 })), points);
+  assert.equal(down.upShare, 0);
+});
+
+test("A1：reasons 只由未通過的評估項產生；全域警語另列", () => {
+  const cond = rate(0.85, 12);
+  const base = rate(0.65, 30);
+  const pick = { p: 0.8, basis: "trend", cell: "c", base, conditional: cond, distinct: true, shrinkWeight: 0.5 };
+  const ev = { bss: -0.1, bssLow: -0.2, byCell: [{ cell: "c", rows: 60, runs: 12, bss: 0.1, bssLow: 0.05, bssHigh: 0.2, mde: 0.08, validReplicates: 2000 }] } as never;
+  const a = assessmentsOf({ pick, evaluation: ev, gate: gate(), spxDate: "x", vixDate: "x", staleSessions: 0, cfg: DEFAULT_MODEL });
+  assert.deepEqual(reasonsOf(a), []);
+  const a2 = assessmentsOf({ pick: { ...pick, distinct: false }, evaluation: ev, gate: gate(), spxDate: "x", vixDate: "x", staleSessions: 0, cfg: DEFAULT_MODEL });
+  assert.equal(reasonsOf(a2).length, 1);
 });

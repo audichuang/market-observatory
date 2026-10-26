@@ -94,6 +94,7 @@ export default function Overview({ snapshot, dates, expectedClose, news, digests
                   <div className="sub">≥5% 跌幅機率</div>
                   <div style={{ fontSize: "1.6rem", fontWeight: 700 }}>{Math.round(forecast.drawdown.p * 100)}%</div>
                   <div className="sub">平常 {Math.round(forecast.drawdown.base * 100)}%</div>
+                  {!forecast.drawdown.scored && <div className="sub"><span className="badge warn">未通過驗證</span></div>}
                 </div>
               )}
             </div>

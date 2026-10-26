@@ -60,11 +60,11 @@ export async function outlookView(c: ViewCtx) {
       : null;
 
     // L09：上線後實際紀錄只用不重疊的已到期列（獨立月份），與樣本內、滾動驗證分開。
-    const allRows = await db.prepare("SELECT trade_date AS date, probability AS p, base_rate AS base FROM forecasts ORDER BY trade_date").all<{ date: string; p: number; base: number }>();
+    const allRows = await db.prepare("SELECT trade_date AS date, probability AS p, base_rate AS base, close FROM forecasts ORDER BY trade_date").all<{ date: string; p: number; base: number; close: number }>();
     const liveTrack = liveTrackOf(allRows.results, spx.points);
     // L11：自然頻率句（up 與 drawdown）。
     const frequency = outlook
-      ? { up: naturalFrequency(outlook.pick.conditional, outlook.pick.base, "up"), dd5: naturalFrequency(outlook.drawdown.pick.conditional, outlook.drawdown.pick.base, "dd5") }
+      ? { up: naturalFrequency(outlook.pick, "up", outlook.pick.distinct), dd5: naturalFrequency({ ...outlook.drawdown.pick }, "dd5", outlook.drawdown.scored) }
       : null;
 
     // 成分股分析師共識（SPY 權重前 100 檔，7 天內更新過的）。

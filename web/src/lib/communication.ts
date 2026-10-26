@@ -9,6 +9,8 @@ export interface LiveRow {
   date: string;
   p: number;
   base: number;
+  /** 紀錄當時存下的起始收盤（forecasts.close）；對帳一律用它，不用事後可能被修正的歷史價 */
+  close: number;
 }
 
 export interface LiveTrack {
@@ -38,7 +40,7 @@ export function liveTrackOf(rows: LiveRow[], points: { date: string; close: numb
   const outcome = (r: LiveRow): number | null => {
     const i = idx.get(r.date)!;
     const later = points[i + horizon];
-    return later ? (later.close > points[i].close ? 1 : 0) : null;
+    return later ? (later.close > r.close ? 1 : 0) : null;
   };
   const resolvedAll = known.filter((r) => outcome(r) !== null).length;
   const picked = known.filter((r) => (idx.get(r.date)! - i0) % horizon === 0 && outcome(r) !== null);
@@ -55,11 +57,15 @@ export function liveTrackOf(rows: LiveRow[], points: { date: string; close: numb
 export const outOfTen = (p: number): number => Math.round(Math.min(1, Math.max(0, p)) * 10);
 
 /**
- * L11：自然頻率句。cond 為 null（沒有可用的條件、只剩基準率）時，「像今天這樣」就是整體，依據用基準率的段數。
- * kind "up"：21 個交易日後收高；"dd5"：21 個交易日內出現 ≥5% 回撤。
+ * L11：自然頻率句，用收縮後的 pick.p（頁面上的主數字）、每 100 次。
+ * showBoth（up：pick.distinct；dd5：已計分）為 true 才同時列條件與平常的次數並附段數；否則只說「與平常差不多」並只列平常。
+ * 沒有條件時（basis 為 base）不印段數。kind "up"：21 個交易日後收高；"dd5"：21 個交易日內出現 ≥5% 回撤。
  */
-export function naturalFrequency(cond: Rate | null, base: Rate, kind: "up" | "dd5", horizon = HORIZON): string {
-  const r = cond ?? base;
+export function naturalFrequency(pick: { p: number; base: Rate; conditional: Rate | null }, kind: "up" | "dd5", showBoth: boolean, horizon = HORIZON): string {
   const what = kind === "up" ? `${horizon} 個交易日後收高` : `${horizon} 個交易日內出現 ≥5% 回撤`;
-  return `過去像今天這樣的時期，大約每 10 次有 ${outOfTen(r.p)} 次 ${what}（平常是每 10 次有 ${outOfTen(base.p)} 次），依據 ${r.episodes} 段獨立時期`;
+  if (!showBoth) return `與平常差不多：過去大約每 100 次有 ${outOfCent(pick.base.p)} 次 ${what}`;
+  const tail = pick.conditional ? `，依據 ${pick.conditional.episodes} 段獨立時期` : "";
+  return `過去像今天這樣的時期，大約每 100 次有 ${outOfCent(pick.p)} 次 ${what}（平常是每 100 次有 ${outOfCent(pick.base.p)} 次）${tail}`;
 }
+
+export const outOfCent = (p: number): number => Math.round(Math.min(1, Math.max(0, p)) * 100);

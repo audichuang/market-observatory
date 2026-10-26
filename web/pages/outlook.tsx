@@ -99,6 +99,7 @@ function ForecastBlock({ outlook, cells, horizon, minN, minEpisodes, trackPanel,
       </p>
     )}
     <AssessmentRows a={outlook.assessments} />
+    {outlook.globalCaveat && <p className="meta" style={{ margin: 0 }}>{outlook.globalCaveat}</p>}
     <div className="outlook-call">
       <span className={`badge ${cls} big`}>{label}</span>
       <p className="sub">{why}</p>
@@ -169,8 +170,6 @@ function ForecastBlock({ outlook, cells, horizon, minN, minEpisodes, trackPanel,
       </p>
       <table>
         <tbody>
-          <tr><td>預測方向命中率</td><td className="num">{pct(ev.hitRate)}</td></tr>
-          <tr><td>永遠猜上漲的命中率</td><td className="num">{pct(ev.baseHitRate)}</td></tr>
           <tr><td>Brier 分數（越低越好）</td><td className="num">{ev.brier?.toFixed(4) ?? "—"}</td></tr>
           <tr><td>只用基準率的 Brier</td><td className="num">{ev.brierBase?.toFixed(4) ?? "—"}</td></tr>
         </tbody>
@@ -189,7 +188,7 @@ function ForecastBlock({ outlook, cells, horizon, minN, minEpisodes, trackPanel,
 export default function OutlookPage({ outlook, cells, liveTrack, frequency, recent, consensus, strategists, factset, horizon, minN, minEpisodes }: Props) {
   const trackPanel = (
     <div className="panel">
-      <h2>上線後實際紀錄</h2>
+      <h2>上線後實際紀錄 <span className="meta">（合併所有已發布的模型版本）</span></h2>
       {liveTrack.n === 0 ? (
         <p className="sub">每天收盤後記錄一次，{horizon} 個交易日後才能對帳；目前還沒有到期的預測。</p>
       ) : liveTrack.tooFew ? (

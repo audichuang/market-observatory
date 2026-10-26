@@ -476,6 +476,7 @@ test("G08 (4) 正向對照：訊號強、滿足 G04 與 G03 (b)(c) 的合成序�
   // L12：有方向時四個固定評估項都 pass；L01：方向相對基準率
   assert.deepEqual(Object.values(o.assessments).map((a) => a.status), ["pass", "pass", "pass", "pass"]);
   assert.equal(o.call, o.pick.p > o.pick.base.p ? "up" : "down");
+  assert.deepEqual(o.reasons, [], "有方向時不能有說「看不出」的理由");
   const mine = o.evaluation.byCell.find((c) => c.cell === o.pick.cell)!;
   assert.equal(mine.bssLow, o.cellGate.bssLow);
   assert.ok(mine.mde! > 0);

@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Series } from "../src/lib/analytics.ts";
-import { DEFAULT_MODEL, HORIZON, buildObservations, buildOutlook, conditionalRate, evaluateRows, pickProbability, walkForward, walkForwardRows, wilson, type ModelConfig } from "../src/lib/forecast.ts";
+import { DEFAULT_MODEL, HORIZON, MIN_EPISODES, buildObservations, buildOutlook, conditionalRate, evaluateRows, pickProbability, walkForward, walkForwardRows, wilson, type ModelConfig, type Observation } from "../src/lib/forecast.ts";
 
 const day = (i: number) => new Date(Date.UTC(2015, 0, 1) + i * 864e5).toISOString().slice(0, 10);
+// G04 之前的舊行為（不設段數門檻、不凍結窗口、不限 VIX 陳舊度）：既有測試的意圖不變，改用它來跑。
+const LEGACY: ModelConfig = { ...DEFAULT_MODEL, minEpisodes: 0, baseWindowStart: null, vixMaxStaleSessions: null };
 const series = (closes: number[]) => new Series(closes.map((close, i) => ({ date: day(i), close })));
 
 test("Wilson 區間：樣本越多越窄、p 在區間內", () => {
@@ -33,10 +35,11 @@ test("條件樣本不足時退回基準率", () => {
   // 一路上漲：永遠在 200 日線之上，VIX 也從未 ≥ 30 → 「VIX 緊張」沒有樣本。
   const spx = series(Array.from({ length: 900 }, (_, i) => 100 + i));
   const vix = series(Array.from({ length: 900 }, () => 15));
-  const obs = buildObservations(spx, vix);
-  const pick = pickProbability(obs, day(899), { aboveSma200: true, vixStress: true })!;
+  // 這個測試只看有效樣本的規則（舊行為）；一路上漲只有 1 段，G04 下 trend 也不會被採用，見下方 G04 測試。
+  const obs = buildObservations(spx, vix, LEGACY);
+  const pick = pickProbability(obs, day(899), { aboveSma200: true, vixStress: true }, LEGACY)!;
   assert.equal(pick.basis, "trend");
-  const none = pickProbability(obs, day(899), { aboveSma200: false, vixStress: true })!;
+  const none = pickProbability(obs, day(899), { aboveSma200: false, vixStress: true }, LEGACY)!;
   assert.equal(none.basis, "base");
   assert.equal(none.distinct, false);
 });
@@ -58,26 +61,27 @@ test("條件看起來有差、但滾動驗證的 BSS 區間跨 0：仍判不確�
     p *= Math.floor(i / 300) % 2 === 0 ? 1.002 : 0.998;
     closes.push(p);
   }
-  const o = buildOutlook(series(closes), series(closes.map(() => 15)))!;
+  // 3000 天只有約 5 段，G04 下會退回基準率；此測試的意圖是 BSS 判斷本身，所以用舊設定（不設段數門檻）。
+  const o = buildOutlook(series(closes), series(closes.map(() => 15)), LEGACY)!;
   assert.equal(o.pick.distinct, true);
   assert.ok(o.evaluation.bssLow !== null && o.evaluation.bssLow <= 0, `bssLow=${o.evaluation.bssLow}`);
   assert.equal(o.call, "inconclusive");
   assert.ok(o.reasons.some((r) => r.includes("滾動驗證")));
 });
 
-test("條件明顯不同、且滾動驗證勝過基準時才給方向；否則標不確定", () => {
-  // 造一段有規律的行情：長期趨勢交替，200 日線之上隔月多半漲、之下多半跌。
-  const closes: number[] = [];
-  let p = 100;
-  for (let i = 0; i < 3000; i++) {
-    const phase = Math.floor(i / 600) % 2; // 每 600 天換一次趨勢
-    p *= phase === 0 ? 1.002 : 0.998;
-    closes.push(p);
-  }
+test("G04 生效時，趨勢每側只有約 5 段的 regime fixture 退回基準率、不給方向；隨機漫步仍不給方向", () => {
+  // 長期趨勢交替（每 600 天換一次，3000 天）：舊行為會採用 trend+vix 並給方向，
+  // 但每側只有 2～3 段（< MIN_EPISODES），G04 下不能採用，退回基準率。
+  const closes = alternating(3000, 600);
   const outlook = buildOutlook(series(closes), series(closes.map(() => 15)))!;
-  assert.ok(outlook.evaluation.points >= 12);
-  assert.ok(outlook.evaluation.bss! > 0, `bss=${outlook.evaluation.bss}`);
-  assert.notEqual(outlook.call, "inconclusive");
+  assert.equal(outlook.pick.basis, "base");
+  assert.equal(outlook.pick.distinct, false);
+  assert.equal(outlook.call, "inconclusive");
+  // 同一份資料在舊設定下的行為（這個 fixture 原本要證明的事）仍成立。
+  const legacy = buildOutlook(series(closes), series(closes.map(() => 15)), LEGACY)!;
+  assert.ok(legacy.evaluation.points >= 12);
+  assert.ok(legacy.evaluation.bss! > 0, `bss=${legacy.evaluation.bss}`);
+  assert.notEqual(legacy.call, "inconclusive");
 
   // 純隨機漫步：不應該給方向。
   let s = 1;
@@ -87,6 +91,65 @@ test("條件明顯不同、且滾動驗證勝過基準時才給方向；否則�
   const flat = buildOutlook(series(noise), series(noise.map(() => 15)))!;
   assert.equal(flat.call, "inconclusive");
   assert.ok(flat.reasons.length > 0);
+});
+
+test("G04：趨勢兩側各有 ≥ 8 段（段間 ≥ 21 個交易日）時，選用 trend，p 與基準率可區分、walk-forward BSS > 0、給方向", () => {
+  const closes = alternating(8000, 300);
+  const spx = series(closes);
+  const vix = series(closes.map(() => 15));
+  const obs = buildObservations(spx, vix);
+  const asOf = obs.at(-1)!.date;
+  for (const side of [true, false]) {
+    const r = conditionalRate(obs, asOf, { aboveSma200: side })!;
+    assert.ok(r.episodes >= MIN_EPISODES, `aboveSma200=${side} episodes=${r.episodes}`);
+  }
+  const o = buildOutlook(spx, vix)!;
+  assert.equal(o.pick.basis, "trend+vix");
+  assert.ok(o.pick.conditional!.episodes >= MIN_EPISODES);
+  assert.equal(o.pick.distinct, true);
+  assert.ok(Math.abs(o.pick.p - o.pick.base.p) > 0.1, `p=${o.pick.p} base=${o.pick.base.p}`);
+  assert.ok(o.evaluation.bss! > 0, `bss=${o.evaluation.bss}`);
+  assert.notEqual(o.call, "inconclusive");
+});
+
+test("G04 證明測試：一段連續約 700 天的 VIX ≥ 30（nEff≈33、僅 1 段）不能被採用為 vix 或 trend+vix", () => {
+  const n = 2000;
+  const spx = series(Array.from({ length: n }, (_, i) => 100 + i));
+  const vix = series(Array.from({ length: n }, (_, i) => (i >= 500 && i < 1200 ? 35 : 15)));
+  const obs = buildObservations(spx, vix);
+  const asOf = day(n - 1);
+  const cell = conditionalRate(obs, asOf, { vixStress: true })!;
+  assert.ok(cell.nEff >= 30 && cell.nEff < 36, `nEff=${cell.nEff}`);
+  assert.equal(cell.episodes, 1);
+  const pick = pickProbability(obs, asOf, { aboveSma200: true, vixStress: true })!;
+  assert.notEqual(pick.basis, "vix");
+  assert.notEqual(pick.basis, "trend+vix");
+  // 舊設定（不設段數門檻）會採用它。
+  assert.equal(pickProbability(obs, asOf, { aboveSma200: true, vixStress: true }, LEGACY)!.basis, "trend+vix");
+});
+
+test("G04 段數：條件成立的兩段相隔 30 個交易日算 2 段，相隔 10 個交易日算 1 段；基準率也有段數", () => {
+  const mk = (starts: number[], len: number, n: number): Observation[] =>
+    Array.from({ length: n }, (_, i) => ({
+      date: day(i),
+      close: 100,
+      regime: { x: starts.some((s) => i >= s && i < s + len) },
+      up: true,
+      knownOn: day(i),
+    }));
+  const asOf = day(999);
+  // 第一段 [100,140)，最後一個成立日 139；第二段從 169 起（相隔 30）。
+  assert.equal(conditionalRate(mk([100, 169], 40, 1000), asOf, { x: true })!.episodes, 2);
+  // 第二段從 149 起（相隔 10）：連成 1 段。
+  assert.equal(conditionalRate(mk([100, 149], 40, 1000), asOf, { x: true })!.episodes, 1);
+  // 邊界：相隔剛好 21 算新的一段，20 不算。
+  assert.equal(conditionalRate(mk([100, 160], 40, 1000), asOf, { x: true })!.episodes, 2);
+  assert.equal(conditionalRate(mk([100, 159], 40, 1000), asOf, { x: true })!.episodes, 1);
+  assert.equal(conditionalRate(mk([100], 40, 1000), asOf, { x: true })!.days, 40);
+  // 基準率（資訊用）：全部連續成立 = 1 段。
+  assert.equal(conditionalRate(mk([100], 40, 1000), asOf)!.episodes, 1);
+  assert.equal(DEFAULT_MODEL.minEpisodes, MIN_EPISODES);
+  assert.equal(MIN_EPISODES, 8);
 });
 
 test("滾動驗證的預測點互不重疊（間隔至少 21 個交易日）", () => {
@@ -153,41 +216,66 @@ const characterised: [string, number[], number[], ReturnType<typeof roundEval>, 
 
 test("特徵測試：walkForward 與 buildOutlook 的輸出固定", () => {
   for (const [name, spx, vix, evaluation, p, basis] of characterised) {
-    const obs = buildObservations(series(spx), series(vix));
-    assert.deepEqual(roundEval(walkForward(obs)), evaluation, name);
-    const o = buildOutlook(series(spx), series(vix))!;
+    const obs = buildObservations(series(spx), series(vix), LEGACY);
+    assert.deepEqual(roundEval(walkForward(obs, 504, undefined, undefined, LEGACY)), evaluation, name);
+    const o = buildOutlook(series(spx), series(vix), LEGACY)!;
     assert.equal(r12(o.pick.p), p, name);
     assert.equal(o.pick.basis, basis, name);
   }
-  const obs = buildObservations(series(Array.from({ length: 900 }, (_, i) => 100 + i)), series(Array.from({ length: 900 }, () => 15)));
-  const trend = pickProbability(obs, day(899), { aboveSma200: true, vixStress: true })!;
+  const obs = buildObservations(series(Array.from({ length: 900 }, (_, i) => 100 + i)), series(Array.from({ length: 900 }, () => 15)), LEGACY);
+  const trend = pickProbability(obs, day(899), { aboveSma200: true, vixStress: true }, LEGACY)!;
   assert.deepEqual([trend.p, trend.basis], [1, "trend"]);
-  const none = pickProbability(obs, day(899), { aboveSma200: false, vixStress: true })!;
+  const none = pickProbability(obs, day(899), { aboveSma200: false, vixStress: true }, LEGACY)!;
   assert.deepEqual([none.p, none.basis], [1, "base"]);
-  const both = pickProbability(obs, day(899), { aboveSma200: true, vixStress: false })!;
+  const both = pickProbability(obs, day(899), { aboveSma200: true, vixStress: false }, LEGACY)!;
   assert.deepEqual([both.p, both.basis], [1, "trend+vix"]);
 });
 
 test("walkForward = evaluateRows(walkForwardRows)；只有趨勢旗標的模型不會出現 vix 依據", () => {
-  const [, spx, vix] = characterised[4];
+  // 用 G04 下真的會選到 trend 的 fixture（每側 ≥ 8 段），否則全部是 base，恆等式與「只有趨勢旗標」都是空測。
+  const spx = alternating(8000, 300);
+  const vix = spx.map(() => 15);
   const obs = buildObservations(series(spx), series(vix));
   assert.deepEqual(walkForward(obs), evaluateRows(walkForwardRows(obs)));
-  assert.ok(walkForwardRows(obs).length > 0);
+  const defRows = walkForwardRows(obs);
+  assert.ok(defRows.some((r) => r.basis === "trend+vix"));
 
   const trendOnly: ModelConfig = { ...DEFAULT_MODEL, version: "test-trend", flags: [DEFAULT_MODEL.flags[0]], candidates: [["aboveSma200"]] };
   const tObs = buildObservations(series(spx), series(vix), trendOnly);
   assert.deepEqual(Object.keys(tObs.at(-1)!.regime ?? tObs[tObs.length - 22].regime!), ["aboveSma200"]);
   const rows = walkForwardRows(tObs, trendOnly);
-  assert.ok(rows.length > 0);
+  assert.ok(rows.some((r) => r.basis === "trend"), "趨勢旗標模型應實際選用 trend");
   assert.ok(rows.every((r) => r.basis === "trend" || r.basis === "base"));
+  assert.deepEqual(walkForward(tObs, 504, undefined, undefined, trendOnly), evaluateRows(rows, trendOnly.bootstrap));
   const o = buildOutlook(series(spx), series(vix), trendOnly)!;
   assert.equal(o.modelVersion, "test-trend");
-  assert.notEqual(o.pick.basis, "vix");
-  assert.equal(buildOutlook(series(spx), series(vix))!.modelVersion, "2026-10-m1m5");
+  assert.equal(o.pick.basis, "trend");
+  assert.equal(buildOutlook(series(spx), series(vix))!.modelVersion, "2026-10-g04");
 
   // dates 只算指定日期。
   const some = rows.slice(0, 3).map((r) => r.date);
   assert.deepEqual(walkForwardRows(tObs, trendOnly, { dates: some }).map((r) => r.date), some);
+});
+
+// 特徵測試（DEFAULT_MODEL，G04 生效）：數值由 2026-10-g04 的程式算出並固定；一個選到 trend+vix，一個退回基準率。
+const defaultPinned: [string, number[], ReturnType<typeof roundEval>, number, string, string, Record<string, number>][] = [
+  ["alt300x8000", alternating(8000, 300), { points: 346, hitRate: 0.609826589595, baseHitRate: 0.505780346821, brier: 0.21534051263, brierBase: 0.25404237914, bss: 0.152344135026, bssLow: 0.060026830024, bssHigh: 0.24071305595, firstDate: "2016-12-24", lastDate: "2036-10-25" }, 0.770627919045, "trend+vix", "up", { base: 171, "trend+vix": 175 }],
+  ["alt600x3000-fallback", alt600, { points: 108, hitRate: 0.481481481481, baseHitRate: 0.518518518519, brier: 0.267705074275, brierBase: 0.267705074275, bss: 0, bssLow: 0, bssHigh: 0, firstDate: "2016-12-24", lastDate: "2023-02-18" }, 0.568345323741, "base", "inconclusive", { base: 108 }],
+];
+
+test("特徵測試：DEFAULT_MODEL（G04 生效）的 walkForward 與 buildOutlook 輸出固定", () => {
+  for (const [name, spx, evaluation, p, basis, call, bases] of defaultPinned) {
+    const vix = spx.map(() => 15);
+    const obs = buildObservations(series(spx), series(vix));
+    assert.deepEqual(roundEval(walkForward(obs)), evaluation, name);
+    const o = buildOutlook(series(spx), series(vix))!;
+    assert.equal(r12(o.pick.p), p, name);
+    assert.equal(o.pick.basis, basis, name);
+    assert.equal(o.call, call, name);
+    const counts: Record<string, number> = {};
+    for (const r of walkForwardRows(obs)) counts[r.basis] = (counts[r.basis] ?? 0) + 1;
+    assert.deepEqual(counts, bases, name);
+  }
 });
 
 test("M5：VIX 比最後一個 SPX 日期早結束 5 個交易日 → 沒有展望；3 個交易日以內仍有", () => {

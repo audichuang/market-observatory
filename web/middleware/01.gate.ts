@@ -9,7 +9,11 @@ declare module "void" {
 
 // 未登入只能看登入頁與登入 API；其餘頁面導去 /login，API 回 401。後台 API（/api/admin/）只限站長（OWNER_EMAIL）。
 // PWA 的 manifest、圖示、service worker 與離線頁也要公開：瀏覽器抓 manifest 時不一定帶 cookie。
-const PUBLIC_PREFIXES = ["/login", "/api/auth/", "/__", "/assets/", "/favicon", "/icons/", "/manifest.webmanifest", "/sw.js", "/offline.html"];
+// 本機 dev 的頁面模組直接從原始碼路徑載入（/pages/login.tsx、/src/…），沒放行的話未登入時登入頁不會 hydrate、按鈕都沒反應；正式站只有 /assets/。
+const PUBLIC_PREFIXES = [
+  "/login", "/api/auth/", "/__", "/assets/", "/favicon", "/icons/", "/manifest.webmanifest", "/sw.js", "/offline.html",
+  ...(import.meta.env.DEV ? ["/pages/", "/src/", "/node_modules/", "/@"] : []),
+];
 
 export default defineMiddleware(async (c, next) => {
   const path = c.req.path;

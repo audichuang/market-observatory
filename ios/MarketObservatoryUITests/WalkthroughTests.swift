@@ -3,6 +3,7 @@ import XCTest
 /// 在模擬器上走一遍：用 email 登入、逐頁截圖、（另一個測試）刪除帳號。
 /// 帳號由執行的人提供：`TEST_RUNNER_MO_EMAIL`、`TEST_RUNNER_MO_PASSWORD`（xcodebuild 會去掉 TEST_RUNNER_ 前綴傳給測試），
 /// 截圖寫到 `TEST_RUNNER_MO_SHOTS` 目錄（模擬器跟 Mac 共用檔案系統）。
+/// 設了 `TEST_RUNNER_MO_BASE_URL`（例如 `http://localhost:5181`）就改連那個後端（只有 Debug 版會讀），不碰正式站資料。
 @MainActor
 final class WalkthroughTests: XCTestCase {
     private var env: [String: String] { ProcessInfo.processInfo.environment }
@@ -10,6 +11,14 @@ final class WalkthroughTests: XCTestCase {
 
     override func setUp() {
         continueAfterFailure = false
+    }
+
+    /// 啟動 App；`-debugBaseURL <網址>` 經 UserDefaults 的參數網域蓋過 App 裡存的伺服器設定。
+    private func launch() -> XCUIApplication {
+        let app = XCUIApplication()
+        if let base = env["MO_BASE_URL"], !base.isEmpty { app.launchArguments += ["-debugBaseURL", base] }
+        app.launch()
+        return app
     }
 
     private func snap(_ name: String) {
@@ -37,6 +46,10 @@ final class WalkthroughTests: XCTestCase {
             pw.tap()
             pw.typeText(password)
             app.buttons["submit"].tap()
+            // 剛建好的模擬器第一次跑時，鍵盤上方的密碼建議列還在出現，這一下點擊偶爾被吃掉、請求根本沒送出；還停在登入畫面就再點一次。
+            if !app.buttons["總覽"].waitForExistence(timeout: 8), email.exists, app.buttons["submit"].isEnabled {
+                app.buttons["submit"].tap()
+            }
         }
         allowNotificationsIfAsked()
     }
@@ -69,8 +82,7 @@ final class WalkthroughTests: XCTestCase {
     }
 
     func test1_SignInAndVisitEveryScreen() throws {
-        let app = XCUIApplication()
-        app.launch()
+        let app = launch()
         try signInIfNeeded(app)
         XCTAssertTrue(app.buttons["總覽"].waitForExistence(timeout: 20), "登入後沒有看到分頁")
         sleep(5)
@@ -148,8 +160,7 @@ final class WalkthroughTests: XCTestCase {
     }
 
     func test2_DeleteAccount() throws {
-        let app = XCUIApplication()
-        app.launch()
+        let app = launch()
         try signInIfNeeded(app)
         XCTAssertTrue(app.buttons["更多"].waitForExistence(timeout: 20))
         tab(app, "更多")

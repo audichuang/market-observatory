@@ -9,6 +9,7 @@ struct NewsView: View {
     @State private var calendarDay: String?
     @State private var selected: NewsPage.Item?
     @State private var expandedDigest: String?
+    @State private var collapsedSymbolDigest: String?
     @Environment(\.openURL) private var openURL
     @Environment(\.dynamicTypeSize) private var typeSize
     @ScaledMetric(relativeTo: .subheadline) private var dateWidth: CGFloat = 82
@@ -93,7 +94,7 @@ struct NewsView: View {
                 }
             }
             if section == 0 {
-                if symbol == nil { digestSection(p) }
+                if let symbol { symbolDigestSection(p, symbol: symbol) } else { digestSection(p) }
                 let important = p.news.filter { $0.important ?? true }
                 let others = p.news.filter { !($0.important ?? true) }
                 Section {
@@ -136,6 +137,18 @@ struct NewsView: View {
                     DisclosureGroup("其餘 \(ds.count - 3) 家") {
                         ForEach(ds.dropFirst(3)) { d in digestRow(d) }
                     }
+                }
+            }
+        }
+    }
+
+    /// 篩到單一股票時：顯示該股最新一天的重點，預設展開全文。
+    @ViewBuilder
+    private func symbolDigestSection(_ p: NewsPage, symbol: String) -> some View {
+        if let d = (p.digests ?? []).filter({ $0.symbol == symbol }).max(by: { $0.date < $1.date }) {
+            Section("\(symbol) 重點") {
+                DigestRow(digest: d, expanded: collapsedSymbolDigest != d.id) {
+                    withAnimation { collapsedSymbolDigest = collapsedSymbolDigest == d.id ? nil : d.id }
                 }
             }
         }

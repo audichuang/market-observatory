@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Series } from "../src/lib/analytics.ts";
-import { DEFAULT_MODEL, EVAL_SEED, HORIZON, condOfPick, drawdownScored, returnQuantiles, MIN_CELL_ROWS, MIN_CELL_RUNS, MIN_EPISODES, MIN_VALID_REPLICATES, buildObservations, buildOutlook, callOf, cellEvaluations, cellGateOf, conditionalRate, evaluateRows, mulberry32, pickProbability, sdOf, stationaryBootstrapIndices, VRP_MODEL, VRP_MIN_VALUES, vrpAt, vrpHighSeries, walkForward, walkForwardRows, wilson, type CellEval, type ModelConfig, type Observation, type WalkRow } from "../src/lib/forecast.ts";
+import { DEFAULT_MODEL, EVAL_SEED, HORIZON, condOfPick, drawdownScored, returnQuantiles, MIN_CELL_ROWS, MIN_CELL_RUNS, MIN_EPISODES, MIN_VALID_REPLICATES, buildObservations, buildOutlook, callOf, cellEvaluations, cellGateOf, conditionalRate, evaluateRows, mulberry32, pickProbability, sdOf, stationaryBootstrapIndices, VRP_MODEL, SEASON_MODEL, isWinter, VRP_MIN_VALUES, vrpAt, vrpHighSeries, walkForward, walkForwardRows, wilson, type CellEval, type ModelConfig, type Observation, type WalkRow } from "../src/lib/forecast.ts";
 import { PHASES, bssOf, nullPairedBss, pairedBrierDiffMcStdErr, pairedBrierDiffPhase, pairedMcStdErr, pairedPhaseAveraged, phaseGrid, pointInTimeCalls } from "../src/lib/forecast-eval.ts";
 
 const day = (i: number) => new Date(Date.UTC(2015, 0, 1) + i * 864e5).toISOString().slice(0, 10);
@@ -780,4 +780,29 @@ test("VRP 候選的觀測值：regime 含 vrpHigh；預設模型的 regime 不�
   assert.deepEqual(Object.keys(lastV), ["aboveSma200", "vrpHigh"]);
   assert.deepEqual(Object.keys(d.at(-1)!.regime!), ["aboveSma200", "vixStress"]);
   assert.equal(v.findIndex((o) => o.regime), 272);
+});
+
+// ---- 名額 2：季節性 winter（非預設） ----
+test("winter：11、12、1、2、3、4 月為 true，5–10 月為 false", () => {
+  const m = (n: number) => `2015-${String(n).padStart(2, "0")}-15`;
+  assert.deepEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((n) => isWinter(m(n))), [true, true, true, true, false, false, false, false, false, false, true, true]);
+  assert.equal(isWinter("2015-04-30"), true);
+  assert.equal(isWinter("2015-05-01"), false);
+  assert.equal(isWinter("2015-10-31"), false);
+  assert.equal(isWinter("2015-11-01"), true);
+});
+
+test("season 候選設定與觀測值；預設模型不變", () => {
+  assert.deepEqual(SEASON_MODEL.flags.map((f) => f.id), ["aboveSma200", "vixStress", "winter"]);
+  assert.equal(SEASON_MODEL.flags[2].basisId, "season");
+  assert.equal(SEASON_MODEL.flags[1].skipSingleWhen, false);
+  assert.equal(SEASON_MODEL.version, `${DEFAULT_MODEL.version}+season`);
+  assert.equal(SEASON_MODEL.candidates.length, 6);
+  assert.deepEqual(DEFAULT_MODEL.flags.map((f) => f.id), ["aboveSma200", "vixStress"]);
+  const spx = series(Array.from({ length: 300 }, (_, i) => 100 + i));
+  const vix = series(Array.from({ length: 300 }, () => 15));
+  const o = buildObservations(spx, vix, SEASON_MODEL);
+  const last = o.at(-1)!;
+  assert.equal(last.regime!.winter, isWinter(last.date));
+  assert.equal(Object.keys(buildObservations(spx, vix).at(-1)!.regime!).length, 2);
 });

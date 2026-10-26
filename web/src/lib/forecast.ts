@@ -104,6 +104,20 @@ export const VRP_MODEL: ModelConfig = {
   candidates: [["aboveSma200", "vrpHigh"], ["vrpHigh"], ["aboveSma200"]],
 };
 
+/** G07 試驗：預測日 t 的月份在 11–4 月為 true。 */
+export function isWinter(date: string): boolean {
+  const m = Number(date.slice(5, 7));
+  return m >= 11 || m <= 4;
+}
+
+/** 名額 2 試驗候選（非預設）：加 winter（basis season），vix 單獨候選沿用跳過規則。 */
+export const SEASON_MODEL: ModelConfig = {
+  ...DEFAULT_MODEL,
+  version: `${DEFAULT_MODEL.version}+season`,
+  flags: [...DEFAULT_MODEL.flags, { id: "winter", basisId: "season", compute: (c) => isWinter(c.date) }],
+  candidates: [["aboveSma200", "vixStress", "winter"], ["aboveSma200", "vixStress"], ["vixStress"], ["aboveSma200", "winter"], ["winter"], ["aboveSma200"]],
+};
+
 export interface Rate {
   /** 標籤為真的比例（up：上漲；dd5：出現 ≥5% 回撤） */
   p: number;

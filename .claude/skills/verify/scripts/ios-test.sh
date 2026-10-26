@@ -46,5 +46,5 @@ while kill -0 "$XB" 2>/dev/null; do
 done
 wait "$XB" 2>/dev/null || true
 grep -E 'error:|Test Case .* (passed|failed)' "$LOG" | grep -v IDESchemeActionSDKRecord || true
-grep -q "Test Suite 'Selected tests' passed" "$LOG" || die "$TESTS 沒通過，log 在 ${LOG}，xcresult 裡有錄影"
+grep -q "Test Suite 'Selected tests' passed" "$LOG" || die "$TESTS 沒通過，log 在 ${LOG}；畫面看 test 自己存的截圖與 .txt（xcodebuild 被收掉時 xcresult 可能不完整、沒有錄影）"
 ok "$TESTS 通過；打開 $OUT 的截圖與 .txt 逐一看"

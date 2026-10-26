@@ -15,7 +15,11 @@ if [ -f "$RUN/sim.udid" ]; then
 fi
 # ego-browser 的 task space（SKILL.md 規定名字是 mo-verify-<run-id>）：drive 時忘了 finish 的話這裡收掉；已經 finish 過就什麼都不做。
 if command -v ego-browser >/dev/null; then
-  ego-browser nodejs -e "const l = await listTaskSpaces(); const s = l.find(x => x.name === 'mo-verify-${RUN_ID}' && x.ownership !== 'user'); if (s) { const t = await taskSpace(s.id); await t.finish({ keep: [] }); console.log('ego task space ' + s.id + ' 已結束'); }" 2>/dev/null || true
+  # 已經 finish 過的 space 有時會讓這個呼叫卡住：最多等 20 秒，逾時就放掉（space 本來就結束了）。
+  ego-browser nodejs -e "const l = await listTaskSpaces(); const s = l.find(x => x.name === 'mo-verify-${RUN_ID}' && x.ownership !== 'user'); if (s) { const t = await taskSpace(s.id); await t.finish({ keep: [] }); console.log('ego task space ' + s.id + ' 已結束'); }" 2>/dev/null &
+  EGO=$!
+  for _ in $(seq 1 20); do kill -0 "$EGO" 2>/dev/null || break; sleep 1; done
+  if kill -0 "$EGO" 2>/dev/null; then kill_tree "$EGO"; echo "! ego task space 收尾 20 秒沒回應，已略過"; fi
 fi
 rm -rf "$RUN/dd" "$RUN/owner.pw" "$RUN/owner.cj" "$RUN"/*.pw "$RUN"/*.cj
 mv "$RUN/state.env" "$RUN/state.env.down"

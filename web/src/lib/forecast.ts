@@ -245,11 +245,8 @@ export interface WalkRow {
  * 每次只用當天已知的標籤估機率，再跟實際結果比。
  * 給 opts.dates 時只算這些日期（略過暖機與間隔限制，由呼叫端決定；標籤未知或 regime 為 null 的日子仍然不算）。
  */
-export function walkForwardRows(obs: Observation[], cfg: ModelConfig = DEFAULT_MODEL, opts: { dates?: string[]; label?: "up"; burnInDays?: number; offset?: number } = {}): WalkRow[] {
+export function walkForwardRows(obs: Observation[], cfg: ModelConfig = DEFAULT_MODEL, opts: { dates?: string[]; label?: "up"; burnInDays?: number } = {}): WalkRow[] {
   const burnInDays = opts.burnInDays ?? 504;
-  // offset：第一個可預測日之後再延後幾個交易日開始（0 = 現行排程），用來檢查結果是否依賴起始相位。
-  const offset = opts.offset ?? 0;
-  let firstEligible = -1;
   const only = opts.dates ? new Set(opts.dates) : null;
   const rows: WalkRow[] = [];
   // 第 j 天的標籤在第 j+21 天收盤後已知，所以到第 i 天為止已知的標籤，就是 i−21 天以前、有 regime 的那些。
@@ -264,8 +261,6 @@ export function walkForwardRows(obs: Observation[], cfg: ModelConfig = DEFAULT_M
       if (!only.has(o.date)) continue;
     } else {
       if (known < burnInDays) continue;
-      if (firstEligible < 0) firstEligible = i;
-      if (i < firstEligible + offset) continue;
       if (i - lastRow < HORIZON) continue;
       lastRow = i;
     }

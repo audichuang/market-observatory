@@ -1,7 +1,7 @@
 // 回測用的評估工具：stationary bootstrap、配對比較、相位平均、虛無分佈。純計算，不碰 D1 與網路。
 // 規則出處：docs/forecast.md「事前登記」（G08、L02、L03、L08、配對）。
 
-import { HORIZON, mulberry32, walkForwardRows, type ModelConfig, type Observation, type WalkRow } from "./forecast.ts";
+import { HORIZON, callOf, evaluateRows, mulberry32, walkForwardRows, type ModelConfig, type Observation, type WalkRow } from "./forecast.ts";
 
 /** 固定種子（不依賴列數）；變體比較與換資料時結果才可重現。 */
 export const EVAL_SEED = 20261026;
@@ -87,76 +87,173 @@ export function pairedBrierDiff(rowsA: WalkRow[], rowsB: WalkRow[], opts: BootOp
   return { ...bootstrapCI(diffs, mean, opts), n: shared, dropped };
 }
 
-export interface BasisSummary {
-  basis: string;
+export interface CellSummary {
+  cell: string;
   rows: number;
-  /** 該 basis 連續出現的段數（相鄰的列同一 basis 算一段） */
+  /** offset 0 的列序列中，相鄰列都屬於該 cell 的連續區間數 */
   runs: number;
   bss: CI;
   /** 最小可偵測 BSS = 2.8 × BSS 的 bootstrap 標準差；標準差為 0 時 null */
   mde: number | null;
 }
 
-export function summarizeByBasis(rows: WalkRow[], opts: BootOpts = {}): BasisSummary[] {
-  const by = new Map<string, WalkRow[]>();
+/**
+ * 以 cell（basis + 旗標值）為單位的摘要：對全部列做 stationary bootstrap，
+ * 每次重抽只用屬於該 cell 的列算 BSS（G03(d)）；runs 看 rows（offset 0 序列）的原始順序。
+ */
+export function summarizeByCell(rows: WalkRow[], cellOf: (r: WalkRow) => string, opts: BootOpts = {}): CellSummary[] {
+  const { meanBlock, resamples, seed } = { ...EVAL_DEFAULTS, ...opts };
+  const keys = rows.map(cellOf);
+  const cells = [...new Set(keys)];
   const runs = new Map<string, number>();
-  rows.forEach((r, i) => {
-    by.set(r.basis, [...(by.get(r.basis) ?? []), r]);
-    if (i === 0 || rows[i - 1].basis !== r.basis) runs.set(r.basis, (runs.get(r.basis) ?? 0) + 1);
+  keys.forEach((k, i) => {
+    if (i === 0 || keys[i - 1] !== k) runs.set(k, (runs.get(k) ?? 0) + 1);
   });
-  return [...by.entries()].map(([basis, rs]) => {
-    const bss = bootstrapCI(rs, bssOf, opts);
-    return { basis, rows: rs.length, runs: runs.get(basis) ?? 0, bss, mde: bss.sd > 0 ? 2.8 * bss.sd : null };
+  const rand = mulberry32(seed);
+  const stats = new Map<string, number[]>(cells.map((c) => [c, []]));
+  for (let r = 0; r < resamples; r++) {
+    const idx = stationaryBootstrapIndices(rows.length, meanBlock, rand);
+    const by = new Map<string, WalkRow[]>();
+    for (const i of idx) {
+      const k = keys[i];
+      if (!by.has(k)) by.set(k, []);
+      by.get(k)!.push(rows[i]);
+    }
+    for (const [k, rs] of by) stats.get(k)!.push(bssOf(rs));
+  }
+  return cells.map((cell) => {
+    const mine = rows.filter((_, i) => keys[i] === cell);
+    const st = stats.get(cell)!;
+    const { low, high } = st.length ? pctInterval(st) : { low: NaN, high: NaN };
+    const sd = sdOf(st);
+    return { cell, rows: mine.length, runs: runs.get(cell) ?? 0, bss: { point: bssOf(mine), low, high, sd }, mde: sd > 0 ? 2.8 * sd : null };
+  });
+}
+
+/** WalkRow 所屬的 cell：basis 加上被選候選的旗標值（basis 名稱只是標籤）。 */
+export function cellKeyOf(r: WalkRow, regimeOf: (date: string) => Record<string, boolean> | null, cfg: ModelConfig): string {
+  if (r.basis === "base") return "base";
+  const names = r.basis.split("+");
+  const reg = regimeOf(r.date);
+  const flags = cfg.flags.filter((f) => names.includes(f.basisId)).map((f) => `${f.id}=${reg?.[f.id]}`);
+  return `${r.basis}(${flags.join(",")})`;
+}
+
+/** 配對比較前：兩邊 regime 都不為 null 的日子才保留（訓練樣本取交集）。 */
+export function intersectRegimes(a: Observation[], b: Observation[]): [Observation[], Observation[]] {
+  const cut = (xs: Observation[], ys: Observation[]) => xs.map((o, i) => (o.regime && !ys[i].regime ? { ...o, regime: null } : o));
+  return [cut(a, b), cut(b, a)];
+}
+
+type Cells = (WalkRow | null)[][];
+
+/**
+ * 固定的交易日格點：s = 參考模型第一個「已知標籤 ≥ burnIn」的日子；相位 o、第 k 格 → 索引 s + o + 21k。
+ * 格點不因 regime 為 null 而位移；缺的格就是缺。
+ */
+export function phaseGrid(refObs: Observation[], burnInDays = 504, phases = PHASES): number[][] {
+  let known = 0;
+  let s = -1;
+  for (let i = 0; i < refObs.length; i++) {
+    const j = i - HORIZON;
+    if (j >= 0 && refObs[j].regime && refObs[j].up !== null) known++;
+    if (known >= burnInDays) {
+      s = i;
+      break;
+    }
+  }
+  return Array.from({ length: phases }, (_, o) => {
+    const idx: number[] = [];
+    if (s >= 0) for (let i = s + o; i < refObs.length; i += HORIZON) idx.push(i);
+    return idx;
+  });
+}
+
+/** 在格點上跑 walk-forward（dates 選項）；回傳 [相位][格] 的列，缺的格是 null。 */
+export function phaseCells(obs: Observation[], cfg: ModelConfig, grid: number[][], label: "up"): Cells {
+  return grid.map((idx) => {
+    const rows = walkForwardRows(obs, cfg, { dates: idx.map((i) => obs[i].date), label });
+    const by = new Map(rows.map((r) => [r.date, r]));
+    return idx.map((i) => by.get(obs[i].date) ?? null);
   });
 }
 
 export interface PhaseResult {
-  /** 各相位（offset 0..20）的 BSS；該相位列數不足時為 NaN */
   bssByPhase: number[];
+  /** 各相位實際有列的格（供檢視；不是用來算點估計的子集） */
   rowsByPhase: WalkRow[][];
   mean: number;
   min: number;
   max: number;
-  /** 相位平均 BSS 的 bootstrap 區間 */
+  /** 相位平均 BSS 的 cycle bootstrap 區間（點估計與每次重抽用同一批格） */
   ci: CI;
+  cycles: { total: number; used: number; dropped: number };
 }
 
 /**
- * 21 個起始相位各自跑不重疊 walk-forward（每個相位只用當天已知的標籤），回傳相位平均 BSS。
- * 區間作法：第 k 個預測在各相位是同一個 21 日週期的第 k 列，所以以「週期序號 k」為共同的時間軸，
- * 每次重抽只抽一組 stationary 索引，套到所有相位（相位彼此保持對齊），再取各相位 BSS 的平均；
- * 週期數取各相位列數的最小值（最多差 1 列）。
+ * 相位平均與區間。格序號 k 是各相位對齊的鍵：只用「所有相位（配對時含兩個變體）都有列」的格，
+ * 點估計與每次重抽都用同一批格；每次重抽抽一組 stationary 索引，套到所有相位，各相位算 BSS 再平均。
+ * 單一變體：BSS = 1 − Brier(p)/Brier(pBase)；有 cellsB 時是配對 BSS = 1 − Brier(A)/Brier(B)。
  */
-export function phaseAveraged(obs: Observation[], cfg: ModelConfig, label: "up", opts: BootOpts & { phases?: number } = {}): PhaseResult {
-  const phases = opts.phases ?? PHASES;
-  const rowsByPhase = Array.from({ length: phases }, (_, offset) => walkForwardRows(obs, cfg, { offset, label }));
-  const bssByPhase = rowsByPhase.map((rs) => (rs.length ? bssOf(rs) : NaN));
-  const valid = bssByPhase.filter((x) => !Number.isNaN(x));
-  const mean = valid.reduce((a, b) => a + b, 0) / (valid.length || 1);
-  const m = Math.min(...rowsByPhase.map((rs) => rs.length));
+export function phaseAverageFromCells(cellsA: Cells, opts: BootOpts & { cellsB?: Cells } = {}): PhaseResult {
   const { meanBlock, resamples, seed } = { ...EVAL_DEFAULTS, ...opts };
+  const B = opts.cellsB;
+  const total = Math.max(...cellsA.map((c) => c.length));
+  const keep: number[] = [];
+  for (let k = 0; k < total; k++) if (cellsA.every((c) => c[k]) && (!B || B.every((c) => c[k]))) keep.push(k);
+  const sq = (r: WalkRow) => (r.p - r.y) ** 2;
+  const phaseStat = (o: number, ks: number[]): number => {
+    const a = ks.map((k) => cellsA[o][k]!);
+    if (!B) return bssOf(a);
+    const bb = ks.map((k) => B[o][k]!);
+    const den = bb.reduce((s, r) => s + sq(r), 0);
+    return den === 0 ? 0 : 1 - a.reduce((s, r) => s + sq(r), 0) / den;
+  };
+  const avg = (ks: number[]) => cellsA.reduce((s, _, o) => s + phaseStat(o, ks), 0) / cellsA.length;
+  const rowsByPhase = cellsA.map((c) => c.filter((r): r is WalkRow => r !== null));
+  const cycles = { total, used: keep.length, dropped: total - keep.length };
+  if (keep.length === 0) return { bssByPhase: cellsA.map(() => NaN), rowsByPhase, mean: NaN, min: NaN, max: NaN, ci: { point: NaN, low: NaN, high: NaN, sd: NaN }, cycles };
+  const bssByPhase = cellsA.map((_, o) => phaseStat(o, keep));
+  const mean = avg(keep);
   const rand = mulberry32(seed);
   const stats: number[] = [];
-  if (m > 0) {
-    for (let k = 0; k < resamples; k++) {
-      const idx = stationaryBootstrapIndices(m, meanBlock, rand);
-      let s = 0;
-      for (const rs of rowsByPhase) s += bssOf(idx.map((i) => rs[i]));
-      stats.push(s / phases);
-    }
-  }
+  for (let r = 0; r < resamples; r++) stats.push(avg(stationaryBootstrapIndices(keep.length, meanBlock, rand).map((i) => keep[i])));
   const { low, high } = stats.length ? pctInterval(stats) : { low: NaN, high: NaN };
-  return {
-    bssByPhase,
-    rowsByPhase,
-    mean,
-    min: valid.length ? Math.min(...valid) : NaN,
-    max: valid.length ? Math.max(...valid) : NaN,
-    ci: { point: mean, low, high, sd: sdOf(stats) },
-  };
+  return { bssByPhase, rowsByPhase, mean, min: Math.min(...bssByPhase), max: Math.max(...bssByPhase), ci: { point: mean, low, high, sd: sdOf(stats) }, cycles };
 }
 
-/** L03：同一統計量換 5 個種子重跑，回傳各次的值與標準差（單次結果的 Monte Carlo 標準誤）。 */
+export function phaseAveraged(obs: Observation[], cfg: ModelConfig, label: "up", opts: BootOpts & { phases?: number; grid?: number[][] } = {}): PhaseResult {
+  const grid = opts.grid ?? phaseGrid(obs, 504, opts.phases);
+  return phaseAverageFromCells(phaseCells(obs, cfg, grid, label), opts);
+}
+
+/**
+ * 配對的相位平均 BSS（候選 vs 參考）：訓練樣本取兩者 regime 的交集，
+ * 一律在參考變體的格點上評分；回報整格被捨去的格數（任一方缺列）。
+ */
+export function pairedPhaseAveraged(refObs: Observation[], candObs: Observation[], refCfg: ModelConfig, candCfg: ModelConfig, opts: BootOpts & { phases?: number; label?: "up" } = {}): PhaseResult {
+  const [r, c] = intersectRegimes(refObs, candObs);
+  const grid = phaseGrid(r, 504, opts.phases);
+  const label = opts.label ?? "up";
+  return phaseAverageFromCells(phaseCells(c, candCfg, grid, label), { ...opts, cellsB: phaseCells(r, refCfg, grid, label) });
+}
+
+/**
+ * 方向計數的 point-in-time 閘門：第 i 列只用 knownOn ≤ 該列日期的列算 bssLow
+ * （與正式版同一個 evaluateRows bootstrap、至少 12 列，否則 inconclusive）。
+ */
+export function pointInTimeCalls(rows: WalkRow[], knownOn: Map<string, string | null>, bootstrap: { blockSize: number; resamples: number }): ("up" | "down" | "inconclusive")[] {
+  return rows.map((r) => {
+    const prior = rows.filter((x) => {
+      const k = knownOn.get(x.date);
+      return k !== null && k !== undefined && k <= r.date;
+    });
+    if (prior.length < 12) return "inconclusive";
+    return callOf(r, evaluateRows(prior, bootstrap).bssLow);
+  });
+}
+
+/** L03：以種子 1..5 各跑一次，回傳各次的值與標準差（單次結果的 Monte Carlo 標準誤，不除以 √5）。 */
 export function mcStdErr(fn: (seed: number) => number | null, seeds: number[] = [1, 2, 3, 4, 5]): { values: number[]; mean: number; se: number } {
   const values = seeds.map(fn).filter((x): x is number => x !== null && !Number.isNaN(x));
   const mean = values.reduce((a, b) => a + b, 0) / (values.length || 1);
@@ -164,42 +261,42 @@ export function mcStdErr(fn: (seed: number) => number | null, seeds: number[] = 
 }
 
 /**
- * L08：把有標籤的日子「以區塊為單位」打散順序（區塊長 = b 個 21 日週期，保留標籤的重疊結構），
- * 產生虛無序列；每組各變體跑同一個 walk-forward，取最大 BSS，回傳這些最大值的第 95 百分位。
- * 各變體用同一組置換；種子固定（不依賴列數）。obs 可傳陣列（各變體共用）或依 cfg 建立的函式。
+ * L08 虛無分佈：第 j 組（j = 1..N）用種子 EVAL_SEED + j；區塊長 = 21 × b 個交易日，b 由該種子在 6..12 均勻抽出；
+ * 把 firstDate 起每日有標籤的 `up` 以區塊置換（regime 與 knownOn 不動，候選與參考用同一組置換），
+ * 再算相位平均配對 BSS（候選 vs 參考）。門檻 = 各組的最大值。
  */
-export function nullMaxBss(
-  obs: Observation[] | ((cfg: ModelConfig) => Observation[]),
-  cfgs: ModelConfig[],
-  opts: { N?: number; block?: [number, number]; seed?: number; phases?: number } = {},
-): { p95: number; maxes: number[] } {
+export function nullPairedBss(
+  refObs: Observation[],
+  candObs: Observation[],
+  refCfg: ModelConfig,
+  candCfg: ModelConfig,
+  opts: { N?: number; firstDate?: string; phases?: number } = {},
+): { values: number[]; threshold: number } {
   const N = opts.N ?? 20;
-  const [bMin, bMax] = opts.block ?? [6, 12];
-  const rand = mulberry32(opts.seed ?? EVAL_SEED + 8);
-  const base = new Map<ModelConfig, Observation[]>(cfgs.map((c) => [c, typeof obs === "function" ? obs(c) : obs]));
-  const ref = base.get(cfgs[0])!;
-  const labeled = ref.flatMap((o, i) => (o.up === null ? [] : [i]));
-  const maxes: number[] = [];
-  for (let k = 0; k < N; k++) {
-    const len = (bMin + Math.floor(rand() * (bMax - bMin + 1))) * HORIZON;
+  const firstDate = opts.firstDate ?? "1990-01-02";
+  const [r0, c0] = intersectRegimes(refObs, candObs);
+  const grid = phaseGrid(r0, 504, opts.phases);
+  const labeled = r0.flatMap((o, i) => (o.date >= firstDate && o.up !== null ? [i] : []));
+  const values: number[] = [];
+  for (let j = 1; j <= N; j++) {
+    const seed = EVAL_SEED + j;
+    const rand = mulberry32(seed);
+    const len = (6 + Math.floor(rand() * 7)) * HORIZON;
     const blocks: number[][] = [];
     for (let s = 0; s < labeled.length; s += len) blocks.push(labeled.slice(s, s + len));
     for (let i = blocks.length - 1; i > 0; i--) {
-      const j = Math.floor(rand() * (i + 1));
-      [blocks[i], blocks[j]] = [blocks[j], blocks[i]];
+      const k = Math.floor(rand() * (i + 1));
+      [blocks[i], blocks[k]] = [blocks[k], blocks[i]];
     }
     const order = blocks.flat();
-    let best = -Infinity;
-    for (const cfg of cfgs) {
-      const src = base.get(cfg)!;
-      const ups = labeled.map((_, n) => src[order[n]].up);
-      const permuted = src.map((o) => ({ ...o }));
-      labeled.forEach((pos, n) => (permuted[pos].up = ups[n]));
-      const b = phaseAveraged(permuted, cfg, "up", { resamples: 0, phases: opts.phases }).mean;
-      if (b > best) best = b;
-    }
-    maxes.push(best);
+    const apply = (obs: Observation[]) => {
+      const out = obs.map((o) => ({ ...o }));
+      labeled.forEach((pos, n) => (out[pos].up = obs[order[n]].up));
+      return out;
+    };
+    const r = apply(r0);
+    const c = apply(c0);
+    values.push(phaseAverageFromCells(phaseCells(c, candCfg, grid, "up"), { resamples: 0, cellsB: phaseCells(r, refCfg, grid, "up") }).mean);
   }
-  const sorted = [...maxes].sort((a, b) => a - b);
-  return { p95: sorted[Math.ceil(0.95 * N) - 1], maxes };
+  return { values, threshold: Math.max(...values) };
 }

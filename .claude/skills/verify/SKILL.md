@@ -5,7 +5,7 @@ description: 像使用者一樣實際操作市場觀測室（網站 web/ 與 iOS
 
 # 驗證市場觀測室
 
-單元測試（`npm test`、`MarketObservatoryTests`）證明函式對；這個技能證明**使用者碰得到的東西**對：真的點、真的看、真的對帳。所有腳本在 `.claude/skills/verify/scripts/`，從 repo 任何地方用絕對路徑或 `"$(git rev-parse --show-toplevel)"/.claude/skills/verify/scripts/…` 呼叫。
+單元測試（`npm test`、`MarketObservatoryTests`）證明函式對；這個技能證明**使用者碰得到的東西**對：真的點、真的看、真的對帳。需要 Claude Code 2.1.200 以上，`/verify` 才會叫到這個專案技能而不是內建的那個。所有腳本在 `.claude/skills/verify/scripts/`，從 repo 任何地方用絕對路徑或 `"$(git rev-parse --show-toplevel)"/.claude/skills/verify/scripts/…` 呼叫。
 
 ## 怎樣才算交付
 
@@ -113,7 +113,7 @@ walkthrough 沒走到的互動（滑動刪除、對話框、選期間、推播�
 "$S/down.sh" <run-id>
 ```
 
-只收這次啟動的東西：dev server 的整棵程序樹（vite＋workerd，用記下的 PID，不用 process 名稱）、這次建的模擬器（刪除）、DerivedData、密碼與 cookie 檔。證據保留，腳本最後確認 `$RUN/evidence` 不是空的並印出位置。ego-browser 那邊在最後一輪呼叫 `task.finish({ keep: [] })`。失敗中斷的嘗試也要跑 `down.sh`，別留下佔著 port 的 dev server。不要動別人開著的模擬器（例如 `okinawa-e2e`、`MO iPhone 18 Pro Max`）；不要用 `killall` 收 CoreSimulatorService。
+只收這次啟動的東西：dev server 的整棵程序樹（vite＋workerd，用記下的 PID，不用 process 名稱）、這次建的模擬器（刪除）、DerivedData、密碼與 cookie 檔。證據保留，腳本最後確認 `$RUN/evidence` 不是空的並印出位置。ego-browser 那邊在最後一輪呼叫 `task.finish({ keep: [] })`；忘了的話 `down.sh` 會收掉名為 `mo-verify-<run-id>` 的 task space。失敗中斷的嘗試也要跑 `down.sh`，別留下佔著 port 的 dev server。不要動別人開著的模擬器（例如 `okinawa-e2e`、`MO iPhone 18 Pro Max`）；不要用 `killall` 收 CoreSimulatorService。
 
 ## 正式站（只在必要時）
 

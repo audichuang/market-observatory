@@ -25,7 +25,7 @@ Preconditions:
 
 - **列表。** `goto("/watchlist")`，等 `input[placeholder="代號或公司，例如 AVGO"]`。`fetch("/api/v1/watchlist")` 比家數、合計權重、每家權重（D1）。截圖 `watchlist-before.png`。
 - **加入。** `fill('input[placeholder="代號或公司，例如 AVGO"]', "AVGO")`，`click('form button[type=submit]')`。用 `waitForFunction(() => [...document.querySelectorAll("li")].some(li => li.innerText.includes("AVGO")), undefined, { timeout: 60000 })` 等列表出現，`[role=status]` 文字是「已加入 Broadcom」。截圖 `watchlist-add.png`。
-- **讀回。** `JSON.parse((await page.fetch("/api/v1/watchlist")).body).members.map(m => m.key)` 最後一個是 `AVGO`、`totalWeight` 增加、`candidates` 裡不再有 AVGO（D5）；`goto("/")` 的表格有「Broadcom AVGO」，名單合計＋其餘仍＝指數漲跌（D3）。截圖 `watchlist-add-overview.png`、存 `watchlist-add.api.json`。
+- **讀回。** `JSON.parse((await page.fetch("/api/v1/watchlist")).body).members.map(m => m.key)` 最後一個是 `AVGO`、`totalWeight` 增加、`candidates.map(c => c.ticker)` 裡不再有 AVGO（D5）；`goto("/")` 的表格有「Broadcom AVGO」，名單合計＋其餘仍＝指數漲跌（D3）。截圖 `watchlist-add-overview.png`、存 `watchlist-add.api.json`。
 - **跨介面。** 跑 iOS walkthrough：`04-watchlist.png` 有 8 家、最後一家 AVGO、「8/30 家」。
 - **錯誤代號。** 輸入 `ZZZZ` 按加入：`[role=status]` 是「ZZZZ 不在最新的 S&P 500 成分股（SPY 持股）裡」，名單不變（D4）。
 - **移除（還原基準）。** 先用 `evaluate` 找到含 AVGO 的 `li`、把它的「移除」按鈕標上 `data-verify-target="remove"`，再 `click('[data-verify-target="remove"]')`。會跳 confirm「從名單移除 Broadcom？股價資料會保留，之後可以再加回來。」：先 `page.dismissDialog()`，AVGO 要還在（網頁版的 D7）；再點一次、`page.acceptDialog()`，等 AVGO 從列表消失；`members` 讀回 7 家、總覽不再有 Broadcom（D8）。App 的 D6、D7 需要滑動與對話框，用 XCUITest 或 Codex DeviceHub 手動操作。

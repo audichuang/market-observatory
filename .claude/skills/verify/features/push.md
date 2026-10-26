@@ -20,7 +20,7 @@ Preconditions:
 - 「MO Verify <run-id>」模擬器上 App 已登入測試帳號（跑過 walkthrough）。
 
 - **設定頁。** walkthrough 的 `09-push.png`、`09b-push-more.png`。改偏好要點擊，用 XCUITest 補 test 或 Codex DeviceHub；改完 `curl -b <測試帳號 cookie> http://localhost:<port>/api/v1/push` 讀回，再改回。
-- **送推播。** 把下面兩個 payload 存到 `$RUN/daily.json`、`$RUN/events.json`（日期改成本機快照裡有的交易日），`xcrun simctl push <UDID> com.audichuang.observatory $RUN/daily.json`。前景時截圖看橫幅；`xcrun simctl launch <UDID> com.apple.Preferences` 讓 App 到背景，再送一次、點橫幅，截圖確認導向。
+- **送推播。** 把下面兩個 payload 存到 `$RUN/daily.json`、`$RUN/events.json`（`date` 改成本機有快照的交易日：`/api/v1/overview` 的 `snapshot.tradeDate` 或總覽「查看其他交易日」下拉裡的日期；事件的 `date` 用 `/api/v1/news` 的 `events` 裡有的日子），`xcrun simctl push <UDID> com.audichuang.observatory $RUN/daily.json`。前景時截圖看橫幅；`xcrun simctl launch <UDID> com.apple.Preferences` 讓 App 到背景，再送一次、點橫幅，截圖確認導向。
 
   ```json
   {"aps":{"alert":{"title":"S&P 500 10/23 收盤 −0.52%","body":"7,623.68（−39.75 點） · VIX 19.4 · 名單 −11.1 點（28%） · NVDA −3.5"},"sound":"default","thread-id":"daily"},"kind":"daily","screen":"overview","date":"2026-10-22"}

@@ -20,7 +20,7 @@ OWNER="$(grep '^OWNER_EMAIL=' "$WEB/.env" | cut -d= -f2-)"
 if lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then die "port $PORT 已被占用（可能是別人的 dev server），換一個 port"; fi
 
 # 空資料庫檢查：已有使用者就不是從零開始，也不知道站長密碼。
-# 同一個 worktree 要再驗一次時設 MO_VERIFY_RESET=1 清掉它自己的本機 D1；主 checkout 的開發資料一律不清。
+# 同一個 worktree 要再驗一次時設 MO_VERIFY_RESET=1 清掉它自己的本機 D1（與 KV、快取）；主 checkout 的開發資料一律不清。
 MAIN="$(git -C "$REPO" worktree list --porcelain | head -1 | cut -d' ' -f2-)"
 users=0
 for f in "$WEB"/.void/v3/d1/miniflare-D1DatabaseObject/*.sqlite; do
@@ -31,7 +31,8 @@ for f in "$WEB"/.void/v3/d1/miniflare-D1DatabaseObject/*.sqlite; do
 done
 if [ "$users" != 0 ]; then
   if [ "${MO_VERIFY_RESET:-}" = 1 ] && [ "$REPO" != "$MAIN" ]; then
-    rm -rf "$WEB/.void/v3/d1"; ok "已清掉 $WEB 的本機 D1（MO_VERIFY_RESET=1）"
+    # 連 KV 與頁面快取一起清：快取鍵只在重新 build 時變，留著會讓新的一輪讀到上一輪算好的頁面。
+    rm -rf "$WEB/.void/v3"; ok "已清掉 ${WEB} 的本機 D1、KV 與快取（MO_VERIFY_RESET=1）"
   else
     die "這個 checkout 的本機 D1 已經有 $users 個帳號。開一個新 worktree；若這是你自己的驗證 worktree，加 MO_VERIFY_RESET=1 重來（主 checkout 不允許）"
   fi

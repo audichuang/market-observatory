@@ -13,6 +13,10 @@ if [ -f "$RUN/sim.udid" ]; then
   xcrun simctl delete "$UDID" && ok "模擬器 $UDID 已刪"
   rm -f "$RUN/sim.udid"
 fi
+# ego-browser 的 task space（SKILL.md 規定名字是 mo-verify-<run-id>）：drive 時忘了 finish 的話這裡收掉；已經 finish 過就什麼都不做。
+if command -v ego-browser >/dev/null; then
+  ego-browser nodejs -e "const l = await listTaskSpaces(); const s = l.find(x => x.name === 'mo-verify-${RUN_ID}' && x.ownership !== 'user'); if (s) { const t = await taskSpace(s.id); await t.finish({ keep: [] }); console.log('ego task space ' + s.id + ' 已結束'); }" 2>/dev/null || true
+fi
 rm -rf "$RUN/dd" "$RUN/owner.pw" "$RUN/owner.cj" "$RUN"/*.pw "$RUN"/*.cj
 mv "$RUN/state.env" "$RUN/state.env.down"
 # 本機 D1 留在 checkout 的 web/.void 裡（含這次註冊的帳號）；這個 worktree 不再驗證時連同 worktree 一起刪。

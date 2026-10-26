@@ -66,7 +66,7 @@ export default function SourcesPage({ expected, freshness, mismatches, runs, wei
         <div>
           <h1>資料來源與品質</h1>
           <p className="sub">
-            應有收盤的最近交易日：<strong>{expected}</strong>。日線 {num(counts?.prices ?? 0, 0)} 筆、快照 {num(counts?.snapshots ?? 0, 0)} 版（{counts?.days ?? 0} 天）、新聞 {counts?.news ?? 0} 則、事件 {counts?.events ?? 0} 筆。
+            排程應已抓到收盤的最近交易日：<strong>{expected}</strong>。日線 {num(counts?.prices ?? 0, 0)} 筆、快照 {num(counts?.snapshots ?? 0, 0)} 版（{counts?.days ?? 0} 天）、新聞 {counts?.news ?? 0} 則、事件 {counts?.events ?? 0} 筆。
           </p>
         </div>
       </div>

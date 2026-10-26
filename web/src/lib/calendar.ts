@@ -77,6 +77,25 @@ export const CLOSE_READY_MINUTES = 16 * 60 + 30;
 export function latestExpectedClose(at: Date = new Date()): string {
   let d = easternDate(at);
   if (easternMinutes(at) < CLOSE_READY_MINUTES) d = addDays(d, -1);
+  return sessionOnOrBefore(d);
+}
+
+/** 抓價排程（crons/prices.ts，週一到週五 UTC 21:40）的 UTC 分鐘數；改排程要一起改，tests/scheduled-close.test.ts 會比對。 */
+export const PRICES_CRON_UTC_MINUTES = 21 * 60 + 40;
+/** 排程開始後留給抓價跑完的時間。 */
+export const PRICES_RUN_GRACE_MINUTES = 30;
+
+/**
+ * 「抓價排程應該已經抓進來」的最近交易日，給過期警告用：UTC 21:40 的排程加緩衝跑完之後才算當天。
+ * 只看 latestExpectedClose 的話，收盤後到排程之間（每天約一小時）會誤報過期。
+ */
+export function latestScheduledClose(at: Date = new Date()): string {
+  const due = new Date(at.getTime() - (PRICES_CRON_UTC_MINUTES + PRICES_RUN_GRACE_MINUTES) * 60000);
+  return sessionOnOrBefore(due.toISOString().slice(0, 10));
+}
+
+function sessionOnOrBefore(date: string): string {
+  let d = date;
   for (let i = 0; i < 10; i++) {
     const s = isNyseSession(d);
     const weekday = new Date(`${d}T12:00:00Z`).getUTCDay();

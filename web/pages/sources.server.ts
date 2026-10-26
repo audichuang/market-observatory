@@ -1,6 +1,6 @@
 import { cachedPage, readDb } from "../src/server/page-cache.ts";
 import { defineHandler, defineHead, type InferProps } from "void";
-import { NYSE_CALENDAR, addDays, latestExpectedClose } from "../src/lib/calendar.ts";
+import { NYSE_CALENDAR, addDays, latestScheduledClose } from "../src/lib/calendar.ts";
 import { CBOE_URLS } from "../src/lib/sources/cboe.ts";
 import { SSGA_DISPLAY_URL } from "../src/lib/sources/ssga.ts";
 import { VIX_SYMBOL, yahooSymbols } from "../src/lib/universe.ts";
@@ -14,8 +14,9 @@ export type Props = InferProps<typeof loader>;
 export const loader = defineHandler(async (c) => {
   const db = readDb(c.env);
   // 頁面資料依資料版本快取，見 src/server/page-cache.ts。
-  return cachedPage(c, db, `sources?close=${latestExpectedClose()}`, async () => {
-    const expected = latestExpectedClose();
+  return cachedPage(c, db, `sources?close=${latestScheduledClose()}`, async () => {
+    // 「落後」標記的基準：抓價排程該跑完了才算，與總覽的過期警告一致。
+    const expected = latestScheduledClose();
     const [freshness, mismatches, runs, weights, counts] = await Promise.all([
       db
         .prepare(

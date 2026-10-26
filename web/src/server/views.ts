@@ -2,7 +2,7 @@
 // 跟使用者無關的部分照資料版本快取（cachedPage）；名單、定投規劃這類每個人不同的部分在快取外套上，
 // 或把名單放進快取鍵，不會把甲的名單快取給乙看。
 import { maxDrawdown, periodReturn, smaSeries, Series, leverageDrift, simulateDca } from "../lib/analytics.ts";
-import { addDays, latestExpectedClose } from "../lib/calendar.ts";
+import { addDays, latestExpectedClose, latestScheduledClose } from "../lib/calendar.ts";
 import { importanceFor, isImportant } from "../lib/news-ai.ts";
 import { viewForMembers } from "../lib/snapshot.ts";
 import { ETFS, ETF_CATALOG_AS_OF, EQUAL_WEIGHT_SYMBOL, FX_SYMBOL, INDEX_SYMBOL, VIX_SYMBOL, type WatchMember } from "../lib/universe.ts";
@@ -97,7 +97,8 @@ export async function overviewView(c: ViewCtx, v: Viewer) {
     snapshot,
     revisions: shared.revisions,
     dates: shared.dates,
-    expectedClose: latestExpectedClose(),
+    // 過期警告的基準：抓價排程該跑完了才算，收盤後、排程前不誤報（App 也讀這個欄位）。
+    expectedClose: latestScheduledClose(),
     // 只列真的在講自己名單公司的新聞（AI 判過的照 AI；還沒判的用免費規則，見 isImportant）
     news: newsRows.results.map((n) => newsOut(n, isImportant(n, [...mine], members.flatMap((m) => m.tickers)))).filter((n) => n.important).slice(0, 5),
     events: shared.events.filter((e) => e.kind !== "earnings" || (e.symbol !== null && mine.has(e.symbol))).slice(0, 8),

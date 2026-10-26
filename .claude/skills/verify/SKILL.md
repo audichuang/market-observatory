@@ -69,6 +69,7 @@ ego-browser nodejs <<'EOF'
 const task = await taskSpace("mo-verify-<run-id>");
 const page = task.page("p1");
 await page.goto("http://localhost:5181/login");
+await page.waitForFunction(() => { const a = [...document.querySelectorAll("a,button")].find(e => e.textContent.includes("還沒有帳號")); return a && Object.keys(a).some(k => k.startsWith("__react")); }, undefined, { timeout: 15000 });
 await page.click("text=還沒有帳號？建立帳號", { label: "switch to sign up" });
 await page.waitForSelector("loc=role:button[name='建立帳號']", { timeout: 5000 });
 await page.fill("input[type=email]", "verify-<run-id>@example.test");

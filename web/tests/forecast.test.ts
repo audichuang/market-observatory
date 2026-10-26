@@ -477,3 +477,31 @@ test("G08 (4) 正向對照：訊號強、滿足 G04 與 G03 (b)(c) 的合成序�
   assert.equal(mine.bssLow, o.cellGate.bssLow);
   assert.ok(mine.mde! > 0);
 });
+
+test("G03 (d)：兩個列數與段數都夠的 cell，一個有 skill、一個反向；全域 bssLow > 0，反向 cell 的 bssLow 仍 ≤ 0 且閘門不過", () => {
+  // 10 輪：每輪 A 連續 12 列（預測 0.95 對的方向）、B 連續 4 列（預測 0.45 偏向錯的方向，比基準 0.5 更差）。
+  const rows: WalkRow[] = [];
+  for (let round = 0; round < 10; round++) {
+    for (let k = 0; k < 16; k++) {
+      const i = rows.length;
+      const y = i % 2;
+      const skilled = k < 12;
+      const p = skilled ? (y ? 0.95 : 0.05) : y ? 0.45 : 0.55;
+      rows.push({ date: day(i * 21), basis: skilled ? "A" : "B", cell: skilled ? "A" : "B", p, pBase: 0.5, y, distinct: true });
+    }
+  }
+  const ev = cellEvaluations(rows);
+  const a = ev.find((e) => e.cell === "A")!;
+  const b = ev.find((e) => e.cell === "B")!;
+  assert.ok(a.rows >= 30 && a.runs >= 8 && b.rows >= 30 && b.runs >= 8, `A ${a.rows}/${a.runs} B ${b.rows}/${b.runs}`);
+  // 全域 bssLow > 0（A 的 skill 蓋過 B 的反向），所以若 B 的重抽誤用全域 BSS 就會過閘門
+  assert.ok(evaluateRows(rows).bssLow! > 0, `global bssLow=${evaluateRows(rows).bssLow}`);
+  assert.ok(a.bss > 0.5 && a.bssLow! > 0);
+  assert.ok(b.bss < 0, `B bss=${b.bss}`);
+  assert.ok(b.bssLow !== null && b.bssLow <= 0, `B bssLow=${b.bssLow}`);
+  assert.equal(cellGateOf(ev, "A").passed, true);
+  assert.equal(cellGateOf(ev, "B").passed, false);
+  // 今天的 cell 是反向的那個：即使 pick.distinct，也不給方向；是 skill 的那個才給。
+  assert.equal(callOf({ p: 0.45, distinct: true }, cellGateOf(ev, "B")), "inconclusive");
+  assert.equal(callOf({ p: 0.95, distinct: true }, cellGateOf(ev, "A")), "up");
+});

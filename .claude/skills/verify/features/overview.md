@@ -11,6 +11,7 @@
 - `overview-date`（B5）：選其他交易日 → 標題與數字換成 `?date=` 的值；能回到最新。
 - `overview-events`（B7、B8）：未來三週事件只列名單公司財報與 FOMC，由近到遠；「完整日曆 →」到新聞的日曆。
 - `overview-refresh`（B10）：App 下拉重新整理。
+- `overview-stale`：看最新（沒有 `?date=`）且 `snapshot.tradeDate` < API `expectedClose` 時，網頁與 App 頂端出現「最新快照是 …，但 … 應該已收盤」橘色警告。`expectedClose` 是抓價排程（週一到週五 UTC 21:40）加 30 分緩衝跑完後才換成當天，收盤後到 UTC 22:10 之間不警告；資料來源頁的「落後」標記用同一個日期。
 
 ## How to get to it (user POV)
 
@@ -36,4 +37,5 @@ Preconditions:
 - 本機的快照只有回補的 60 個交易日，下拉選單只列這 60 天。
 - 「資料 … 產出」的時間是快照建立時間，不是收盤時間。
 - 下月展望卡片的「偵測不到預測力」標籤是展望模型的狀態（樣本外沒有預測力，對應 API 的 `call: "inconclusive"`）；介面不再出現英文 skill。
+- 要看到 `overview-stale` 的警告：本機回補會抓到最新收盤，先在 `web/` 用 `npx void db execute "DELETE FROM snapshots WHERE trade_date = '<最新>'"` 刪掉最新快照，並改 `settings` 的 `data_version` 讓頁面快取失效；UTC 22:10 前後各看一次（前不警告、後警告）。
 - 名單剛改過時，總覽會用新名單重算最近 45 個交易日；更早的日子保留舊名單，切到很早的日期看到舊名單是正常的。

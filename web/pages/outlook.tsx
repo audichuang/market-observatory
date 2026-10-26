@@ -18,7 +18,7 @@ const BASIS: Record<string, string> = {
   "trend+vix": "200 日線 × VIX 條件",
 };
 
-export default function OutlookPage({ outlook, cells, track, recent, consensus, strategists, factset, horizon, minN }: Props) {
+export default function OutlookPage({ outlook, cells, track, recent, consensus, strategists, factset, horizon, minN, minEpisodes }: Props) {
   if (!outlook) {
     return (
       <>
@@ -95,21 +95,25 @@ export default function OutlookPage({ outlook, cells, track, recent, consensus, 
 
       <div className="panel section">
         <h2>各條件下的歷史上漲比例</h2>
-        <p className="sub">重疊的 {horizon} 日窗口不是獨立樣本，有效樣本以「天數 ÷ {horizon}」計；有效樣本少於 {minN} 的條件不採用（灰字）。</p>
+        <p className="sub">重疊的 {horizon} 日窗口不是獨立樣本，有效樣本以「天數 ÷ {horizon}」計；有效樣本少於 {minN}、或條件成立的日子分成不到 {minEpisodes} 段（段與段相隔至少 {horizon} 個交易日）的條件不採用，標為「樣本不足」（灰字）；基準率不受此限。</p>
         <div className="table-wrap">
           <table>
             <thead>
-              <tr><th>條件</th><th className="num">上漲比例</th><th className="num">95% 區間</th><th className="num">有效樣本</th></tr>
+              <tr><th>條件</th><th className="num">上漲比例</th><th className="num">95% 區間</th><th className="num">有效樣本／段數</th></tr>
             </thead>
             <tbody>
-              {cells.map((c) => (
-                <tr key={c.label} style={{ opacity: c.rate && c.rate.nEff >= minN ? 1 : 0.45, fontWeight: c.current ? 600 : 400 }}>
+              {cells.map((c, i) => {
+                // 基準率不受段數限制（i === 0）；其餘條件需有效樣本與段數都夠才採用。
+                const thin = !c.rate || c.rate.nEff < minN || (i > 0 && c.rate.episodes < minEpisodes);
+                return (
+                <tr key={c.label} style={{ opacity: thin ? 0.45 : 1, fontWeight: c.current ? 600 : 400 }}>
                   <td>{c.label}{c.current && <span className="badge" style={{ marginLeft: ".4rem" }}>目前</span>}</td>
                   <td className="num">{pct(c.rate?.p, 1)}</td>
                   <td className="num">{c.rate ? `${pct(c.rate.low)}～${pct(c.rate.high)}` : "—"}</td>
-                  <td className="num">{c.rate ? Math.round(c.rate.nEff) : 0}</td>
+                  <td className="num">{c.rate ? `${Math.round(c.rate.nEff)}／${c.rate.episodes}` : "0／0"}{thin && <span className="meta"> · 樣本不足</span>}</td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>

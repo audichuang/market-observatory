@@ -1,7 +1,7 @@
 // 下月展望（跟使用者無關，整頁照資料版本快取）。網頁 loader 與 App 的 API 共用。
 import { addDays } from "../lib/calendar.ts";
 import { aggregateConsensus, type ViewRow } from "../lib/consensus.ts";
-import { HORIZON, MIN_EFFECTIVE_N, buildObservations, buildOutlook, conditionalRate, type Rate, type Regime } from "../lib/forecast.ts";
+import { HORIZON, MIN_EFFECTIVE_N, MIN_EPISODES, buildObservations, buildOutlook, conditionalRate, type Rate, type Regime } from "../lib/forecast.ts";
 import { FACTSET_EARNINGS_INSIGHT_URL, REUTERS_POLL, STRATEGIST_TARGETS, STRATEGIST_TARGETS_CHECKED, median } from "../lib/strategists.ts";
 import { INDEX_SYMBOL, VIX_SYMBOL } from "../lib/universe.ts";
 import type { FactsetInsight } from "../lib/sources/factset.ts";
@@ -10,7 +10,7 @@ import { cachedPage, readDb } from "./page-cache.ts";
 import { getSetting, loadPrices } from "./repo.ts";
 import { type ViewCtx, exec } from "./views.ts";
 
-const pctOf = (r: Rate | null) => (r ? { p: r.p, low: r.low, high: r.high, nEff: r.nEff, days: r.days } : null);
+const pctOf = (r: Rate | null) => (r ? { p: r.p, low: r.low, high: r.high, nEff: r.nEff, episodes: r.episodes, days: r.days } : null);
 
 export async function outlookView(c: ViewCtx) {
   const db = readDb(c.env);
@@ -19,7 +19,7 @@ export async function outlookView(c: ViewCtx) {
     const spx = loaded.series[INDEX_SYMBOL];
     const vix = loaded.series[VIX_SYMBOL];
     const outlook = buildOutlook(spx, vix);
-    if (!outlook) return { outlook: null, cells: [], track: null, recent: [], consensus: null, strategists: null, factset: [] as FactsetInsight[], horizon: HORIZON, minN: MIN_EFFECTIVE_N };
+    if (!outlook) return { outlook: null, cells: [], track: null, recent: [], consensus: null, strategists: null, factset: [] as FactsetInsight[], horizon: HORIZON, minN: MIN_EFFECTIVE_N, minEpisodes: MIN_EPISODES };
 
     // 各條件下的歷史上漲比例（只用今天已知的標籤）。
     const obs = buildObservations(spx, vix);
@@ -97,6 +97,7 @@ export async function outlookView(c: ViewCtx) {
       },
       horizon: HORIZON,
       minN: MIN_EFFECTIVE_N,
+      minEpisodes: MIN_EPISODES,
     };
   });
 }

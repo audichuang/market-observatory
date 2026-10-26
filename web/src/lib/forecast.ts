@@ -10,6 +10,8 @@ import { Series, smaSeries } from "./analytics.ts";
 
 export const HORIZON = 21;
 export const MIN_EFFECTIVE_N = 30;
+/** G04：條件成立的日子至少要分成這麼多段（段與段相隔 ≥ HORIZON 個觀測值），候選條件才可採用。 */
+export const MIN_EPISODES = 8;
 export const VIX_STRESS = 30;
 
 /** 預設模型的 regime 形狀（App 非可選解碼，欄位不能變）。 */
@@ -45,7 +47,7 @@ export interface ModelConfig {
   /** 依序嘗試的旗標 id 組合（明確列出，不由旗標順序推導）；全部落空就用基準率 */
   candidates: string[][];
   minEffectiveN: number;
-  /** 保留欄位：0 = 不設門檻 */
+  /** G04：候選條件的最少段數；0 = 不設門檻 */
   minEpisodes: number;
   /** 保留欄位：null = 不收縮 */
   shrinkK: number | null;
@@ -57,7 +59,7 @@ export interface ModelConfig {
 }
 
 export const DEFAULT_MODEL: ModelConfig = {
-  version: "2026-10-m1m5",
+  version: "2026-10-g04",
   flags: [
     { id: "aboveSma200", basisId: "trend", compute: (c) => (c.sma200 === null ? null : c.close > c.sma200) },
     // VIX 一般狀態（<30）幾乎就是全部樣本，沒有資訊量，單獨成候選時跳過。
@@ -65,7 +67,7 @@ export const DEFAULT_MODEL: ModelConfig = {
   ],
   candidates: [["aboveSma200", "vixStress"], ["vixStress"], ["aboveSma200"]],
   minEffectiveN: MIN_EFFECTIVE_N,
-  minEpisodes: 0,
+  minEpisodes: MIN_EPISODES,
   shrinkK: null,
   bootstrap: { blockSize: 3, resamples: 1000 },
   baseWindowStart: "1990-01-02",
@@ -79,6 +81,8 @@ export interface Rate {
   days: number;
   /** 有效獨立樣本數 ≈ 天數 ÷ 21 */
   nEff: number;
+  /** G04：條件成立的日子分成幾段（距上一個成立日 ≥ 21 個觀測值才算新的一段）；基準率只供參考 */
+  episodes: number;
   low: number;
   high: number;
 }
@@ -92,11 +96,11 @@ export function wilson(p: number, n: number, z = 1.96): { low: number; high: num
   return { low: Math.max(0, center - half), high: Math.min(1, center + half) };
 }
 
-export function rateOf(ups: number, days: number): Rate | null {
+export function rateOf(ups: number, days: number, episodes: number): Rate | null {
   if (days === 0) return null;
   const p = ups / days;
   const nEff = days / HORIZON;
-  return { p, days, nEff, ...wilson(p, nEff) };
+  return { p, days, nEff, episodes, ...wilson(p, nEff) };
 }
 
 export interface Observation {
@@ -151,13 +155,18 @@ function matches(r: RegimeFlags, cond: Partial<RegimeFlags>): boolean {
 export function conditionalRate(obs: Observation[], asOf: string, cond: Partial<RegimeFlags> = {}): Rate | null {
   let ups = 0;
   let days = 0;
-  for (const o of obs) {
+  let episodes = 0;
+  let prev = -Infinity;
+  for (let i = 0; i < obs.length; i++) {
+    const o = obs[i];
     if (o.up === null || !o.knownOn || o.knownOn > asOf || !o.regime) continue;
     if (!matches(o.regime, cond)) continue;
     days++;
+    if (i - prev >= HORIZON) episodes++;
+    prev = i;
     if (o.up) ups++;
   }
-  return rateOf(ups, days);
+  return rateOf(ups, days, episodes);
 }
 
 export interface Pick {
@@ -173,7 +182,7 @@ export interface Pick {
 
 /**
  * 只用 asOf 當天已知的資料，替 regime 挑一個機率：
- * 依 cfg.candidates 的順序試（預設先最細的 200 日線 × VIX，再單一條件），有效樣本不足就往下，再不夠就用基準率。
+ * 依 cfg.candidates 的順序試（預設先最細的 200 日線 × VIX，再單一條件），有效樣本或段數（G04）不足就往下，再不夠就用基準率。
  */
 export function pickProbability(obs: Observation[], asOf: string, regime: RegimeFlags, cfg: ModelConfig = DEFAULT_MODEL): Pick | null {
   const base = conditionalRate(obs, asOf);
@@ -186,7 +195,7 @@ export function pickProbability(obs: Observation[], asOf: string, regime: Regime
     const cond: RegimeFlags = {};
     for (const id of ids) cond[id] = regime[id];
     const r = conditionalRate(obs, asOf, cond);
-    if (!r || r.nEff < cfg.minEffectiveN) continue;
+    if (!r || r.nEff < cfg.minEffectiveN || r.episodes < cfg.minEpisodes) continue;
     const basis = defs.map((f) => f.basisId).join("+");
     const distinct = base.p < r.low || base.p > r.high;
     // 區間包含基準率就看不出差別：輸出基準率，條件機率只留著給頁面對照。

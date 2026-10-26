@@ -1,7 +1,7 @@
 // 回測用的評估工具：stationary bootstrap、配對比較、相位平均、虛無分佈。純計算，不碰 D1 與網路。
 // 規則出處：docs/forecast.md「事前登記」（G08、L02、L03、L08、配對）。
 
-import { EVAL_SEED, G08_BOOTSTRAP, HORIZON, callOf, cellEvaluations, cellGateOf, mulberry32, sdOf, stationaryBootstrapIndices, walkForwardRows, type Label, type ModelConfig, type Observation, type WalkRow } from "./forecast.ts";
+import { EVAL_SEED, G08_BOOTSTRAP, HORIZON, callOf, cellEvaluations, cellGateOf, mulberry32, sdOf, stationaryBootstrapIndices, labelOf, walkForwardRows, type Label, type ModelConfig, type Observation, type WalkRow } from "./forecast.ts";
 
 // 評估用的 bootstrap 原語（stationary bootstrap、固定種子）定義在 forecast.ts（正式版 G08 與回測共用），這裡再匯出。
 export { EVAL_SEED, stationaryBootstrapIndices };
@@ -280,13 +280,14 @@ export function nullPairedBss(
   candObs: Observation[],
   refCfg: ModelConfig,
   candCfg: ModelConfig,
-  opts: { N?: number; firstDate?: string; phases?: number } = {},
+  opts: { N?: number; firstDate?: string; phases?: number; label?: Label } = {},
 ): { values: number[]; threshold: number } {
   const N = opts.N ?? 20;
+  const label = opts.label ?? "up";
   const firstDate = opts.firstDate ?? "1990-01-02";
   const [r0, c0] = intersectRegimes(refObs, candObs);
   const grid = phaseGrid(r0, 504, opts.phases);
-  const labeled = r0.flatMap((o, i) => (o.date >= firstDate && o.up !== null ? [i] : []));
+  const labeled = r0.flatMap((o, i) => (o.date >= firstDate && labelOf(o, label) !== null ? [i] : []));
   const values: number[] = [];
   for (let j = 1; j <= N; j++) {
     const seed = EVAL_SEED + j;
@@ -301,12 +302,15 @@ export function nullPairedBss(
     const order = blocks.flat();
     const apply = (obs: Observation[]) => {
       const out = obs.map((o) => ({ ...o }));
-      labeled.forEach((pos, n) => (out[pos].up = obs[order[n]].up));
+      labeled.forEach((pos, n) => {
+        if (label === "up") out[pos].up = obs[order[n]].up;
+        else out[pos].dd5 = obs[order[n]].dd5;
+      });
       return out;
     };
     const r = apply(r0);
     const c = apply(c0);
-    values.push(phaseAverageFromCells(phaseCells(c, candCfg, grid, "up"), { resamples: 0, cellsB: phaseCells(r, refCfg, grid, "up") }).mean);
+    values.push(phaseAverageFromCells(phaseCells(c, candCfg, grid, label), { resamples: 0, cellsB: phaseCells(r, refCfg, grid, label) }).mean);
   }
   return { values, threshold: Math.max(...values) };
 }

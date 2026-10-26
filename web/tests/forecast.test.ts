@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Series } from "../src/lib/analytics.ts";
-import { DEFAULT_MODEL, EVAL_SEED, HORIZON, drawdownScored, returnQuantiles, MIN_CELL_ROWS, MIN_CELL_RUNS, MIN_EPISODES, MIN_VALID_REPLICATES, buildObservations, buildOutlook, callOf, cellEvaluations, cellGateOf, conditionalRate, evaluateRows, mulberry32, pickProbability, sdOf, stationaryBootstrapIndices, walkForward, walkForwardRows, wilson, type CellEval, type ModelConfig, type Observation, type WalkRow } from "../src/lib/forecast.ts";
-import { PHASES, bssOf, phaseGrid, pointInTimeCalls } from "../src/lib/forecast-eval.ts";
+import { DEFAULT_MODEL, EVAL_SEED, HORIZON, condOfPick, drawdownScored, returnQuantiles, MIN_CELL_ROWS, MIN_CELL_RUNS, MIN_EPISODES, MIN_VALID_REPLICATES, buildObservations, buildOutlook, callOf, cellEvaluations, cellGateOf, conditionalRate, evaluateRows, mulberry32, pickProbability, sdOf, stationaryBootstrapIndices, walkForward, walkForwardRows, wilson, type CellEval, type ModelConfig, type Observation, type WalkRow } from "../src/lib/forecast.ts";
+import { PHASES, bssOf, nullPairedBss, pairedBrierDiffMcStdErr, pairedBrierDiffPhase, pairedMcStdErr, pairedPhaseAveraged, phaseGrid, pointInTimeCalls } from "../src/lib/forecast-eval.ts";
 
 const day = (i: number) => new Date(Date.UTC(2015, 0, 1) + i * 864e5).toISOString().slice(0, 10);
 // G04 之前的舊行為（不設段數門檻、不凍結窗口、不限 VIX 陳舊度）：既有測試的意圖不變，改用它來跑。
@@ -608,4 +608,110 @@ test("buildOutlook 帶 drawdown 與 returnQuantiles（加法式），up 的欄�
   assert.ok(o.returnQuantiles.all!.p10 < o.returnQuantiles.all!.p50 && o.returnQuantiles.all!.p50 < o.returnQuantiles.all!.p90);
   assert.ok(o.returnQuantiles.cell!.n > 0);
   assert.equal(o.modelVersion, "2026-10-g09");
+});
+
+// ---- T11 review：不變量守護 ----
+
+test("D4 窗口終點：唯一的 ≤95% 恰在 t+21 → true；只在 t+22 → false", () => {
+  const mk = (k: number) => {
+    const c = Array.from({ length: 60 }, () => 100);
+    c[k] = 95;
+    return buildObservations(series(c), series(c.map(() => 15)))[0].dd5;
+  };
+  assert.equal(mk(21), true);
+  assert.equal(mk(22), false);
+  assert.equal(mk(1), true);
+  assert.equal(mk(0 + 20), true);
+});
+
+/** VIX 以 30 天為一段在 35／15 之間隨機切換；高 VIX 段的指數大幅下跌（多有 ≥5% 回撤），低 VIX 段幾乎不動。 */
+function blockSeries(n: number, stressDrift: number, calmNoise: number) {
+  const rand = mulberry32(21);
+  const vix: number[] = [];
+  const spx: number[] = [];
+  let px = 1000;
+  const stress: boolean[] = [];
+  for (let i = 0; i < n; i++) {
+    const b = Math.floor(i / 30);
+    stress[b] ??= rand() > 0.5;
+    vix.push(stress[b] ? 35 : 15);
+    px *= stress[b] ? 1 + stressDrift + (rand() - 0.5) * 0.004 : 1 + (rand() - 0.5) * calmNoise;
+    spx.push(px);
+  }
+  return { spx, vix };
+}
+
+test("point-in-time：dd5 標籤成熟前不計入；asOf 之後的價格改變不影響 dd5 的 pick 與分位數", () => {
+  const obs = dd5Obs(400);
+  const j = 100;
+  assert.equal(obs[j].knownOn, day(j + 21));
+  const before = conditionalRate(obs, day(j + 20), {}, "dd5")!;
+  const at = conditionalRate(obs, day(j + 21), {}, "dd5")!;
+  assert.equal(at.days - before.days, 1);
+  // 只有第 j 天一筆 dd5 = true 的情況下，成熟日當天才看得到
+  const only = obs.map((o, i) => ({ ...o, dd5: i < 400 - 21 ? i === j : null }));
+  assert.equal(conditionalRate(only, day(j + 20), {}, "dd5")?.p ?? 0, 0);
+  assert.ok(conditionalRate(only, day(j + 21), {}, "dd5")!.p > 0);
+
+  const { spx, vix } = blockSeries(1500, -0.004, 0.002);
+  const o1 = buildObservations(series(spx), series(vix));
+  // 挑一個 m，使 m−20..m 的 dd5 在原序列都是 false（崩盤只會把它們改成 true）
+  let m = 1200;
+  while (o1.slice(m - 20, m + 1).some((o) => o.dd5 !== false)) m++;
+  const crash = spx.map((c, i) => (i > m ? c * 0.4 : c));
+  const o2 = buildObservations(series(crash), series(vix));
+  const asOf = day(m);
+  const regime = o1[m].regime!;
+  assert.deepEqual(o2[m].regime, regime);
+  assert.deepEqual(pickProbability(o1, asOf, regime, DEFAULT_MODEL, "dd5"), pickProbability(o2, asOf, regime, DEFAULT_MODEL, "dd5"));
+  assert.deepEqual(returnQuantiles(o1, asOf, regime), returnQuantiles(o2, asOf, regime));
+  assert.deepEqual(returnQuantiles(o1, asOf), returnQuantiles(o2, asOf));
+  // 確認 m−20..m 的 dd5 標籤確實被崩盤改變（否則上面的比較沒有鑑別力）
+  assert.ok(o1.slice(m - 20, m + 1).some((o, i) => o.dd5 !== o2[m - 20 + i].dd5));
+});
+
+test("scored 接線：drawdown.evaluation = dd5 的 walkForward；明確成立與明確不成立的情境", () => {
+  const good = blockSeries(4000, -0.004, 0.002);
+  const og = buildOutlook(series(good.spx), series(good.vix))!;
+  const obsG = buildObservations(series(good.spx), series(good.vix));
+  assert.deepEqual(og.drawdown.evaluation, walkForward(obsG, 504, undefined, undefined, DEFAULT_MODEL, "dd5"));
+  assert.notDeepEqual(og.drawdown.evaluation, walkForward(obsG, 504, undefined, undefined, DEFAULT_MODEL, "up"));
+  assert.ok(og.drawdown.evaluation.bssLow! > 0);
+  assert.equal(og.drawdown.scored, true);
+
+  // 低波動、從不出現 ≥5% 回撤：dd5 標籤全為 0，BSS 下界不會 > 0
+  const bad = blockSeries(4000, 0.0001, 0.002);
+  const ob = buildOutlook(series(bad.spx), series(bad.vix))!;
+  assert.ok(!(ob.drawdown.evaluation.bssLow! > 0));
+  assert.equal(ob.drawdown.scored, false);
+});
+
+test("returnQuantiles.cell 用的是所選 cell：n 小於 .all，且等於符合該 cell 的已知列數", () => {
+  const { spx, vix } = blockSeries(4000, -0.004, 0.002);
+  const o = buildOutlook(series(spx), series(vix))!;
+  assert.notEqual(o.drawdown.pick.basis, "base");
+  const obs = buildObservations(series(spx), series(vix));
+  const cond = condOfPick(o.drawdown.pick, o.regime);
+  assert.ok(Object.keys(cond).length > 0);
+  assert.equal(o.returnQuantiles.cell!.n, returnQuantiles(obs, o.asOf, cond)!.n);
+  assert.ok(o.returnQuantiles.cell!.n < o.returnQuantiles.all!.n);
+});
+
+test("harness：paired／MC／null 都帶 label，up 與 dd5 結果不同", () => {
+  const obs = dd5Obs(3000);
+  const cand: ModelConfig = { ...DEFAULT_MODEL, shrinkK: null };
+  const opts = { resamples: 60 };
+  const f = (label: "up" | "dd5") => ({
+    paired: pairedPhaseAveraged(obs, obs, DEFAULT_MODEL, cand, { ...opts, label }).mean,
+    diff: pairedBrierDiffPhase(obs, obs, DEFAULT_MODEL, cand, { ...opts, label }).mean,
+    mc: pairedMcStdErr(obs, obs, DEFAULT_MODEL, cand, { ...opts, label }).values,
+    diffMc: pairedBrierDiffMcStdErr(obs, obs, DEFAULT_MODEL, cand, { ...opts, label }).values,
+    nul: nullPairedBss(obs, obs, DEFAULT_MODEL, cand, { N: 3, label }).values,
+  });
+  const u = f("up");
+  const d = f("dd5");
+  for (const k of ["paired", "diff", "mc", "diffMc", "nul"] as const) assert.notDeepEqual(u[k], d[k], k);
+  // 預設 label 仍是 up
+  assert.equal(pairedPhaseAveraged(obs, obs, DEFAULT_MODEL, cand, opts).mean, u.paired);
+  assert.deepEqual(nullPairedBss(obs, obs, DEFAULT_MODEL, cand, { N: 3 }).values, u.nul);
 });

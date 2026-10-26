@@ -127,15 +127,15 @@ for (const name of names) {
   const calls = { up: 0, down: 0, inconclusive: 0 };
   if (target === "up") for (const c of name === "pre-g03" ? legacyCalls(rows, knownOn, cfg) : pointInTimeCalls(rows, knownOn)) calls[c]++;
   const cellsSummary = ev.byCell;
-  const paired = name === refName ? null : pairedPhaseAveraged(refObsRaw, rawObs, refCfg, cfg, boot);
-  const pairedMc = paired && pairedMcStdErr(refObsRaw, rawObs, refCfg, cfg, boot);
+  const paired = name === refName ? null : pairedPhaseAveraged(refObsRaw, rawObs, refCfg, cfg, { ...boot, label: target });
+  const pairedMc = paired && pairedMcStdErr(refObsRaw, rawObs, refCfg, cfg, { ...boot, label: target });
   const entry: Record<string, unknown> = { variant: name, version: cfg.version, historyStart, rows: rows.length, first: ev.firstDate, last: ev.lastDate, evaluation: ev, stationary: st, brier: brierOf(rows), hitRate: ev.hitRate, calls, phase: { mean: phase.mean, min: phase.min, max: phase.max, ci: phase.ci, byPhase: phase.bssByPhase, cycles: phase.cycles }, mc, pairedMc, cells: cellsSummary, paired: paired && { mean: paired.mean, ci: paired.ci, min: paired.min, max: paired.max, cycles: paired.cycles } };
   if (args.null && paired) {
-    const nul = nullPairedBss(refObsRaw, rawObs, refCfg, cfg);
+    const nul = nullPairedBss(refObsRaw, rawObs, refCfg, cfg, { label: target });
     entry.nullThreshold = nul;
   }
-  const pairedDiff = name === refName ? null : pairedBrierDiffPhase(refObsRaw, rawObs, refCfg, cfg, boot);
-  const pairedDiffMc = pairedDiff && pairedBrierDiffMcStdErr(refObsRaw, rawObs, refCfg, cfg, boot);
+  const pairedDiff = name === refName ? null : pairedBrierDiffPhase(refObsRaw, rawObs, refCfg, cfg, { ...boot, label: target });
+  const pairedDiffMc = pairedDiff && pairedBrierDiffMcStdErr(refObsRaw, rawObs, refCfg, cfg, { ...boot, label: target });
   entry.pairedBrierDiff = pairedDiff && { mean: pairedDiff.mean, ci: pairedDiff.ci, cycles: pairedDiff.cycles, mc: pairedDiffMc };
   results.push(entry);
 

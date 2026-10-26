@@ -58,7 +58,7 @@ export const outOfTen = (p: number): number => Math.round(Math.min(1, Math.max(0
 
 /**
  * L11：自然頻率句，用收縮後的 pick.p（頁面上的主數字）、每 100 次。
- * showBoth（up：pick.distinct；dd5：已計分）為 true 才同時列條件與平常的次數並附段數；否則只說「與平常差不多」並只列平常。
+ * showBoth（up 與 dd5 都是該 pick.distinct）為 true 才同時列條件與平常的次數並附段數；否則只說「與平常差不多」並只列平常。
  * 沒有條件時（basis 為 base）不印段數。kind "up"：21 個交易日後收高；"dd5"：21 個交易日內出現 ≥5% 回撤。
  */
 export function naturalFrequency(pick: { p: number; base: Rate; conditional: Rate | null }, kind: "up" | "dd5", showBoth: boolean, horizon = HORIZON): string {
@@ -69,3 +69,10 @@ export function naturalFrequency(pick: { p: number; base: Rate; conditional: Rat
 }
 
 export const outOfCent = (p: number): number => Math.round(Math.min(1, Math.max(0, p)) * 100);
+
+type PickLike = { p: number; base: Rate; conditional: Rate | null; distinct: boolean };
+
+/** 頁面的兩句自然頻率。顯示兩個數字與否，up 與 drawdown 都看 pick.distinct（scored 只影響另外的「未通過驗證」標籤）。 */
+export function frequencySentences(o: { pick: PickLike; drawdown: { pick: PickLike; scored: boolean } }): { up: string; dd5: string } {
+  return { up: naturalFrequency(o.pick, "up", o.pick.distinct), dd5: naturalFrequency(o.drawdown.pick, "dd5", o.drawdown.pick.distinct) };
+}

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { LIVE_MIN_N, liveTrackOf, naturalFrequency, outOfCent, outOfTen } from "../src/lib/communication.ts";
+import { LIVE_MIN_N, frequencySentences, liveTrackOf, naturalFrequency, outOfCent, outOfTen } from "../src/lib/communication.ts";
 import { DEFAULT_MODEL, assessmentsOf, reasonsOf, buildOutlook, type Assessments, type CellGate } from "../src/lib/forecast.ts";
 import { Series } from "../src/lib/analytics.ts";
 
@@ -134,4 +134,20 @@ test("A1：reasons 只由未通過的評估項產生；全域警語另列", () =
   assert.deepEqual(reasonsOf(a), []);
   const a2 = assessmentsOf({ pick: { ...pick, distinct: false }, evaluation: ev, gate: gate(), spxDate: "x", vixDate: "x", staleSessions: 0, cfg: DEFAULT_MODEL });
   assert.equal(reasonsOf(a2).length, 1);
+});
+
+test("drawdown 自然頻率看 distinct、不看 scored", () => {
+  const up = { p: 0.65, base: rate(0.64, 24), conditional: rate(0.66, 14), distinct: false };
+  const dd = (distinct: boolean) => ({ p: 0.15, base: rate(0.26, 24), conditional: rate(0.12, 10), distinct });
+  // distinct 且未計分：兩個數字都顯示（15 vs 26）
+  assert.equal(
+    frequencySentences({ pick: up, drawdown: { pick: dd(true), scored: false } }).dd5,
+    "過去像今天這樣的時期，大約每 100 次有 15 次 21 個交易日內出現 ≥5% 回撤（平常是每 100 次有 26 次），依據 10 段獨立時期",
+  );
+  // 不 distinct 但已計分：只講平常
+  assert.equal(
+    frequencySentences({ pick: up, drawdown: { pick: dd(false), scored: true } }).dd5,
+    "與平常差不多：過去大約每 100 次有 26 次 21 個交易日內出現 ≥5% 回撤",
+  );
+  assert.match(frequencySentences({ pick: up, drawdown: { pick: dd(false), scored: false } }).up, /^與平常差不多/);
 });

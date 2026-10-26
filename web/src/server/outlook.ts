@@ -1,6 +1,6 @@
 // 下月展望（跟使用者無關，整頁照資料版本快取）。網頁 loader 與 App 的 API 共用。
 import { addDays } from "../lib/calendar.ts";
-import { liveTrackOf, naturalFrequency } from "../lib/communication.ts";
+import { frequencySentences, liveTrackOf } from "../lib/communication.ts";
 import { aggregateConsensus, type ViewRow } from "../lib/consensus.ts";
 import { HORIZON, MIN_EFFECTIVE_N, MIN_EPISODES, buildObservations, buildOutlook, conditionalRate, type Rate, type Regime } from "../lib/forecast.ts";
 import { FACTSET_EARNINGS_INSIGHT_URL, REUTERS_POLL, STRATEGIST_TARGETS, STRATEGIST_TARGETS_CHECKED, median } from "../lib/strategists.ts";
@@ -63,9 +63,7 @@ export async function outlookView(c: ViewCtx) {
     const allRows = await db.prepare("SELECT trade_date AS date, probability AS p, base_rate AS base, close FROM forecasts ORDER BY trade_date").all<{ date: string; p: number; base: number; close: number }>();
     const liveTrack = liveTrackOf(allRows.results, spx.points);
     // L11：自然頻率句（up 與 drawdown）。
-    const frequency = outlook
-      ? { up: naturalFrequency(outlook.pick, "up", outlook.pick.distinct), dd5: naturalFrequency({ ...outlook.drawdown.pick }, "dd5", outlook.drawdown.scored) }
-      : null;
+    const frequency = outlook ? frequencySentences(outlook) : null;
 
     // 成分股分析師共識（SPY 權重前 100 檔，7 天內更新過的）。
     const weightsRows = await db

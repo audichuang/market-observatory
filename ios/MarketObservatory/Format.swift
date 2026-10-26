@@ -162,14 +162,16 @@ struct CallBadge: View {
         let (text, color): (String, Color) = switch call {
         case "up": ("高於平常", .up)
         case "down": ("低於平常", .down)
-        default: (mde.map { "偵測不到 skill（最小可偵測 BSS 約 \(String(format: "%.2f", $0))）" } ?? "偵測不到 skill", .orange)
+        default: (mde.map { "偵測不到預測力（最小可偵測 BSS 約 \(String(format: "%.2f", $0))）" } ?? "偵測不到預測力", .orange)
         }
         Text(text)
             .font(.caption.weight(.semibold))
             .padding(.horizontal, 8)
             .padding(.vertical, 2)
-            .background(color.opacity(0.12), in: Capsule())
+            // 大字級時徽章會換成多行，Capsule 的半圓兩端會裁掉文字；用圓角矩形，單行時看起來一樣。
+            .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             .foregroundStyle(color)
+            .fixedSize(horizontal: false, vertical: true)
     }
 }
 

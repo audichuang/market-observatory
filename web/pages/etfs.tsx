@@ -3,11 +3,13 @@ import { useEffect, useState } from "react";
 import LineChart from "../src/ui/LineChart.tsx";
 import { Delta } from "../src/ui/bits.tsx";
 import { compactUsd, num, pctText } from "../src/ui/format.ts";
+import { planIssue } from "../src/lib/plan.ts";
 import type { Props } from "./etfs.server";
 
 export default function EtfPage({ asOf, catalogAsOf, rows, periods, plan, sim, dca, fxLast }: Props) {
   const router = useRouter();
   const form = useForm("/etfs", { ...plan });
+  const issue = planIssue(form.data);
   const [monthly, setMonthly] = useState(String(sim.monthlyTwd));
   const [savedDefault, setSavedDefault] = useState(false);
   useEffect(() => setMonthly(String(sim.monthlyTwd)), [sim.monthlyTwd]);
@@ -183,9 +185,9 @@ export default function EtfPage({ asOf, catalogAsOf, rows, periods, plan, sim, d
               待定事項與備註
               <textarea value={form.data.notes} onChange={(e) => form.setData("notes", e.target.value)} />
             </label>
-            {form.error && <p className="error">{String(form.error)}</p>}
+            {issue ? <p className="error">{issue}</p> : form.error && <p className="error">{String(form.error)}</p>}
             <div className="row">
-              <button disabled={form.pending || !form.hasChanges}>{form.pending ? "儲存中…" : "儲存規劃"}</button>
+              <button disabled={form.pending || !form.hasChanges || issue !== null}>{form.pending ? "儲存中…" : "儲存規劃"}</button>
               {form.recentlySuccessful && <span className="badge ok">已儲存</span>}
             </div>
           </Form>

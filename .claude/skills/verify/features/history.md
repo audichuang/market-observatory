@@ -1,10 +1,10 @@
 # 走勢與均線
 
-選一個標的（S&P 500、名單公司、RSP）看收盤與 SMA20／60／200、區間報酬、最大回檔、交易日數；下面有名單 vs S&P 500 的相對報酬（起點 0%）、區間統計表、近 40 個交易日的指數漲跌拆解（名單 vs 其餘）。
+選一個標的（S&P 500、名單公司、RSP）看收盤與 SMA20／60／200、區間報酬與最大回撤（App 另顯示交易日數）；下面有名單 vs S&P 500 的相對報酬（起點 0%）、區間統計表、近 40 個交易日的指數漲跌拆解（名單 vs 其餘）。
 
 ## Sub-features
 
-- `history-main`（C1）：預設 1 年；四條線都在圖框內；日期範圍＝API `mainStats.first`～`last`；區間報酬、最大回檔、交易日＝`mainStats.ret`、`mdd`、`points`。
+- `history-main`（C1）：預設 1 年；四條線都在圖框內；日期範圍＝`mainStats.first`～`last`、區間報酬＝`ret`、最大回撤（App 寫「最大回檔」）＝`mdd`；App 另有交易日＝`points`，網頁沒有顯示交易日數。
 - `history-range`（C2、C3）：切 1 個月／3 個月／6 個月／1 年／3 年／5 年，數字＝`months=1/3/6/12/36/60`；快速連點時停在最後一個。
 - `history-symbol`（C4、C6）：標的選單或區間統計表的列切換標的。
 - `history-compare`（C5）：相對報酬每條線顏色不同、圖例對得上、起點 0%。
@@ -13,7 +13,7 @@
 ## How to get to it (user POV)
 
 - 網頁：導覽列「走勢與均線」→ `/history`；`/history?symbol=NVDA&months=6`；總覽或名單點公司名稱。
-- App：底部分頁「走勢」，右上標的選單；總覽或名單點公司列。
+- App：底部分頁「走勢」，右上標的選單（按鈕 label「標的：S&P 500」，選項 label「S&P 500（SPX）」「NVIDIA（NVDA）」…）；區間是 SegmentedControl 的按鈕「1 個月」…「5 年」；總覽或名單點公司列。
 
 ## Driving it with ego-browser / XCUITest
 
@@ -22,10 +22,10 @@ Preconditions:
 - 基準狀態、測試帳號登入。
 
 - **主圖。** `goto("/history")`，等 `text=走勢與均線`。`fetch("/api/v1/history?symbol=SPX&months=12")` 比 `mainStats`。截圖 `history-main.png`，用眼睛看四條線與圖例。
-- **區間。** 點區間按鈕（畫面文字「6 個月」等），等網址或統計數字更新，比 `months=6` 的 API。
+- **區間。** 區間按鈕是 `a.chip`（文字「1 個月」「1 年」…），點 `a.chip:text-is("6 個月")`，等網址出現 `months=6` 與統計數字更新，再比 `months=6` 的 API。
 - **標的。** `selectOption("select", "NVDA")`，網址出現 `symbol=NVDA`，比 `symbol=NVDA` 的 API。
-- **App。** walkthrough 的 `03-history.png`、`03b-history-compare.png`、`03c-history-contribution.png`。
-- **Proof。** `history-main.png`、`history-nvda.png`、對應 API JSON、App 三張截圖。
+- **App。** walkthrough 的 `03-history.png`、`03b-history-compare.png`、`03c-history-contribution.png`；`ios-test.sh … VerifyInteractionTests/test03_History` 的 `C2-ranges.txt`（每個區間的報酬、回檔、交易日對 `months=` 的 API）、`C3-rapid.png`、`C4-nvda.png`／`.txt`、`C6-aapl.png`。
+- **Proof。** `history-main.png`、`history-nvda.png`、對應 API JSON、App 的 walkthrough 三張與 test03 的截圖、`.txt`。
 
 ## Gotchas
 

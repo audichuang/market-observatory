@@ -80,6 +80,8 @@ struct WatchlistView: View {
     private func openHistory(_ m: Watchlist.Member) {
         session.historySymbol = m.key
         session.tab = .history
+        // 名單是 sheet（總覽右上星號），不關掉的話走勢頁在 sheet 後面，使用者看起來像沒反應。
+        dismiss()
     }
 
     private func content(_ w: Watchlist) -> some View {

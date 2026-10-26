@@ -19,8 +19,8 @@ Preconditions:
 
 - 「MO Verify <run-id>」模擬器上 App 已登入測試帳號（跑過 walkthrough）。
 
-- **設定頁。** walkthrough 的 `09-push.png`、`09b-push-more.png`。改偏好要點擊，用 XCUITest 補 test 或 Codex DeviceHub；改完 `curl -b <測試帳號 cookie> http://localhost:<port>/api/v1/push` 讀回，再改回。
-- **送推播。** 把下面兩個 payload 存到 `$RUN/daily.json`、`$RUN/events.json`（`date` 改成本機有快照的交易日：`/api/v1/overview` 的 `snapshot.tradeDate` 或總覽「查看其他交易日」下拉裡的日期；事件的 `date` 用 `/api/v1/news` 的 `events` 裡有的日子），`xcrun simctl push <UDID> com.audichuang.observatory $RUN/daily.json`。前景時截圖看橫幅；`xcrun simctl launch <UDID> com.apple.Preferences` 讓 App 到背景，再送一次、點橫幅，截圖確認導向。
+- **設定頁。** walkthrough 的 `09-push.png`、`09b-push-more.png`。改偏好跑 `ios-test.sh … VerifyInteractionTests/test07_PushPrefs`：關「每日收盤摘要」、門檻按兩次＋變 ±6.0%，離開再進來寫 `F8-reopen.txt`，再改回寫 `F8-restored.txt`。在改回之前要讀 API 的話，另用網頁的 `page.fetch("/api/v1/push")`（同一個測試帳號）比 `prefs`。
+- **送推播與點開。** 把下面兩個 payload 存到 `$RUN/daily.json`、`$RUN/events.json`。`date` 要是本機有快照的交易日，而且要等於 test 斷言的日子（test08 斷言 `10/22`，資料日期不同時兩邊一起改）；事件的 `date` 用 `/api/v1/news` 的 `events` 裡有的日子。再照 SKILL.md Drive 的「08／09 要 shell 同時送推播」跑 `test08_PushOpenDaily`（daily.json：G1 前景橫幅 `G1-foreground-banner.png`、G2 回桌面後點橫幅 → 10/22 總覽 `G2-opened-daily.png`）與 `test09_PushOpenEvents`（events.json：G3 點開 → 新聞的日曆 `G3-opened-events.png`）。
 
   ```json
   {"aps":{"alert":{"title":"S&P 500 10/23 收盤 −0.52%","body":"7,623.68（−39.75 點） · VIX 19.4 · 名單 −11.1 點（28%） · NVDA −3.5"},"sound":"default","thread-id":"daily"},"kind":"daily","screen":"overview","date":"2026-10-22"}
@@ -29,10 +29,10 @@ Preconditions:
   {"aps":{"alert":{"title":"今天（美東 10/28）的事件","body":"Microsoft 財報（盤後）、FOMC 利率決議（10/27–28）"},"thread-id":"events"},"kind":"events","screen":"news","date":"2026-10-28"}
   ```
 
-- **Proof。** `09-push.png`、偏好讀回的 API JSON、`push-banner.png`、`push-open-daily.png`、`push-open-events.png`。
+- **Proof。** `09-push.png`、`F8-changed.png`、`F8-reopen.png`／`.txt`、`F8-restored.txt`、`G1-foreground-banner.png`、`G2-opened-daily.png`、`G3-opened-events.png`。
 
 ## Gotchas
 
 - 未簽章的模擬器版註冊不了 APNs：設定頁頂端的「這個版本無法註冊推播（模擬器或未簽章版本）」與「這台裝置註冊失敗」是預期的，算 pass；真正的 APNs 送達只能在 TestFlight 版實機驗。
 - `simctl push` 不經過後端，驗的是 App 收到後的呈現與導向，不是收盤推播的排程邏輯（那個看 `npm test` 的 push 測試與 runs 紀錄）。
-- 點橫幅需要點擊座標或 XCUITest 的 springboard 元素；拿不到時記 not-run 並寫原因。
+- 點推播橫幅曾經閃退（async 版 `didReceive` 在非主執行緒呼叫 completion handler，SIGABRT），已改成 completion-handler 版並在主執行緒處理。G2、G3 每輪都要跑，並確認 `~/Library/Logs/DiagnosticReports` 沒有新的 MarketObservatory crash。

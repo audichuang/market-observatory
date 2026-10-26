@@ -381,7 +381,7 @@ struct OutlookView: View {
                                     .font(.caption.weight(.semibold))
                                     .padding(.horizontal, 8)
                                     .padding(.vertical, 2)
-                                    .background(Color.orange.opacity(0.12), in: Capsule())
+                                    .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                                     .foregroundStyle(Color.orange)
                             }
                             Divider().padding(.vertical, 4)
@@ -390,7 +390,9 @@ struct OutlookView: View {
                             .font(.subheadline).foregroundStyle(.secondary)
                         Text(Fmt.plainPct(o.pick.p * 100)).font(.largeTitle.weight(.bold).monospacedDigit())
                         Text(intervalText(o.pick)).font(.footnote).foregroundStyle(.secondary)
-                        HStack(spacing: 8) {
+                        // 大字級時徽章很長，並排會把徽章與基準率都擠成多行，改上下排。
+                        let badgeLayout = dts.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 6)) : AnyLayout(HStackLayout(spacing: 8))
+                        badgeLayout {
                             CallBadge(call: o.call, mde: o.evaluation?.mde)
                             Text("歷史基準率 \(Fmt.plainPct(o.pick.base.p * 100))").font(.subheadline)
                         }
@@ -771,7 +773,7 @@ struct OutlookView: View {
         switch call {
         case "up": "高於平常"
         case "down": "低於平常"
-        default: "偵測不到 skill"
+        default: "偵測不到預測力"
         }
     }
 }

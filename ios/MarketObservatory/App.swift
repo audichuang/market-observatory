@@ -209,20 +209,33 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         }
     }
 
+    // 用 completion handler 版本，不用 async 版本：async 版本由 Swift 在背景執行緒呼叫系統的
+    // completion handler，點推播（didReceive）時 UIKit 斷言要在主執行緒而閃退（SIGABRT）。
+    // 這裡一律回到主執行緒處理並呼叫 completion handler。
+
     // App 在前景時也顯示橫幅。
-    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
-        [.banner, .list, .sound]
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping @Sendable (UNNotificationPresentationOptions) -> Void
+    ) {
+        DispatchQueue.main.async { completionHandler([.banner, .list, .sound]) }
     }
 
-    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping @Sendable () -> Void
+    ) {
         let info = response.notification.request.content.userInfo
         let screen = info["screen"] as? String
         let date = info["date"] as? String
-        await MainActor.run {
+        Task { @MainActor in
             var payload: [AnyHashable: Any] = [:]
             payload["screen"] = screen
             payload["date"] = date
             SessionStore.shared.open(payload: payload)
+            completionHandler()
         }
     }
 }

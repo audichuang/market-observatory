@@ -469,6 +469,16 @@ export interface ForecastRecord {
   attention: boolean;
 }
 
+/** 執行紀錄摘要（站長的資料來源頁）用的中文；代碼本身仍留在 detail.reasonCode／pending 給程式看。 */
+const FORECAST_REASON_TEXT: Record<ForecastReason, string> = {
+  "vix-pending": "等 VIX 收盤",
+  "spx-unchecked": "SPX 收盤尚未核對",
+  "spx-mismatch": "SPX 收盤核對不一致",
+  "vix-stale": "VIX 太久沒更新",
+  insufficient: "資料不足",
+};
+const FORECAST_CALL_TEXT: Record<string, string> = { up: "高於平常", down: "低於平常", inconclusive: "偵測不到預測力" };
+
 /** VIX 超過 3 個交易日沒更新、SPX 核對不一致超過 2 個交易日、資料不足才算異常（工作標 partial）；單純在等 VIX 或核對是正常的。 */
 export function forecastNeedsAttention(f: ForecastRecord): boolean {
   return f.attention;
@@ -566,9 +576,9 @@ export async function recordForecast(db: D1Database): Promise<ForecastRecord> {
   } else if (pending.length) {
     attention = false;
     reason = (latestPending ?? pending.at(-1)!).reason;
-    why = `${pending.map((p) => `${p.date} ${p.reason}`).join("、")} 還不能記`;
+    why = `${pending.map((p) => `${p.date} ${FORECAST_REASON_TEXT[p.reason]}`).join("、")} 還不能記`;
   }
-  const head = recorded.length ? `${recorded.join("、")} 新記錄${latest ? `（最新 ${latest.asOf} 上漲機率 ${(latest.p * 100).toFixed(1)}%，${latest.call}）` : ""}` : "沒有新記錄（已有紀錄的不覆蓋）";
+  const head = recorded.length ? `${recorded.join("、")} 新記錄${latest ? `（最新 ${latest.asOf} 上漲機率 ${(latest.p * 100).toFixed(1)}%，${FORECAST_CALL_TEXT[latest.call] ?? latest.call}）` : ""}` : "沒有新記錄（已有紀錄的不覆蓋）";
   const message = !reason ? head : recorded.length ? `${head}；${why}` : `${why}，未產生預測`;
   const outcome = recorded.length ? "recorded" : reason === "insufficient" ? "skipped" : pending.length ? "pending" : "exists";
   return { outcome, message, recorded, pending, attention: !!reason && attention, ...(reason ? { reason } : {}) };
@@ -701,7 +711,7 @@ const JOBS: Record<JobName, (db: D1Database, opts: JobOptions, budget: Budget) =
     const r = await rebuildSnapshots(db, opts.upTo ? "歷史重算" : "手動重算", sessions, opts.upTo);
     return {
       status: "ok",
-      summary: `重算 ${r.built[0] ?? "—"}～${r.built.at(-1) ?? "—"} 共 ${r.built.length} 天，新 revision ${r.created.length} 筆`,
+      summary: `重算 ${r.built[0] ?? "—"}～${r.built.at(-1) ?? "—"} 共 ${r.built.length} 天，新版本 ${r.created.length} 筆`,
       detail: { first: r.built[0] ?? null, created: r.created.length },
     };
   },

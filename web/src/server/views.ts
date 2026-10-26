@@ -7,6 +7,7 @@ import { importanceFor, isImportant } from "../lib/news-ai.ts";
 import { viewForMembers } from "../lib/snapshot.ts";
 import { ETFS, ETF_CATALOG_AS_OF, EQUAL_WEIGHT_SYMBOL, FX_SYMBOL, INDEX_SYMBOL, VIX_SYMBOL, type WatchMember } from "../lib/universe.ts";
 import { MAX_WATCH, displayName, isConstituent } from "../lib/watchlist.ts";
+import { PLAN_LIMITS } from "../lib/plan.ts";
 import { z } from "zod";
 import { type Viewer, getViewerSetting, settingKey, viewerWatchlist } from "./account.ts";
 import { rebuildSnapshots, WATCHLIST_REBUILD_SESSIONS } from "./jobs.ts";
@@ -228,14 +229,25 @@ export const DEFAULT_PLAN = {
 export type Plan = typeof DEFAULT_PLAN;
 export const PLAN_KEY = "plan";
 
+// 驗證失敗的訊息會直接顯示在網頁表單與 App（「輸入格式不對：…」），一律用中文；上下限見 src/lib/plan.ts。
+const twd = (label: string, max: number, maxText: string) =>
+  z
+    .number({ error: `${label}要是數字` })
+    .int(`${label}要是整數`)
+    .min(0, `${label}不能是負數`)
+    .max(max, `${label}最多 ${maxText}`);
+
 export const PlanSchema = z.object({
-  monthlyTwd: z.number().int().min(0).max(10_000_000),
-  etf: z.string().refine((t) => ETFS.some((e) => e.ticker === t), "未知的 ETF"),
-  years: z.number().int().refine((n) => [1, 2, 3, 5].includes(n)),
-  researchBudgetTwd: z.number().int().min(0).max(1_000_000_000),
-  trancheTwd: z.number().int().min(0).max(1_000_000_000),
-  exitConsiderationPct: z.number().min(0).max(100),
-  notes: z.string().max(2000),
+  monthlyTwd: twd("每月金額", PLAN_LIMITS.monthlyMaxTwd, "1000 萬"),
+  etf: z.string({ error: "請選擇 ETF" }).refine((t) => ETFS.some((e) => e.ticker === t), "未知的 ETF"),
+  years: z.number({ error: "期間要是數字" }).int("期間要是 1、2、3 或 5 年").refine((n) => [1, 2, 3, 5].includes(n), "期間要是 1、2、3 或 5 年"),
+  researchBudgetTwd: twd("加碼研究預算", PLAN_LIMITS.amountMaxTwd, "10 億"),
+  trancheTwd: twd("單筆加碼", PLAN_LIMITS.amountMaxTwd, "10 億"),
+  exitConsiderationPct: z
+    .number({ error: "檢討門檻要是數字" })
+    .min(0, "檢討門檻不能是負數")
+    .max(PLAN_LIMITS.exitPctMax, `檢討門檻要在 0–${PLAN_LIMITS.exitPctMax}% 之間`),
+  notes: z.string({ error: "備註要是文字" }).max(PLAN_LIMITS.notesMax, `備註最多 ${PLAN_LIMITS.notesMax} 字`),
 });
 
 export async function savePlan(db: D1Database, v: Viewer, plan: Plan) {
@@ -257,7 +269,7 @@ export async function etfsView(c: ViewCtx, v: Viewer) {
   const plan = await getViewerSetting<Plan>(c.env.DB, v, PLAN_KEY, DEFAULT_PLAN);
   const etf = ETFS.some((e) => e.ticker === c.req.query("etf")) ? (c.req.query("etf") as string) : plan.etf;
   const years = [1, 2, 3, 5].includes(Number(c.req.query("years"))) ? Number(c.req.query("years")) : plan.years;
-  const monthlyTwd = Number(c.req.query("monthly")) > 0 ? Math.min(Number(c.req.query("monthly")), 10_000_000) : plan.monthlyTwd;
+  const monthlyTwd = Number(c.req.query("monthly")) > 0 ? Math.min(Number(c.req.query("monthly")), PLAN_LIMITS.monthlyMaxTwd) : plan.monthlyTwd;
   const computed = await cachedPage(cacheCtx(c), db, `etfs?etf=${etf}&years=${years}&monthly=${monthlyTwd}`, async () => {
     const last = await db.prepare("SELECT MAX(date) AS d FROM prices WHERE symbol = ?").bind(INDEX_SYMBOL).first<{ d: string | null }>();
     const end = last?.d ?? new Date().toISOString().slice(0, 10);

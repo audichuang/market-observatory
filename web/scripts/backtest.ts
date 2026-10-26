@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { Series } from "../src/lib/analytics.ts";
 import { addDays } from "../src/lib/calendar.ts";
-import { DEFAULT_MODEL, HORIZON, MIN_EFFECTIVE_N, VIX_STRESS, buildObservations, evaluateRows, type ModelConfig, type WalkRow } from "../src/lib/forecast.ts";
+import { DEFAULT_MODEL, HORIZON, MIN_EFFECTIVE_N, MIN_EPISODES, VIX_STRESS, buildObservations, buildOutlook, evaluateRows, type ModelConfig, type WalkRow } from "../src/lib/forecast.ts";
 import { EVAL_DEFAULTS, PHASES, bootstrapCI, brierOf, bssOf, intersectRegimes, mcStdErr, nullPairedBss, pairedBrierDiffMcStdErr, pairedBrierDiffPhase, pairedMcStdErr, pairedPhaseAveraged, phaseAverageFromCells, phaseCells, phaseGrid, pointInTimeCalls } from "../src/lib/forecast-eval.ts";
 import { CBOE_URLS, parseCboeCsv } from "../src/lib/sources/cboe.ts";
 
@@ -34,8 +34,8 @@ function legacyCalls(rows: WalkRow[], knownOn: Map<string, string | null>, cfg: 
   });
 }
 const SENSITIVITY = new Set(["shrink20", "shrink80"]);
-// 目標登錄：dd5 的標籤與計分在之後的票接上（forecast.ts 的 label 選項）。
-const TARGETS = ["up"] as const;
+// 目標登錄：up = 21 日後收高；dd5 = D4 回撤標籤（forecast.ts 的 label 選項）。dd5 的方向計數沒有意義，略過。
+const TARGETS = ["up", "dd5"] as const;
 
 const { values: args } = parseArgs({
   options: {
@@ -51,7 +51,7 @@ const { values: args } = parseArgs({
 });
 
 const target = args.target as (typeof TARGETS)[number];
-if (!TARGETS.includes(target)) throw new Error(`目標 ${args.target} 尚未支援（目前只有 ${TARGETS.join("、")}；dd5 之後再接）`);
+if (!TARGETS.includes(target)) throw new Error(`目標 ${args.target} 尚未支援（可用：${TARGETS.join("、")}）`);
 const names = args.variant!.split(",");
 for (const n of names) if (!VARIANTS[n]) throw new Error(`沒有變體 ${n}（可用：${Object.keys(VARIANTS).join("、")}）`);
 
@@ -125,17 +125,17 @@ for (const name of names) {
   // 方向計數：與 buildOutlook 同一個 G03 閘門（pre-g03 除外），每列只用當時已知的 walk-forward 列（point-in-time）。
   const knownOn = new Map(obs.map((o) => [o.date, o.knownOn]));
   const calls = { up: 0, down: 0, inconclusive: 0 };
-  for (const c of name === "pre-g03" ? legacyCalls(rows, knownOn, cfg) : pointInTimeCalls(rows, knownOn)) calls[c]++;
+  if (target === "up") for (const c of name === "pre-g03" ? legacyCalls(rows, knownOn, cfg) : pointInTimeCalls(rows, knownOn)) calls[c]++;
   const cellsSummary = ev.byCell;
-  const paired = name === refName ? null : pairedPhaseAveraged(refObsRaw, rawObs, refCfg, cfg, boot);
-  const pairedMc = paired && pairedMcStdErr(refObsRaw, rawObs, refCfg, cfg, boot);
+  const paired = name === refName ? null : pairedPhaseAveraged(refObsRaw, rawObs, refCfg, cfg, { ...boot, label: target });
+  const pairedMc = paired && pairedMcStdErr(refObsRaw, rawObs, refCfg, cfg, { ...boot, label: target });
   const entry: Record<string, unknown> = { variant: name, version: cfg.version, historyStart, rows: rows.length, first: ev.firstDate, last: ev.lastDate, evaluation: ev, stationary: st, brier: brierOf(rows), hitRate: ev.hitRate, calls, phase: { mean: phase.mean, min: phase.min, max: phase.max, ci: phase.ci, byPhase: phase.bssByPhase, cycles: phase.cycles }, mc, pairedMc, cells: cellsSummary, paired: paired && { mean: paired.mean, ci: paired.ci, min: paired.min, max: paired.max, cycles: paired.cycles } };
   if (args.null && paired) {
-    const nul = nullPairedBss(refObsRaw, rawObs, refCfg, cfg);
+    const nul = nullPairedBss(refObsRaw, rawObs, refCfg, cfg, { label: target });
     entry.nullThreshold = nul;
   }
-  const pairedDiff = name === refName ? null : pairedBrierDiffPhase(refObsRaw, rawObs, refCfg, cfg, boot);
-  const pairedDiffMc = pairedDiff && pairedBrierDiffMcStdErr(refObsRaw, rawObs, refCfg, cfg, boot);
+  const pairedDiff = name === refName ? null : pairedBrierDiffPhase(refObsRaw, rawObs, refCfg, cfg, { ...boot, label: target });
+  const pairedDiffMc = pairedDiff && pairedBrierDiffMcStdErr(refObsRaw, rawObs, refCfg, cfg, { ...boot, label: target });
   entry.pairedBrierDiff = pairedDiff && { mean: pairedDiff.mean, ci: pairedDiff.ci, cycles: pairedDiff.cycles, mc: pairedDiffMc };
   results.push(entry);
 
@@ -144,7 +144,22 @@ for (const name of names) {
   lines.push(`列數 ${rows.length}（${ev.firstDate} .. ${ev.lastDate}）`);
   lines.push(`BSS evaluateRows（${cfg.bootstrap.kind}）${ci(ev.bss ?? NaN, ev.bssLow ?? NaN, ev.bssHigh ?? NaN)}；stationary ${ci(st.point, st.low, st.high)}；MDE ${fmt(ev.mde)}`);
   lines.push(`Brier ${fmt(ev.brier, 4)}（基準 ${fmt(ev.brierBase, 4)}）；命中率 ${fmt(ev.hitRate)}（永遠看漲 ${fmt(ev.baseHitRate)}）`);
-  lines.push(`方向（point-in-time）up ${calls.up} / down ${calls.down} / inconclusive ${calls.inconclusive}`);
+  if (target === "up") lines.push(`方向（point-in-time）up ${calls.up} / down ${calls.down} / inconclusive ${calls.inconclusive}`);
+  if (target === "dd5") {
+    // G09 採用判定的輸入（機械判定）：dd5 walk-forward 全域 bssLow > 0 且今天所用 cell nEff ≥ 30、段數 ≥ 8。
+    const o = buildOutlook(spx, vix, cfg);
+    if (!o) lines.push("G09 判定輸入：buildOutlook 算不出來（資料不足）");
+    else {
+      const d = o.drawdown;
+      const used = d.pick.conditional ?? d.pick.base;
+      lines.push(`G09 判定輸入（as-of ${o.asOf}，正式版 walkForward）：全域 bssLow ${fmt(d.evaluation.bssLow)}（BSS ${fmt(d.evaluation.bss)}，列數 ${d.evaluation.points}）；格點相位 0 的 bssLow ${fmt(ev.bssLow)}`);
+      lines.push(`  今天所用 cell ${d.pick.cell}：nEff ${fmt(used.nEff, 1)}、段數 ${used.episodes}（門檻 ${MIN_EFFECTIVE_N}／${MIN_EPISODES}）；P(dd5) ${fmt(d.pick.p, 4)}（基準 ${fmt(d.pick.base.p, 4)}，條件 ${fmt(d.pick.conditional?.p, 4)}）`);
+      lines.push(`  cellGate 列數 ${d.cellGate.rows} 段數 ${d.cellGate.runs} bssLow ${fmt(d.cellGate.bssLow)}（G03，僅參考）；scored = ${d.scored}`);
+      const q = o.returnQuantiles;
+      if (q.cell) lines.push(`  21 日報酬分位數 cell：p10 ${fmt(q.cell.p10, 4)} p50 ${fmt(q.cell.p50, 4)} p90 ${fmt(q.cell.p90, 4)}（n ${q.cell.n}）`);
+      if (q.all) lines.push(`  21 日報酬分位數 全部：p10 ${fmt(q.all.p10, 4)} p50 ${fmt(q.all.p50, 4)} p90 ${fmt(q.all.p90, 4)}（n ${q.all.n}）`);
+    }
+  }
   lines.push(`相位平均 BSS ${ci(phase.mean, phase.ci.low, phase.ci.high)}（各相位 ${fmt(phase.min)} ~ ${fmt(phase.max)}）；格 ${phase.cycles.used}/${phase.cycles.total}，捨去 ${phase.cycles.dropped}`);
   lines.push(`下界 MC 標準誤（standalone，相位平均 BSS 的下界）${fmt(mc.se, 4)}（種子 1..5：${mc.values.map((v) => fmt(v)).join(", ")}；決策用種子 ${fixedSeed}）`);
   lines.push("cell                                  列數  段數  BSS [CI]                      MDE    有效重抽");

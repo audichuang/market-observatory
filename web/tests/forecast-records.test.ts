@@ -50,7 +50,14 @@ test("同一交易日第二次寫入不覆蓋；新欄位都有值", async () =>
   assert.equal(typeof r.cond_n_eff === "number" || r.cond_n_eff === null, true);
   assert.equal(r.cond_p, outlook.pick.conditional?.p ?? null);
   assert.equal(r.bss_low, outlook.evaluation.bssLow);
-  assert.doesNotThrow(() => JSON.parse(r.detail as string));
+  const detail = JSON.parse(r.detail as string);
+  assert.deepEqual(detail.cellGate, outlook.cellGate);
+  assert.equal(detail.drawdown.p, outlook.drawdown.pick.p);
+  assert.equal(detail.drawdown.base, outlook.drawdown.pick.base.p);
+  assert.equal(detail.drawdown.scored, outlook.drawdown.scored);
+  assert.deepEqual(detail.drawdown.cellGate, outlook.drawdown.cellGate);
+  const view = await outlookView({ env: { DB: db }, req: { query: () => undefined, url: "http://x/outlook" } });
+  assert.ok(view.outlook!.drawdown.pick && view.outlook!.returnQuantiles.all);
 });
 
 test("VIX 過期：outlookView 的 outlook 為 null，但共識、策略師、預測紀錄仍在", async () => {

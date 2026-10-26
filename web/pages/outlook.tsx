@@ -19,6 +19,8 @@ const BASIS: Record<string, string> = {
   "trend+vix": "200 日線 × VIX 條件",
 };
 
+const rpct = (v: number) => `${v >= 0 ? "+" : ""}${(v * 100).toFixed(1)}%`;
+
 type OutlookData = NonNullable<Props["outlook"]>;
 
 function ForecastBlock({ outlook, cells, horizon, minN, minEpisodes, trackPanel }: { outlook: OutlookData; cells: Props["cells"]; horizon: number; minN: number; minEpisodes: number; trackPanel: ReactNode }) {
@@ -30,8 +32,15 @@ function ForecastBlock({ outlook, cells, horizon, minN, minEpisodes, trackPanel 
     <>
 
   <div className="panel outlook-hero">
-    <div className="outlook-prob">
-      <div className="label">上漲機率</div>
+    <div className="outlook-prob" style={{ display: "flex", gap: "2rem", flexWrap: "wrap" }}>
+      <div>
+        <div className="label">下個月出現 ≥5% 跌幅的機率</div>
+        <div className="outlook-value">{pct(outlook.drawdown.pick.p)}</div>
+        <div className="sub">（平常 {pct(outlook.drawdown.pick.base.p)}）</div>
+        {!outlook.drawdown.scored && <div className="sub"><span className="badge warn">未通過驗證，只供參考</span></div>}
+      </div>
+      <div>
+    <div className="label">上漲機率</div>
       <div className="outlook-value">{pct(pick.p)}</div>
       <div className="sub">
         {pick.shrinkWeight > 0 && pick.conditional ? (
@@ -46,7 +55,14 @@ function ForecastBlock({ outlook, cells, horizon, minN, minEpisodes, trackPanel 
           </>
         )}
       </div>
+      </div>
     </div>
+    {outlook.returnQuantiles.cell && (
+      <p className="sub">
+        過去類似情況 {horizon} 個交易日報酬：10% 機率低於 {rpct(outlook.returnQuantiles.cell.p10)}、一半低於 {rpct(outlook.returnQuantiles.cell.p50)}、90% 低於 {rpct(outlook.returnQuantiles.cell.p90)}
+        <span className="meta">（{outlook.returnQuantiles.cell.n} 個交易日；描述統計，不計分{outlook.returnQuantiles.all ? `；不分條件：${rpct(outlook.returnQuantiles.all.p10)}／${rpct(outlook.returnQuantiles.all.p50)}／${rpct(outlook.returnQuantiles.all.p90)}` : ""}）</span>
+      </p>
+    )}
     <div className="outlook-call">
       <span className={`badge ${cls} big`}>{label}</span>
       <p className="sub">{why}</p>

@@ -193,9 +193,10 @@ export interface PhaseResult {
 /**
  * 相位平均與區間。格序號 k 是各相位對齊的鍵：只用「所有相位（配對時含兩個變體）都有列」的格，
  * 點估計與每次重抽都用同一批格；每次重抽抽一組 stationary 索引，套到所有相位，各相位算 BSS 再平均。
- * 單一變體：BSS = 1 − Brier(p)/Brier(pBase)；有 cellsB 時是配對 BSS = 1 − Brier(A)/Brier(B)。
+ * 單一變體：BSS = 1 − Brier(p)/Brier(pBase)；有 cellsB 時是配對 BSS = 1 − Brier(A)/Brier(B)；
+ * metric = "brierDiff"（需 cellsB）時各相位的統計量改為 Brier(A) − Brier(B)（> 0 表示 A 較差）。
  */
-export function phaseAverageFromCells(cellsA: Cells, opts: BootOpts & { cellsB?: Cells } = {}): PhaseResult {
+export function phaseAverageFromCells(cellsA: Cells, opts: BootOpts & { cellsB?: Cells; metric?: "bss" | "brierDiff" } = {}): PhaseResult {
   const { meanBlock, resamples, seed } = { ...EVAL_DEFAULTS, ...opts };
   const B = opts.cellsB;
   const total = Math.max(...cellsA.map((c) => c.length));
@@ -206,6 +207,7 @@ export function phaseAverageFromCells(cellsA: Cells, opts: BootOpts & { cellsB?:
     const a = ks.map((k) => cellsA[o][k]!);
     if (!B) return bssOf(a);
     const bb = ks.map((k) => B[o][k]!);
+    if (opts.metric === "brierDiff") return (a.reduce((s, r) => s + sq(r), 0) - bb.reduce((s, r) => s + sq(r), 0)) / ks.length;
     const den = bb.reduce((s, r) => s + sq(r), 0);
     return den === 0 ? 0 : 1 - a.reduce((s, r) => s + sq(r), 0) / den;
   };
@@ -236,6 +238,27 @@ export function pairedPhaseAveraged(refObs: Observation[], candObs: Observation[
   const grid = phaseGrid(r, 504, opts.phases);
   const label = opts.label ?? "up";
   return phaseAverageFromCells(phaseCells(c, candCfg, grid, label), { ...opts, cellsB: phaseCells(r, refCfg, grid, label) });
+}
+
+/**
+ * 配對的相位平均 Brier 差（候選 − 參考）：與 pairedPhaseAveraged 同一組交集、格點與 cycle bootstrap，
+ * 統計量改為各相位 Brier(候選) − Brier(參考) 再取平均；> 0 表示候選較差。
+ */
+export function pairedBrierDiffPhase(refObs: Observation[], candObs: Observation[], refCfg: ModelConfig, candCfg: ModelConfig, opts: BootOpts & { phases?: number; label?: "up" } = {}): PhaseResult {
+  const [r, c] = intersectRegimes(refObs, candObs);
+  const grid = phaseGrid(r, 504, opts.phases);
+  const label = opts.label ?? "up";
+  return phaseAverageFromCells(phaseCells(c, candCfg, grid, label), { ...opts, cellsB: phaseCells(r, refCfg, grid, label), metric: "brierDiff" });
+}
+
+/** L03：配對 Brier 差下界以外，報告差的 CI 下界在種子 1..5 下的 MC 標準誤（不除以 √5）。 */
+export function pairedBrierDiffMcStdErr(refObs: Observation[], candObs: Observation[], refCfg: ModelConfig, candCfg: ModelConfig, opts: BootOpts & { phases?: number; label?: "up"; seeds?: number[] } = {}): { values: number[]; mean: number; se: number } {
+  const [r, c] = intersectRegimes(refObs, candObs);
+  const grid = phaseGrid(r, 504, opts.phases);
+  const label = opts.label ?? "up";
+  const cellsA = phaseCells(c, candCfg, grid, label);
+  const cellsB = phaseCells(r, refCfg, grid, label);
+  return mcStdErr((seed) => phaseAverageFromCells(cellsA, { ...opts, seed, cellsB, metric: "brierDiff" }).ci.low, opts.seeds);
 }
 
 /**

@@ -1,18 +1,25 @@
 // 預測模型回測：在本機用 Cboe 日線跑 forecast.ts 的 walk-forward，所有模型邏輯都來自 src/lib，這裡只負責取資料與排版。
 //   node scripts/backtest.ts [--variant base,...] [--target up] [--since YYYY-MM-DD] [--prod-window] [--as-of YYYY-MM-DD] [--offline] [--json] [--null]
 // --prod-window：起點 = as-of 往前 3660 天，與正式站（jobs.ts backfill）目前保存的歷史一致。
-// 事前登記期間只允許用 --prod-window 驗證；全歷史回測要等登記合併後（docs/forecast.md）。
+// 事前登記已合併，可跑全歷史（docs/forecast.md）。第一個變體是參考；SENSITIVITY 內的變體只印在「敏感度（不用於決策）」。
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { Series } from "../src/lib/analytics.ts";
 import { addDays } from "../src/lib/calendar.ts";
 import { DEFAULT_MODEL, HORIZON, MIN_EFFECTIVE_N, VIX_STRESS, buildObservations, evaluateRows, type ModelConfig } from "../src/lib/forecast.ts";
-import { EVAL_DEFAULTS, PHASES, bootstrapCI, brierOf, bssOf, cellKeyOf, intersectRegimes, mcStdErr, nullPairedBss, pairedMcStdErr, pairedPhaseAveraged, phaseAverageFromCells, phaseCells, phaseGrid, pointInTimeCalls, summarizeByCell } from "../src/lib/forecast-eval.ts";
+import { EVAL_DEFAULTS, PHASES, bootstrapCI, brierOf, bssOf, cellKeyOf, intersectRegimes, mcStdErr, nullPairedBss, pairedBrierDiffMcStdErr, pairedBrierDiffPhase, pairedMcStdErr, pairedPhaseAveraged, phaseAverageFromCells, phaseCells, phaseGrid, pointInTimeCalls, summarizeByCell } from "../src/lib/forecast-eval.ts";
 import { CBOE_URLS, parseCboeCsv } from "../src/lib/sources/cboe.ts";
 
-// 變體登錄：目前只有 base；新變體在登記合併後的票裡加。
-const VARIANTS: Record<string, ModelConfig> = { base: DEFAULT_MODEL };
+// 變體登錄：base／hard = 現行 DEFAULT_MODEL；shrink40 = G01 收縮 k=40；shrink20／shrink80 只做敏感度。
+const VARIANTS: Record<string, ModelConfig> = {
+  base: DEFAULT_MODEL,
+  hard: { ...DEFAULT_MODEL, version: "2026-10-g04", shrinkK: null },
+  shrink40: DEFAULT_MODEL,
+  shrink20: { ...DEFAULT_MODEL, version: "2026-10-g04+shrink20", shrinkK: 20 },
+  shrink80: { ...DEFAULT_MODEL, version: "2026-10-g04+shrink80", shrinkK: 80 },
+};
+const SENSITIVITY = new Set(["shrink20", "shrink80"]);
 // 目標登錄：dd5 的標籤與計分在之後的票接上（forecast.ts 的 label 選項）。
 const TARGETS = ["up"] as const;
 
@@ -73,6 +80,8 @@ const out: Record<string, unknown> = {
 const fmt = (x: number | null | undefined, d = 3) => (x === null || x === undefined || Number.isNaN(x) ? "n/a" : x.toFixed(d));
 const ci = (p: number, l: number, h: number) => `${fmt(p)} [${fmt(l)}, ${fmt(h)}]`;
 const lines: string[] = [];
+const mainLines: string[] = [];
+const sensLines: string[] = [];
 const h = out.header as { csv: Record<string, { range: string; sha256: string }> };
 lines.push(`SPX ${h.csv.SPX.range} sha256 ${h.csv.SPX.sha256}`, `VIX ${h.csv.VIX.range} sha256 ${h.csv.VIX.sha256}`);
 lines.push(`模型 ${names.map((n) => `${n}=${VARIANTS[n].version}`).join(" ")}`);
@@ -112,8 +121,12 @@ for (const name of names) {
     const nul = nullPairedBss(refObsRaw, rawObs, refCfg, cfg);
     entry.nullThreshold = nul;
   }
+  const pairedDiff = name === refName ? null : pairedBrierDiffPhase(refObsRaw, rawObs, refCfg, cfg, boot);
+  const pairedDiffMc = pairedDiff && pairedBrierDiffMcStdErr(refObsRaw, rawObs, refCfg, cfg, boot);
+  entry.pairedBrierDiff = pairedDiff && { mean: pairedDiff.mean, ci: pairedDiff.ci, cycles: pairedDiff.cycles, mc: pairedDiffMc };
   results.push(entry);
 
+  const lines = SENSITIVITY.has(name) ? sensLines : mainLines;
   lines.push("", `== 變體 ${name}（${cfg.version}）history_start ${historyStart}`);
   lines.push(`列數 ${rows.length}（${ev.firstDate} .. ${ev.lastDate}）`);
   lines.push(`BSS 區塊 bootstrap ${ci(ev.bss ?? NaN, ev.bssLow ?? NaN, ev.bssHigh ?? NaN)}；stationary ${ci(st.point, st.low, st.high)}`);
@@ -124,11 +137,12 @@ for (const name of names) {
   lines.push("cell                                  列數  段數  BSS [CI]                      MDE");
   for (const b of cellsSummary) lines.push(`${b.cell.padEnd(36)} ${String(b.rows).padStart(4)} ${String(b.runs).padStart(5)}  ${ci(b.bss.point, b.bss.low, b.bss.high).padEnd(28)} ${fmt(b.mde)}`);
   if (paired) lines.push(`配對相位平均 BSS（${name} vs ${refName}）${ci(paired.mean, paired.ci.low, paired.ci.high)}；格 ${paired.cycles.used}/${paired.cycles.total}，捨去 ${paired.cycles.dropped}`);
+  if (pairedDiff) lines.push(`配對相位平均 Brier 差（${name} − ${refName}，> 0 表示 ${name} 較差）${fmt(pairedDiff.mean, 5)} [${fmt(pairedDiff.ci.low, 5)}, ${fmt(pairedDiff.ci.high, 5)}]；格 ${pairedDiff.cycles.used}/${pairedDiff.cycles.total}；差的下界 MC 標準誤（種子 1..5 的 sd）${fmt(pairedDiffMc!.se, 5)}（${pairedDiffMc!.values.map((v) => fmt(v, 5)).join(", ")}）`);
   if (pairedMc) lines.push(`配對下界 MC 標準誤（決策用，種子 1..5 的 sd）${fmt(pairedMc.se, 4)}（${pairedMc.values.map((v) => fmt(v)).join(", ")}）；|下界| < 2×SE 視為不確定`);
   if (entry.nullThreshold) lines.push(`L08 虛無門檻（20 組最大值）${fmt((entry.nullThreshold as { threshold: number }).threshold)}`);
 }
-if (args.null && names.length < 2) lines.push("", "--null 需要至少兩個變體（參考 + 候選）；略過");
-lines.push("", "== 敏感度（不用於決策）", "（尚無）");
+if (args.null && names.length < 2) mainLines.push("", "--null 需要至少兩個變體（參考 + 候選）；略過");
+lines.push(...mainLines, "", "== 敏感度（不用於決策）", ...(sensLines.length ? sensLines : ["（本次未跑）"]));
 out.results = results;
 
 console.log(args.json ? JSON.stringify(out, null, 2) : lines.join("\n"));

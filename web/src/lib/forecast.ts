@@ -49,7 +49,7 @@ export interface ModelConfig {
   minEffectiveN: number;
   /** G04：候選條件的最少段數；0 = 不設門檻 */
   minEpisodes: number;
-  /** 保留欄位：null = 不收縮 */
+  /** G01：收縮強度 k，p = (k·p_base + n·p_cond)/(k+n)；null = 不收縮（硬切換） */
   shrinkK: number | null;
   bootstrap: { blockSize: number; resamples: number };
   /** D1：早於此日的觀測值 regime 為 null（基準率與所有條件只用此日之後）；SPX 之前的資料只用來暖機 200 日線。null = 用全部歷史 */
@@ -59,7 +59,7 @@ export interface ModelConfig {
 }
 
 export const DEFAULT_MODEL: ModelConfig = {
-  version: "2026-10-g04",
+  version: "2026-10-g01",
   flags: [
     { id: "aboveSma200", basisId: "trend", compute: (c) => (c.sma200 === null ? null : c.close > c.sma200) },
     // VIX 一般狀態（<30）幾乎就是全部樣本，沒有資訊量，單獨成候選時跳過。
@@ -68,7 +68,7 @@ export const DEFAULT_MODEL: ModelConfig = {
   candidates: [["aboveSma200", "vixStress"], ["vixStress"], ["aboveSma200"]],
   minEffectiveN: MIN_EFFECTIVE_N,
   minEpisodes: MIN_EPISODES,
-  shrinkK: null,
+  shrinkK: 40,
   bootstrap: { blockSize: 3, resamples: 1000 },
   baseWindowStart: "1990-01-02",
   vixMaxStaleSessions: 3,
@@ -178,6 +178,8 @@ export interface Pick {
   conditional: Rate | null;
   /** 條件機率的區間不含基準率、且有效樣本夠，才算「條件有差」 */
   distinct: boolean;
+  /** G01：條件機率的權重 n/(k+n)；基準率或未啟用收縮（shrinkK null）為 0 */
+  shrinkWeight: number;
 }
 
 /**
@@ -199,9 +201,14 @@ export function pickProbability(obs: Observation[], asOf: string, regime: Regime
     const basis = defs.map((f) => f.basisId).join("+");
     const distinct = base.p < r.low || base.p > r.high;
     // 區間包含基準率就看不出差別：輸出基準率，條件機率只留著給頁面對照。
-    return { p: distinct ? r.p : base.p, basis, base, conditional: r, distinct };
+    // G01：shrinkK 不為 null 時一律收縮（取代 distinct 的硬切換）；distinct 仍照算，供 G03 使用。
+    if (cfg.shrinkK !== null) {
+      const w = r.nEff / (cfg.shrinkK + r.nEff);
+      return { p: (1 - w) * base.p + w * r.p, basis, base, conditional: r, distinct, shrinkWeight: w };
+    }
+    return { p: distinct ? r.p : base.p, basis, base, conditional: r, distinct, shrinkWeight: 0 };
   }
-  return { p: base.p, basis: "base", base, conditional: null, distinct: false };
+  return { p: base.p, basis: "base", base, conditional: null, distinct: false, shrinkWeight: 0 };
 }
 
 export interface Evaluation {

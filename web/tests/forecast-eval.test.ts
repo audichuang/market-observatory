@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { DEFAULT_MODEL, HORIZON, mulberry32, walkForwardRows, type ModelConfig, type Observation, type WalkRow } from "../src/lib/forecast.ts";
-import { EVAL_SEED, bootstrapCI, bssOf, intersectRegimes, nullPairedBss, pairedBrierDiff, pairedMcStdErr, pairedPhaseAveraged, phaseAveraged, phaseAverageFromCells, phaseGrid, pointInTimeCalls, stationaryBootstrapIndices, summarizeByCell } from "../src/lib/forecast-eval.ts";
+import { EVAL_SEED, bootstrapCI, bssOf, intersectRegimes, nullPairedBss, pairedBrierDiff, pairedBrierDiffMcStdErr, pairedBrierDiffPhase, pairedMcStdErr, pairedPhaseAveraged, phaseAveraged, phaseAverageFromCells, phaseGrid, pointInTimeCalls, stationaryBootstrapIndices, summarizeByCell } from "../src/lib/forecast-eval.ts";
 
 const day = (i: number) => new Date(Date.UTC(2015, 0, 1) + i * 864e5).toISOString().slice(0, 10);
 const mkRows = (n: number, f: (i: number) => { p: number; pBase: number; y: number }): WalkRow[] =>
@@ -233,4 +233,19 @@ test("per-cell 摘要：段數 = offset 0 列中連續屬於該 cell 的最長�
   const x = s.find((c) => c.cell === "x")!;
   assert.equal(x.rows, 3);
   assert.equal(x.runs, 2);
+});
+
+test("配對相位平均 Brier 差：相同模型 → 0 [0,0]；較差的候選 > 0", () => {
+  const obs = informativeObs(1400);
+  const same = pairedBrierDiffPhase(obs, obs, DEFAULT_MODEL, DEFAULT_MODEL, { resamples: 100, phases: 3 });
+  assert.equal(same.mean, 0);
+  assert.equal(same.ci.low, 0);
+  assert.equal(same.ci.high, 0);
+  const cand: ModelConfig = { ...DEFAULT_MODEL, version: "cand", candidates: [["aboveSma200"]], minEffectiveN: 5 };
+  const d = pairedBrierDiffPhase(obs, obs, DEFAULT_MODEL, cand, { resamples: 100, phases: 3 });
+  assert.ok(Number.isFinite(d.mean) && Number.isFinite(d.ci.low) && d.ci.low <= d.mean && d.mean <= d.ci.high);
+  const mc = pairedBrierDiffMcStdErr(obs, obs, DEFAULT_MODEL, cand, { resamples: 100, phases: 3 });
+  assert.equal(mc.values.length, 5);
+  const mc0 = pairedBrierDiffMcStdErr(obs, obs, DEFAULT_MODEL, DEFAULT_MODEL, { resamples: 100, phases: 3 });
+  assert.equal(mc0.se, 0);
 });

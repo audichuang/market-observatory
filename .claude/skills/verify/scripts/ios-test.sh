@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 在這次的模擬器上跑指定的 UI 測試，連的是這次的本機後端（不是正式站）。
 #   ios-test.sh <run-id> <email> <密碼檔> <Class/testName>[,<Class/testName>…]
-# 例：ios-test.sh proof4 verify-proof4@example.test "$RUN/user.pw" VerifyInteractionTests/test03_Watchlist
+# 例：ios-test.sh proof4 verify-proof4@example.test "$RUN/user.pw" VerifyInteractionTests/test04_Watchlist
 # 先增量 build-for-testing（改過測試檔也會帶進去），再跑。帳號要先在本機站註冊好。
 # 截圖、*.txt 與 xcresult 寫到 $RUN/evidence/ios/。
 source "$(dirname "$0")/lib.sh"

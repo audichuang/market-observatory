@@ -107,7 +107,7 @@ test("還沒有日線時失敗並提示先跑 backfill-prices", async () => {
   const { db } = await migratedDb();
   const r = await runJob(db, "backfill-index-history", "test");
   assert.equal(r.status, "failed");
-  assert.match(r.summary, /backfill-prices/);
+  assert.match(r.summary, /回補十年日線/);
 });
 
 test("重疊樣本一律取 Yahoo 列：Cboe 列滿 250 筆後，Yahoo 日期被改高 10% 仍要擋下 SPX", async () => {

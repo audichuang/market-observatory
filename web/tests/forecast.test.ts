@@ -232,25 +232,50 @@ test("特徵測試：walkForward 與 buildOutlook 的輸出固定", () => {
 });
 
 test("walkForward = evaluateRows(walkForwardRows)；只有趨勢旗標的模型不會出現 vix 依據", () => {
-  const [, spx, vix] = characterised[4];
+  // 用 G04 下真的會選到 trend 的 fixture（每側 ≥ 8 段），否則全部是 base，恆等式與「只有趨勢旗標」都是空測。
+  const spx = alternating(8000, 300);
+  const vix = spx.map(() => 15);
   const obs = buildObservations(series(spx), series(vix));
   assert.deepEqual(walkForward(obs), evaluateRows(walkForwardRows(obs)));
-  assert.ok(walkForwardRows(obs).length > 0);
+  const defRows = walkForwardRows(obs);
+  assert.ok(defRows.some((r) => r.basis === "trend+vix"));
 
   const trendOnly: ModelConfig = { ...DEFAULT_MODEL, version: "test-trend", flags: [DEFAULT_MODEL.flags[0]], candidates: [["aboveSma200"]] };
   const tObs = buildObservations(series(spx), series(vix), trendOnly);
   assert.deepEqual(Object.keys(tObs.at(-1)!.regime ?? tObs[tObs.length - 22].regime!), ["aboveSma200"]);
   const rows = walkForwardRows(tObs, trendOnly);
-  assert.ok(rows.length > 0);
+  assert.ok(rows.some((r) => r.basis === "trend"), "趨勢旗標模型應實際選用 trend");
   assert.ok(rows.every((r) => r.basis === "trend" || r.basis === "base"));
+  assert.deepEqual(walkForward(tObs, 504, undefined, undefined, trendOnly), evaluateRows(rows, trendOnly.bootstrap));
   const o = buildOutlook(series(spx), series(vix), trendOnly)!;
   assert.equal(o.modelVersion, "test-trend");
-  assert.notEqual(o.pick.basis, "vix");
+  assert.equal(o.pick.basis, "trend");
   assert.equal(buildOutlook(series(spx), series(vix))!.modelVersion, "2026-10-g04");
 
   // dates 只算指定日期。
   const some = rows.slice(0, 3).map((r) => r.date);
   assert.deepEqual(walkForwardRows(tObs, trendOnly, { dates: some }).map((r) => r.date), some);
+});
+
+// 特徵測試（DEFAULT_MODEL，G04 生效）：數值由 2026-10-g04 的程式算出並固定；一個選到 trend+vix，一個退回基準率。
+const defaultPinned: [string, number[], ReturnType<typeof roundEval>, number, string, string, Record<string, number>][] = [
+  ["alt300x8000", alternating(8000, 300), { points: 346, hitRate: 0.609826589595, baseHitRate: 0.505780346821, brier: 0.21534051263, brierBase: 0.25404237914, bss: 0.152344135026, bssLow: 0.060026830024, bssHigh: 0.24071305595, firstDate: "2016-12-24", lastDate: "2036-10-25" }, 0.770627919045, "trend+vix", "up", { base: 171, "trend+vix": 175 }],
+  ["alt600x3000-fallback", alt600, { points: 108, hitRate: 0.481481481481, baseHitRate: 0.518518518519, brier: 0.267705074275, brierBase: 0.267705074275, bss: 0, bssLow: 0, bssHigh: 0, firstDate: "2016-12-24", lastDate: "2023-02-18" }, 0.568345323741, "base", "inconclusive", { base: 108 }],
+];
+
+test("特徵測試：DEFAULT_MODEL（G04 生效）的 walkForward 與 buildOutlook 輸出固定", () => {
+  for (const [name, spx, evaluation, p, basis, call, bases] of defaultPinned) {
+    const vix = spx.map(() => 15);
+    const obs = buildObservations(series(spx), series(vix));
+    assert.deepEqual(roundEval(walkForward(obs)), evaluation, name);
+    const o = buildOutlook(series(spx), series(vix))!;
+    assert.equal(r12(o.pick.p), p, name);
+    assert.equal(o.pick.basis, basis, name);
+    assert.equal(o.call, call, name);
+    const counts: Record<string, number> = {};
+    for (const r of walkForwardRows(obs)) counts[r.basis] = (counts[r.basis] ?? 0) + 1;
+    assert.deepEqual(counts, bases, name);
+  }
 });
 
 test("M5：VIX 比最後一個 SPX 日期早結束 5 個交易日 → 沒有展望；3 個交易日以內仍有", () => {

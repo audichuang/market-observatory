@@ -127,14 +127,17 @@ struct API: Sendable {
 
     private static func translateAuth(_ message: String, code: String?) -> String {
         switch code {
-        case "INVALID_EMAIL_OR_PASSWORD": "Email 或密碼不正確"
+        case "INVALID_EMAIL_OR_PASSWORD", "INVALID_PASSWORD": "Email 或密碼不正確"
         case "USER_ALREADY_EXISTS", "USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL": "這個 Email 已經註冊過，請直接登入"
         case "PASSWORD_TOO_SHORT": "密碼至少 8 個字"
+        case "PASSWORD_TOO_LONG": "密碼太長"
         case "INVALID_EMAIL": "Email 格式不正確"
         case "INVALID_TOKEN": "Apple 身分權杖驗證失敗（nonce／audience 不符或已過期）"
         case "USER_EMAIL_NOT_FOUND": "Apple 帳號沒有提供 Email"
         case "FAILED_TO_GET_USER_INFO": "無法取得 Apple 帳號資料"
         case "OAUTH_LINK_ERROR": "無法連結既有帳號"
+        case "FAILED_TO_CREATE_SESSION": "無法建立登入狀態，請稍後再試"
+        case "FAILED_TO_CREATE_USER": "無法建立帳號，請稍後再試"
         default: message
         }
     }

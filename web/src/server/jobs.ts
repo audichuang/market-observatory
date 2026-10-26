@@ -311,7 +311,7 @@ async function jobBackfillIndexHistory(db: D1Database, opts: JobOptions, budget:
   const earliest: Record<"SPX" | "VIX", string | null> = { SPX: null, VIX: null };
   for (const k of ["SPX", "VIX"] as const) {
     const row = await db.prepare("SELECT MIN(date) AS d FROM prices WHERE symbol = ?").bind(symbols[k]).first<{ d: string | null }>();
-    if (!row?.d) return { status: "failed", summary: `${symbols[k]} 還沒有任何日線，請先跑 backfill-prices`, detail: {} };
+    if (!row?.d) return { status: "failed", summary: `${symbols[k]} 還沒有任何日線，請先跑「回補十年日線（分段）」`, detail: {} };
     earliest[k] = row.d;
   }
   const [spx, vix] = await Promise.all([fetchCboeDaily("SPX", "0000-00-00", budget), fetchCboeDaily("VIX", "0000-00-00", budget)]);

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { auth } from "void/client";
 import type { Props } from "./login.server";
 
-/** Better Auth 的錯誤訊息是英文，依錯誤碼換成中文（與 iOS 的 API.translateAuth 一致）；沒對應到的不顯示原文。 */
+/** Better Auth 的錯誤訊息是英文，依錯誤碼換成中文（Email 登入的錯誤碼與 iOS 的 API.translateAuth 一致，iOS 另有 Apple 登入的）；沒對應到的不顯示原文。 */
 const AUTH_ERRORS: Record<string, string> = {
   INVALID_EMAIL_OR_PASSWORD: "Email 或密碼不正確",
   INVALID_PASSWORD: "Email 或密碼不正確",

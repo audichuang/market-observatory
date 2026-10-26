@@ -1,4 +1,5 @@
 import { Link } from "@void/react";
+import type { ReactNode } from "react";
 import { Delta } from "../src/ui/bits.tsx";
 import { dateWithWeekday, num, pctText } from "../src/ui/format.ts";
 import type { Props } from "./outlook.server";
@@ -18,91 +19,79 @@ const BASIS: Record<string, string> = {
   "trend+vix": "200 日線 × VIX 條件",
 };
 
-export default function OutlookPage({ outlook, cells, track, recent, consensus, strategists, factset, horizon, minN, minEpisodes }: Props) {
-  if (!outlook) {
-    return (
-      <>
-        <h1>下月展望</h1>
-        <div className="notice warn">資料不足，或 VIX 超過 3 個交易日未更新</div>
-      </>
-    );
-  }
+type OutlookData = NonNullable<Props["outlook"]>;
+
+function ForecastBlock({ outlook, cells, horizon, minN, minEpisodes, trackPanel }: { outlook: OutlookData; cells: Props["cells"]; horizon: number; minN: number; minEpisodes: number; trackPanel: ReactNode }) {
   const { pick, evaluation: ev } = outlook;
   const [cls, label, why] = CALL[outlook.call];
   return (
     <>
-      <div className="page-head">
-        <div>
-          <h1>下月展望</h1>
-          <p className="sub">以 {dateWithWeekday(outlook.asOf)} 收盤為準：約 {horizon} 個交易日後，S&amp;P 500 收盤高於今天的機率。</p>
-        </div>
-      </div>
 
-      <div className="panel outlook-hero">
-        <div className="outlook-prob">
-          <div className="label">上漲機率</div>
-          <div className="outlook-value">{pct(pick.p)}</div>
-          <div className="sub">
-            {pick.distinct || !pick.conditional ? (
-              <>95% 區間 {pct(pick.conditional?.low ?? pick.base.low)}～{pct(pick.conditional?.high ?? pick.base.high)} · 依據：{BASIS[pick.basis]}</>
-            ) : (
-              <>
-                採歷史基準率（95% 區間 {pct(pick.base.low)}～{pct(pick.base.high)}）；「{BASIS[pick.basis]}」條件下為 {pct(pick.conditional.p)}，區間 {pct(pick.conditional.low)}～{pct(pick.conditional.high)} 包含基準率，看不出差別
-              </>
-            )}
-          </div>
-        </div>
-        <div className="outlook-call">
-          <span className={`badge ${cls} big`}>{label}</span>
-          <p className="sub">{why}</p>
-          <p className="sub">歷史基準：{pct(pick.base.p)}（有效樣本約 {Math.round(pick.base.nEff)} 個月）{outlook.historyStart && <span className="meta"> · 樣本起點 {outlook.historyStart}</span>}</p>
-        </div>
-        <div className="prob-bar" aria-hidden>
-          <div className="prob-ci" style={{ left: `${(pick.conditional?.low ?? pick.base.low) * 100}%`, width: `${((pick.conditional?.high ?? pick.base.high) - (pick.conditional?.low ?? pick.base.low)) * 100}%` }} />
-          <div className="prob-mark base" style={{ left: `${pick.base.p * 100}%` }} title="歷史基準" />
-          <div className="prob-mark now" style={{ left: `${pick.p * 100}%` }} title="目前" />
-          <div className="prob-mid" />
-        </div>
-        <div className="prob-legend sub">
-          <span>0%</span>
-          <span>50%</span>
-          <span>100%</span>
-        </div>
-        {outlook.reasons.length > 0 && (
-          <ul className="meta" style={{ margin: ".6rem 0 0", paddingLeft: "1.1rem" }}>
-            {outlook.reasons.map((r) => <li key={r}>{r}</li>)}
-          </ul>
+  <div className="panel outlook-hero">
+    <div className="outlook-prob">
+      <div className="label">上漲機率</div>
+      <div className="outlook-value">{pct(pick.p)}</div>
+      <div className="sub">
+        {pick.distinct || !pick.conditional ? (
+          <>95% 區間 {pct(pick.conditional?.low ?? pick.base.low)}～{pct(pick.conditional?.high ?? pick.base.high)} · 依據：{BASIS[pick.basis]}</>
+        ) : (
+          <>
+            採歷史基準率（95% 區間 {pct(pick.base.low)}～{pct(pick.base.high)}）；「{BASIS[pick.basis]}」條件下為 {pct(pick.conditional.p)}，區間 {pct(pick.conditional.low)}～{pct(pick.conditional.high)} 包含基準率，看不出差別
+          </>
         )}
       </div>
+    </div>
+    <div className="outlook-call">
+      <span className={`badge ${cls} big`}>{label}</span>
+      <p className="sub">{why}</p>
+      <p className="sub">歷史基準：{pct(pick.base.p)}（有效樣本約 {Math.round(pick.base.nEff)} 個月）{outlook.historyStart && <span className="meta"> · 樣本起點 {outlook.historyStart}</span>}</p>
+    </div>
+    <div className="prob-bar" aria-hidden>
+      <div className="prob-ci" style={{ left: `${(pick.conditional?.low ?? pick.base.low) * 100}%`, width: `${((pick.conditional?.high ?? pick.base.high) - (pick.conditional?.low ?? pick.base.low)) * 100}%` }} />
+      <div className="prob-mark base" style={{ left: `${pick.base.p * 100}%` }} title="歷史基準" />
+      <div className="prob-mark now" style={{ left: `${pick.p * 100}%` }} title="目前" />
+      <div className="prob-mid" />
+    </div>
+    <div className="prob-legend sub">
+      <span>0%</span>
+      <span>50%</span>
+      <span>100%</span>
+    </div>
+    {outlook.reasons.length > 0 && (
+      <ul className="meta" style={{ margin: ".6rem 0 0", paddingLeft: "1.1rem" }}>
+        {outlook.reasons.map((r) => <li key={r}>{r}</li>)}
+      </ul>
+    )}
+  </div>
 
-      <div className="grid kpis section">
-        <div className="panel kpi">
-          <div className="label">S&amp;P 500 vs 200 日線</div>
-          <div className="value" style={{ fontSize: "1.15rem" }}><Delta value={(outlook.close / outlook.sma200 - 1) * 100} percent /></div>
-          <div className="delta sub">{outlook.regime.aboveSma200 ? "站上" : "跌破"} · 均線 {num(outlook.sma200, 0)}</div>
-        </div>
-        <div className="panel kpi">
-          <div className="label">VIX</div>
-          <div className="value" style={{ fontSize: "1.15rem" }}>{num(outlook.vix)}</div>
-          <div className="delta sub">{outlook.regime.vixStress ? "≥ 30（恐慌區）" : "< 30"}</div>
-        </div>
-        <div className="panel kpi">
-          <div className="label">滾動驗證 BSS</div>
-          <div className="value" style={{ fontSize: "1.15rem" }}>{ev.bss === null ? "—" : ev.bss.toFixed(3)}</div>
-          <div className="delta sub">95% 區間 {ev.bssLow === null ? "—" : `${ev.bssLow.toFixed(3)}～${ev.bssHigh!.toFixed(3)}`}</div>
-        </div>
-      </div>
+  <div className="grid kpis section">
+    <div className="panel kpi">
+      <div className="label">S&amp;P 500 vs 200 日線</div>
+      <div className="value" style={{ fontSize: "1.15rem" }}><Delta value={(outlook.close / outlook.sma200 - 1) * 100} percent /></div>
+      <div className="delta sub">{outlook.regime.aboveSma200 ? "站上" : "跌破"} · 均線 {num(outlook.sma200, 0)}</div>
+    </div>
+    <div className="panel kpi">
+      <div className="label">VIX</div>
+      <div className="value" style={{ fontSize: "1.15rem" }}>{num(outlook.vix)}</div>
+      <div className="delta sub">{outlook.regime.vixStress ? "≥ 30（恐慌區）" : "< 30"}</div>
+    </div>
+    <div className="panel kpi">
+      <div className="label">滾動驗證 BSS</div>
+      <div className="value" style={{ fontSize: "1.15rem" }}>{ev.bss === null ? "—" : ev.bss.toFixed(3)}</div>
+      <div className="delta sub">95% 區間 {ev.bssLow === null ? "—" : `${ev.bssLow.toFixed(3)}～${ev.bssHigh!.toFixed(3)}`}</div>
+    </div>
+  </div>
 
-      <div className="panel section">
-        <h2>各條件下的歷史上漲比例</h2>
-        <p className="sub">重疊的 {horizon} 日窗口不是獨立樣本，有效樣本以「天數 ÷ {horizon}」計；有效樣本少於 {minN}、或條件成立的日子分成不到 {minEpisodes} 段（段與段相隔至少 {horizon} 個交易日）的條件不採用，標為「樣本不足」（灰字）；基準率不受此限。</p>
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr><th>條件</th><th className="num">上漲比例</th><th className="num">95% 區間</th><th className="num">有效樣本／段數</th></tr>
-            </thead>
-            <tbody>
-              {cells.map((c, i) => {
+  <div className="panel section">
+    <h2>各條件下的歷史上漲比例</h2>
+    <p className="sub">重疊的 {horizon} 日窗口不是獨立樣本，有效樣本以「天數 ÷ {horizon}」計；有效樣本少於 {minN}、或條件成立的日子分成不到 {minEpisodes} 段（段與段相隔至少 {horizon} 個交易日）的條件不採用，標為「樣本不足」（灰字）；基準率不受此限。</p>
+    <div className="table-wrap">
+      <table>
+        <thead>
+          <tr><th>條件</th><th className="num">上漲比例</th><th className="num">95% 區間</th><th className="num">有效樣本／段數</th></tr>
+        </thead>
+        <tbody>
+          {cells.map((c, i) => {
                 // 基準率不受段數限制（i === 0）；其餘條件需有效樣本與段數都夠才採用。
                 const thin = !c.rate || c.rate.nEff < minN || (i > 0 && c.rate.episodes < minEpisodes);
                 return (
@@ -114,48 +103,77 @@ export default function OutlookPage({ outlook, cells, track, recent, consensus, 
                 </tr>
                 );
               })}
-            </tbody>
-          </table>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div className="grid two section">
+    <div className="panel">
+      <h2>滾動驗證</h2>
+      <p className="sub">
+        從 {ev.firstDate ?? "—"} 到 {ev.lastDate ?? "—"}，每 {horizon} 個交易日預測一次（共 {ev.points} 次），每次只用當下已知的資料。
+      </p>
+      <table>
+        <tbody>
+          <tr><td>預測方向命中率</td><td className="num">{pct(ev.hitRate)}</td></tr>
+          <tr><td>永遠猜上漲的命中率</td><td className="num">{pct(ev.baseHitRate)}</td></tr>
+          <tr><td>Brier 分數（越低越好）</td><td className="num">{ev.brier?.toFixed(4) ?? "—"}</td></tr>
+          <tr><td>只用基準率的 Brier</td><td className="num">{ev.brierBase?.toFixed(4) ?? "—"}</td></tr>
+        </tbody>
+      </table>
+      <p className="meta" style={{ marginTop: ".5rem" }}>BSS = 1 − Brier ÷ 基準 Brier；區間下限 &gt; 0 才代表穩定勝過「直接用歷史基準率」。</p>
+    </div>
+    {trackPanel}
+  </div>
+    </>
+  );
+}
+
+export default function OutlookPage({ outlook, cells, track, recent, consensus, strategists, factset, horizon, minN, minEpisodes }: Props) {
+  const trackPanel = (
+    <div className="panel">
+      <h2>實際發出過的預測</h2>
+      {track ? (
+        <p className="sub">
+          已到期 {track.n} 筆：實際上漲 {pct(track.upShare)}；Brier {track.brier.toFixed(4)}（基準 {track.brierBase.toFixed(4)}）。樣本少時參考價值有限。
+        </p>
+      ) : (
+        <p className="sub">每天收盤後記錄一次，{horizon} 個交易日後才能對帳；目前還沒有到期的預測。</p>
+      )}
+      <ul className="list">
+        {recent.slice(0, 8).map((f) => (
+          <li key={f.date} style={{ display: "flex", gap: ".6rem", alignItems: "center" }}>
+            <span style={{ minWidth: "6.5rem" }}>{f.date}</span>
+            <span className="num">{pct(f.p)}</span>
+            <span className={`badge ${CALL[f.call]?.[0] ?? ""}`}>{CALL[f.call]?.[1] ?? f.call}</span>
+            <span className="meta" title={f.historyStart ? `樣本起點 ${f.historyStart}` : undefined}>{f.modelVersion ?? "舊版紀錄"}</span>
+            <span className="meta" style={{ marginLeft: "auto" }}>{f.up === null ? "待到期" : f.up ? "後來上漲" : "後來下跌"}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+  const close = outlook?.close ?? strategists?.close ?? null;
+  return (
+    <>
+      <div className="page-head">
+        <div>
+          <h1>下月展望</h1>
+          {outlook && <p className="sub">以 {dateWithWeekday(outlook.asOf)} 收盤為準：約 {horizon} 個交易日後，S&amp;P 500 收盤高於今天的機率。</p>}
         </div>
       </div>
 
-      <div className="grid two section">
-        <div className="panel">
-          <h2>滾動驗證</h2>
-          <p className="sub">
-            從 {ev.firstDate ?? "—"} 到 {ev.lastDate ?? "—"}，每 {horizon} 個交易日預測一次（共 {ev.points} 次），每次只用當下已知的資料。
-          </p>
-          <table>
-            <tbody>
-              <tr><td>預測方向命中率</td><td className="num">{pct(ev.hitRate)}</td></tr>
-              <tr><td>永遠猜上漲的命中率</td><td className="num">{pct(ev.baseHitRate)}</td></tr>
-              <tr><td>Brier 分數（越低越好）</td><td className="num">{ev.brier?.toFixed(4) ?? "—"}</td></tr>
-              <tr><td>只用基準率的 Brier</td><td className="num">{ev.brierBase?.toFixed(4) ?? "—"}</td></tr>
-            </tbody>
-          </table>
-          <p className="meta" style={{ marginTop: ".5rem" }}>BSS = 1 − Brier ÷ 基準 Brier；區間下限 &gt; 0 才代表穩定勝過「直接用歷史基準率」。</p>
-        </div>
-        <div className="panel">
-          <h2>實際發出過的預測</h2>
-          {track ? (
-            <p className="sub">
-              已到期 {track.n} 筆：實際上漲 {pct(track.upShare)}；Brier {track.brier.toFixed(4)}（基準 {track.brierBase.toFixed(4)}）。樣本少時參考價值有限。
-            </p>
-          ) : (
-            <p className="sub">每天收盤後記錄一次，{horizon} 個交易日後才能對帳；目前還沒有到期的預測。</p>
-          )}
-          <ul className="list">
-            {recent.slice(0, 8).map((f) => (
-              <li key={f.date} style={{ display: "flex", gap: ".6rem", alignItems: "center" }}>
-                <span style={{ minWidth: "6.5rem" }}>{f.date}</span>
-                <span className="num">{pct(f.p)}</span>
-                <span className={`badge ${CALL[f.call]?.[0] ?? ""}`}>{CALL[f.call]?.[1] ?? f.call}</span>
-                <span className="meta" style={{ marginLeft: "auto" }}>{f.up === null ? "待到期" : f.up ? "後來上漲" : "後來下跌"}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      </div>
+      {!outlook ? (
+        <>
+          <div className="notice warn">資料不足，或 VIX 超過 3 個交易日未更新，今天沒有產生預測；下方的機構觀點與過去的預測紀錄照常顯示。</div>
+          <div className="section">{trackPanel}</div>
+        </>
+      ) : (
+        <>
+          <ForecastBlock outlook={outlook} cells={cells} horizon={horizon} minN={minN} minEpisodes={minEpisodes} trackPanel={trackPanel} />
+        </>
+      )}
 
       <h2 className="section" style={{ marginTop: "1.5rem" }}>機構觀點（背景資訊，不放進上面的機率）</h2>
       <p className="sub" style={{ marginBottom: ".8rem" }}>
@@ -244,7 +262,7 @@ export default function OutlookPage({ outlook, cells, track, recent, consensus, 
           {strategists && (
             <>
               <p className="sub">
-                中位數 {num(strategists.median, 0)}，相對目前 {num(outlook.close, 0)} 為 {pctText(strategists.medianUpsidePct, 1)}；Reuters 民調（{strategists.poll.respondents} 人，{strategists.poll.surveyed}）中位數 {num(strategists.poll.median, 0)}。
+                中位數 {num(strategists.median, 0)}，相對目前 {num(close, 0)} 為 {pctText(strategists.medianUpsidePct, 1)}；Reuters 民調（{strategists.poll.respondents} 人，{strategists.poll.surveyed}）中位數 {num(strategists.poll.median, 0)}。
               </p>
               <ul className="list">
                 {strategists.list.map((t) => (

@@ -18,14 +18,15 @@ export async function outlookView(c: ViewCtx) {
     const loaded = await loadPrices(db, [INDEX_SYMBOL, VIX_SYMBOL], "0000-01-01");
     const spx = loaded.series[INDEX_SYMBOL];
     const vix = loaded.series[VIX_SYMBOL];
+    // 預測算不出來（資料不足、VIX 太久沒更新）時，其餘不依賴預測的區塊（共識、策略師、FactSet、預測紀錄）照常回傳。
     const outlook = buildOutlook(spx, vix);
-    if (!outlook) return { outlook: null, cells: [], track: null, recent: [], consensus: null, strategists: null, factset: [] as FactsetInsight[], horizon: HORIZON, minN: MIN_EFFECTIVE_N, minEpisodes: MIN_EPISODES };
+    const lastSpx = spx.points.at(-1) ?? null;
 
     // 各條件下的歷史上漲比例（只用今天已知的標籤）。
-    const obs = buildObservations(spx, vix);
-    const cond = (label: string, c: Partial<Regime>, current: boolean) => ({ label, current, rate: pctOf(conditionalRate(obs, outlook.asOf, c)) });
-    const r = outlook.regime;
-    const cells = [
+    const obs = outlook ? buildObservations(spx, vix) : [];
+    const cond = (label: string, c: Partial<Regime>, current: boolean) => ({ label, current, rate: pctOf(conditionalRate(obs, outlook?.asOf ?? "", c)) });
+    const r = outlook?.regime ?? { aboveSma200: false, vixStress: false };
+    const cells = !outlook ? [] : [
       cond("全部（基準率）", {}, true),
       cond("站上 200 日線", { aboveSma200: true }, r.aboveSma200),
       cond("跌破 200 日線", { aboveSma200: false }, !r.aboveSma200),
@@ -39,13 +40,13 @@ export async function outlookView(c: ViewCtx) {
 
     // 實際發出過的預測，21 個交易日後對帳。
     const history = await db
-      .prepare("SELECT trade_date, probability, base_rate, call, close FROM forecasts ORDER BY trade_date DESC LIMIT 400")
-      .all<{ trade_date: string; probability: number; base_rate: number; call: string; close: number }>();
+      .prepare("SELECT trade_date, probability, base_rate, call, close, model_version, history_start FROM forecasts ORDER BY trade_date DESC LIMIT 400")
+      .all<{ trade_date: string; probability: number; base_rate: number; call: string; close: number; model_version: string | null; history_start: string | null }>();
     const idx = new Map(spx.points.map((p, i) => [p.date, i]));
     const recent = history.results.map((f) => {
       const i = idx.get(f.trade_date);
       const later = i === undefined ? undefined : spx.points[i + HORIZON];
-      return { date: f.trade_date, p: f.probability, base: f.base_rate, call: f.call, close: f.close, resolvedOn: later?.date ?? null, up: later ? later.close > f.close : null };
+      return { date: f.trade_date, p: f.probability, base: f.base_rate, call: f.call, close: f.close, modelVersion: f.model_version, historyStart: f.history_start, resolvedOn: later?.date ?? null, up: later ? later.close > f.close : null };
     });
     const resolved = recent.filter((f) => f.up !== null);
     const track = resolved.length
@@ -64,7 +65,7 @@ export async function outlookView(c: ViewCtx) {
     const weights = new Map(weightsRows.results.map((w) => [w.ticker, w.weight_pct]));
     const views = await db
       .prepare("SELECT symbol, as_of AS asOf, price, target_mean AS targetMean, buy, hold, sell, eps_up AS epsUp, eps_down AS epsDown FROM analyst_views WHERE as_of >= ?")
-      .bind(addDays(outlook.asOf, -10))
+      .bind(addDays(outlook?.asOf ?? lastSpx?.date ?? new Date().toISOString().slice(0, 10), -10))
       .all<ViewRow>();
     const today = new Date().toISOString().slice(0, 10);
     const consensus = views.results.length ? aggregateConsensus(views.results, weights, today) : null;
@@ -78,20 +79,23 @@ export async function outlookView(c: ViewCtx) {
     const factset = (await getSetting<{ items: FactsetInsight[] }>(db, FACTSET_HISTORY_KEY, { items: [] })).items.slice(0, 26);
     const targets = STRATEGIST_TARGETS.map((t) => t.target);
     const med = median(targets);
+    // 沒有預測時，指數水準用最新一筆 SPX 收盤。
+    const close = outlook?.close ?? lastSpx?.close ?? null;
     return {
       outlook,
       cells,
       track,
       recent: recent.slice(0, 30),
       consensus: consensus
-        ? { ...consensus, top: topViews, impliedIndexTarget: consensus.impliedUpsidePct === null ? null : outlook.close * (1 + consensus.impliedUpsidePct / 100) }
+        ? { ...consensus, top: topViews, impliedIndexTarget: consensus.impliedUpsidePct === null || close === null ? null : close * (1 + consensus.impliedUpsidePct / 100) }
         : null,
       factset,
       strategists: {
         list: STRATEGIST_TARGETS,
         checked: STRATEGIST_TARGETS_CHECKED,
         median: med,
-        medianUpsidePct: med ? (med / outlook.close - 1) * 100 : null,
+        medianUpsidePct: med && close ? (med / close - 1) * 100 : null,
+        close,
         poll: REUTERS_POLL,
         factsetUrl: FACTSET_EARNINGS_INSIGHT_URL,
       },

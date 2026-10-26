@@ -9,7 +9,8 @@ import { type FactsetInsight, fetchInsight, latestInsightUrl } from "../lib/sour
 import { YAHOO_SOURCE, fetchYahooDaily, fetchYahooLastCloses, fetchYahooSpark } from "../lib/sources/yahoo.ts";
 import { Budget } from "../lib/sources/http.ts";
 import { type ApnsConfig, notifyClose, notifyEvents } from "./push.ts";
-import { buildOutlook } from "../lib/forecast.ts";
+import { Series } from "../lib/analytics.ts";
+import { DEFAULT_MODEL, buildOutlook, vixAt } from "../lib/forecast.ts";
 import { rotationPicks } from "../lib/consensus.ts";
 import { easternDate } from "../lib/calendar.ts";
 import { EQUAL_WEIGHT_SYMBOL, FX_SYMBOL, INDEX_SYMBOL, VIX_SYMBOL, type WatchMember, nasdaqCheckSymbols, watchTickers, yahooSymbols } from "../lib/universe.ts";
@@ -195,16 +196,23 @@ async function jobPrices(db: D1Database, _opts: JobOptions, budget: Budget): Pro
   }
   const snaps = await rebuildSnapshots(db, "收盤資料更新");
   detail.snapshots = snaps.created;
+  let forecast: ForecastRecord | null = null;
   try {
-    detail.forecast = await recordForecast(db);
+    forecast = await recordForecast(db);
+    detail.forecast = forecast.message;
+    // 單純在等 VIX 或核對是正常的（status 照舊，detail 列出）；VIX 超過 3 個交易日未更新、SPX 核對不一致超過 2 個交易日才讓這次抓價標成 partial。
+    // 「資料不足」（例如還沒補歷史）只記在 detail，不拖累抓價狀態。
+    detail.forecastReason = forecast.reason ?? null;
+    detail.forecastRecorded = forecast.recorded;
+    detail.forecastPending = forecast.pending;
   } catch (e) {
     detail.forecast = errText(e);
   }
   const failedNames = Object.keys(failed);
   const total = entries.length + 1;
   return {
-    status: failedNames.length === 0 && stale.length === 0 ? "ok" : failedNames.length > total / 2 ? "failed" : "partial",
-    summary: `更新 ${total - failedNames.length}/${total} 檔；失敗 ${failedNames.join(",") || "無"}；尚無 ${expected} 收盤 ${stale.join(",") || "無"}${rebasedSymbols.length ? `；偵測到分割 ${rebasedSymbols.map((s) => `${s}×${({ ...pending, ...rebased })[s].toFixed(3)}`).join(",")}` : ""}；新快照 ${snaps.created.join(",") || "無"}`,
+    status: failedNames.length === 0 && stale.length === 0 && !(forecast?.attention && forecast.reason !== "insufficient") ? "ok" : failedNames.length > total / 2 ? "failed" : "partial",
+    summary: `更新 ${total - failedNames.length}/${total} 檔；失敗 ${failedNames.join(",") || "無"}；尚無 ${expected} 收盤 ${stale.join(",") || "無"}${rebasedSymbols.length ? `；偵測到分割 ${rebasedSymbols.map((s) => `${s}×${({ ...pending, ...rebased })[s].toFixed(3)}`).join(",")}` : ""}；新快照 ${snaps.created.join(",") || "無"}${forecast && forecastNeedsAttention(forecast) ? `；預測：${forecast.message}` : ""}`,
     detail,
   };
 }
@@ -444,19 +452,120 @@ async function jobEvents(db: D1Database, _opts: JobOptions, budget: Budget): Pro
   };
 }
 
-/** 用最新收盤計算「約 21 個交易日後是否上漲」並存檔（同一天重算就覆蓋），之後拿實際結果對帳。 */
-export async function recordForecast(db: D1Database) {
+/** 一個交易日還不能寫進預測紀錄的原因（同一組代碼也用在 recordForecast 的整體 reason 與工作的 detail.reasonCode） */
+export type ForecastReason = "vix-pending" | "spx-unchecked" | "spx-mismatch" | "vix-stale" | "insufficient";
+
+export interface ForecastRecord {
+  /** recorded：這次有新寫入；exists：最近幾個交易日都已有紀錄；pending：有交易日還在等資料；skipped：資料不足、沒有可記的交易日 */
+  outcome: "recorded" | "exists" | "pending" | "skipped";
+  message: string;
+  /** 這次新寫入的交易日 */
+  recorded: string[];
+  /** 最近幾個交易日裡還不能記的，附原因代碼 */
+  pending: { date: string; reason: ForecastReason }[];
+  /** 整體最需要注意的原因代碼（有 pending 或資料不足才有）；是否算異常見 forecastNeedsAttention */
+  reason?: ForecastReason;
+  /** reason 是否已超過正常等待（VIX 超過 3 個交易日未更新、SPX 核對不一致超過 2 個交易日、資料不足） */
+  attention: boolean;
+}
+
+/** VIX 超過 3 個交易日沒更新、SPX 核對不一致超過 2 個交易日、資料不足才算異常（工作標 partial）；單純在等 VIX 或核對是正常的。 */
+export function forecastNeedsAttention(f: ForecastRecord): boolean {
+  return f.attention;
+}
+
+/** 一次補記往回看幾個 SPX 交易日 */
+const FORECAST_CATCHUP_SESSIONS = 5;
+/** SPX 核對不一致超過這麼多個交易日還沒更正，就當成異常 */
+const FORECAST_MISMATCH_GRACE = 2;
+
+const upTo = (s: Series, date: string) => new Series(s.points.filter((p) => p.date <= date));
+
+/**
+ * 用收盤計算「約 21 個交易日後是否上漲」並存檔，之後拿實際結果對帳。
+ * G02：紀錄寫入後不可改（ON CONFLICT DO NOTHING），所以只在資料確定時才寫：
+ * 該交易日 VIX 有當天的列（不用落後幾天的代替）、SPX 收盤已被第二來源核對為 match、且還沒有紀錄。
+ * 每次呼叫檢查最近 5 個 SPX 交易日（舊的先），能記的就只用當天以前的資料算（point-in-time）再寫入，
+ * 所以 Cboe 的 VIX 晚到、或核對延遲，下一次排程會補記；detail 記下用的 VIX 日期與落後幾個交易日，事後可稽核。
+ * 頁面顯示（outlookView）另走寬鬆路徑：VIX 落後 3 個交易日內照用最近一筆。
+ */
+export async function recordForecast(db: D1Database): Promise<ForecastRecord> {
   const loaded = await loadPrices(db, [INDEX_SYMBOL, VIX_SYMBOL], "0000-01-01");
-  const outlook = buildOutlook(loaded.series[INDEX_SYMBOL], loaded.series[VIX_SYMBOL]);
-  if (!outlook) return "資料不足，未產生預測";
-  await db
-    .prepare(
-      `INSERT INTO forecasts (trade_date, probability, base_rate, basis, call, close, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(trade_date) DO UPDATE SET probability = excluded.probability, base_rate = excluded.base_rate, basis = excluded.basis, call = excluded.call, close = excluded.close, created_at = excluded.created_at`,
-    )
-    .bind(outlook.asOf, outlook.pick.p, outlook.pick.base.p, outlook.pick.basis, outlook.call, outlook.close, nowIso())
-    .run();
-  return `${outlook.asOf} 上漲機率 ${(outlook.pick.p * 100).toFixed(1)}%（${outlook.call}）`;
+  const spx = loaded.series[INDEX_SYMBOL];
+  const vix = loaded.series[VIX_SYMBOL];
+  const checks = loaded.checks[INDEX_SYMBOL];
+  const dates = spx.points.slice(-FORECAST_CATCHUP_SESSIONS).map((p) => p.date);
+  if (!dates.length || !vix.length) return { outcome: "skipped", reason: "insufficient", message: "資料不足，未產生預測", recorded: [], pending: [], attention: true };
+  const have = new Set(
+    (await db.prepare(`SELECT trade_date FROM forecasts WHERE trade_date IN (${dates.map(() => "?").join(",")})`).bind(...dates).all<{ trade_date: string }>()).results.map((r) => r.trade_date),
+  );
+  const recorded: string[] = [];
+  const pending: ForecastRecord["pending"] = [];
+  let insufficient = false;
+  let latest: { asOf: string; p: number; call: string } | null = null;
+  for (const [i, S] of dates.entries()) {
+    if (have.has(S)) continue;
+    const vixToday = vix.at(S);
+    const status = checks.get(S)?.status ?? "pending";
+    if (vixToday === null) {
+      pending.push({ date: S, reason: "vix-pending" });
+      continue;
+    }
+    if (status !== "match") {
+      pending.push({ date: S, reason: status === "mismatch" ? "spx-mismatch" : "spx-unchecked" });
+      continue;
+    }
+    const outlook = buildOutlook(upTo(spx, S), upTo(vix, S));
+    if (!outlook || outlook.asOf !== S) {
+      insufficient = true;
+      continue;
+    }
+    const lag = dates.length - 1 - i;
+    const res = await db
+      .prepare(
+        `INSERT INTO forecasts (trade_date, probability, base_rate, basis, call, close, created_at, model_version, regime, cond_p, cond_n_eff, bss_low, history_start, detail)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(trade_date) DO NOTHING`,
+      )
+      .bind(
+        S, outlook.pick.p, outlook.pick.base.p, outlook.pick.basis, outlook.call, outlook.close, nowIso(),
+        outlook.modelVersion, JSON.stringify(outlook.regime), outlook.pick.conditional?.p ?? null, outlook.pick.conditional?.nEff ?? null,
+        outlook.evaluation.bssLow, outlook.historyStart,
+        JSON.stringify({ vixDate: S, vix: vixToday, spxCheck: status, recordedLagSessions: lag }),
+      )
+      .run();
+    if ((res.meta?.changes ?? 0) > 0) {
+      recorded.push(S);
+      latest = { asOf: S, p: outlook.pick.p, call: outlook.call };
+    }
+  }
+
+  // 整體原因：核對不一致太久 > VIX 太久沒更新 > 資料不足 > 其餘還在等的。
+  const lastIdx = dates.length - 1;
+  const vixStale = vixAt(spx, vix, spx.points.length - 1, DEFAULT_MODEL.vixMaxStaleSessions) === null;
+  const oldMismatch = pending.find((p) => p.reason === "spx-mismatch" && lastIdx - dates.indexOf(p.date) > FORECAST_MISMATCH_GRACE);
+  const latestPending = pending.find((p) => p.date === dates[lastIdx]);
+  let reason: ForecastReason | undefined;
+  let attention = true;
+  let why = "";
+  if (oldMismatch) {
+    reason = "spx-mismatch";
+    why = `${oldMismatch.date} 的 SPX 收盤核對不一致超過 ${FORECAST_MISMATCH_GRACE} 個交易日`;
+  } else if (latestPending?.reason === "vix-pending" && vixStale) {
+    reason = "vix-stale";
+    why = `VIX 超過 ${DEFAULT_MODEL.vixMaxStaleSessions} 個交易日未更新（最新 ${vix.points.at(-1)?.date}，SPX 到 ${dates[lastIdx]}）`;
+  } else if (insufficient) {
+    reason = "insufficient";
+    why = "資料不足";
+  } else if (pending.length) {
+    attention = false;
+    reason = (latestPending ?? pending.at(-1)!).reason;
+    why = `${pending.map((p) => `${p.date} ${p.reason}`).join("、")} 還不能記`;
+  }
+  const head = recorded.length ? `${recorded.join("、")} 新記錄${latest ? `（最新 ${latest.asOf} 上漲機率 ${(latest.p * 100).toFixed(1)}%，${latest.call}）` : ""}` : "沒有新記錄（已有紀錄的不覆蓋）";
+  const message = !reason ? head : recorded.length ? `${head}；${why}` : `${why}，未產生預測`;
+  const outcome = recorded.length ? "recorded" : reason === "insufficient" ? "skipped" : pending.length ? "pending" : "exists";
+  return { outcome, message, recorded, pending, attention: !!reason && attention, ...(reason ? { reason } : {}) };
 }
 
 // 目標價抓權重前 200 檔（約占指數 85% 權重），EPS 修正只抓前 100 檔：每次 16 檔約 25 個子請求。
@@ -573,7 +682,14 @@ const JOBS: Record<JobName, (db: D1Database, opts: JobOptions, budget: Budget) =
   events: jobEvents,
   analysts: jobAnalysts,
   factset: jobFactset,
-  forecast: async (db) => ({ status: "ok", summary: await recordForecast(db), detail: {} }),
+  forecast: async (db) => {
+    const f = await recordForecast(db);
+    return {
+      status: forecastNeedsAttention(f) ? "partial" : "ok",
+      summary: f.message,
+      detail: { outcome: f.outcome, reasonCode: f.reason ?? null, reason: f.reason ? f.message : null, recorded: f.recorded, pending: f.pending },
+    };
+  },
   snapshots: async (db, opts) => {
     const sessions = Math.min(Math.max(opts.sessions ?? 30, 1), 120);
     const r = await rebuildSnapshots(db, opts.upTo ? "歷史重算" : "手動重算", sessions, opts.upTo);

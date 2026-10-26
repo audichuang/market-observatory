@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Series } from "../src/lib/analytics.ts";
-import { DEFAULT_MODEL, HORIZON, MIN_EPISODES, buildObservations, buildOutlook, conditionalRate, evaluateRows, pickProbability, walkForward, walkForwardRows, wilson, type ModelConfig, type Observation } from "../src/lib/forecast.ts";
+import { DEFAULT_MODEL, EVAL_SEED, HORIZON, MIN_CELL_ROWS, MIN_CELL_RUNS, MIN_EPISODES, MIN_VALID_REPLICATES, buildObservations, buildOutlook, callOf, cellEvaluations, cellGateOf, conditionalRate, evaluateRows, mulberry32, pickProbability, sdOf, stationaryBootstrapIndices, walkForward, walkForwardRows, wilson, type CellEval, type ModelConfig, type Observation, type WalkRow } from "../src/lib/forecast.ts";
+import { PHASES, bssOf, phaseGrid, pointInTimeCalls } from "../src/lib/forecast-eval.ts";
 
 const day = (i: number) => new Date(Date.UTC(2015, 0, 1) + i * 864e5).toISOString().slice(0, 10);
 // G04 之前的舊行為（不設段數門檻、不凍結窗口、不限 VIX 陳舊度）：既有測試的意圖不變，改用它來跑。
-const LEGACY: ModelConfig = { ...DEFAULT_MODEL, shrinkK: null, minEpisodes: 0, baseWindowStart: null, vixMaxStaleSessions: null };
+const LEGACY: ModelConfig = { ...DEFAULT_MODEL, shrinkK: null, minEpisodes: 0, baseWindowStart: null, vixMaxStaleSessions: null, bootstrap: { kind: "block", blockSize: 3, resamples: 1000 } };
 const series = (closes: number[]) => new Series(closes.map((close, i) => ({ date: day(i), close })));
 
 test("Wilson 區間：樣本越多越窄、p 在區間內", () => {
@@ -81,7 +82,10 @@ test("G04 生效時，趨勢每側只有約 5 段的 regime fixture 退回基準
   const legacy = buildOutlook(series(closes), series(closes.map(() => 15)), LEGACY)!;
   assert.ok(legacy.evaluation.points >= 12);
   assert.ok(legacy.evaluation.bss! > 0, `bss=${legacy.evaluation.bss}`);
-  assert.notEqual(legacy.call, "inconclusive");
+  assert.equal(legacy.pick.distinct, true);
+  // G03 之前舊設定會給方向；現在 cell 只分成不到 8 段連續區間（(c) 不過），舊設定也不給方向。
+  assert.ok(legacy.cellGate.runs < MIN_CELL_RUNS, `runs=${legacy.cellGate.runs}`);
+  assert.equal(legacy.call, "inconclusive");
 
   // 純隨機漫步：不應該給方向。
   let s = 1;
@@ -93,7 +97,7 @@ test("G04 生效時，趨勢每側只有約 5 段的 regime fixture 退回基準
   assert.ok(flat.reasons.length > 0);
 });
 
-test("G04：趨勢兩側各有 ≥ 8 段（段間 ≥ 21 個交易日）時，選用 trend，p 與基準率可區分、walk-forward BSS > 0、給方向", () => {
+test("G04：趨勢兩側各有 ≥ 8 段（段間 ≥ 21 個交易日）時，選用 trend，p 與基準率可區分、walk-forward BSS > 0", () => {
   const closes = alternating(8000, 300);
   const spx = series(closes);
   const vix = series(closes.map(() => 15));
@@ -109,7 +113,9 @@ test("G04：趨勢兩側各有 ≥ 8 段（段間 ≥ 21 個交易日）時，�
   assert.equal(o.pick.distinct, true);
   assert.ok(Math.abs(o.pick.p - o.pick.base.p) > 0.1, `p=${o.pick.p} base=${o.pick.base.p}`);
   assert.ok(o.evaluation.bss! > 0, `bss=${o.evaluation.bss}`);
-  assert.notEqual(o.call, "inconclusive");
+  // 方向另外要過 G03 的 cell 閘門：8000 天裡能採用 trend 的列只有後半，連續區間不到 8 段，所以不給方向（正向對照見下方 12000 天的測試）。
+  assert.equal(o.call, "inconclusive");
+  assert.ok(o.cellGate.runs < MIN_CELL_RUNS);
 });
 
 test("G04 證明測試：一段連續約 700 天的 VIX ≥ 30（nEff≈33、僅 1 段）不能被採用為 vix 或 trend+vix", () => {
@@ -180,7 +186,12 @@ test("條件區間包含基準率時，輸出的機率是基準率，不是條�
 
 // 特徵測試：重構模型設定前後，輸出必須一字不差（數值四捨五入到 12 位）。
 const r12 = (x: number | null) => (x === null ? null : Math.round(x * 1e12) / 1e12);
-const roundEval = (e: ReturnType<typeof walkForward>) => ({ ...e, hitRate: r12(e.hitRate), baseHitRate: r12(e.baseHitRate), brier: r12(e.brier), brierBase: r12(e.brierBase), bss: r12(e.bss), bssLow: r12(e.bssLow), bssHigh: r12(e.bssHigh) });
+// mde 與 byCell 是 G03／G08 新增的欄位，不在這些特徵測試的釘死範圍內（另有測試）。
+type PinnedEval = Omit<ReturnType<typeof walkForward>, "mde" | "byCell">;
+const roundEval = (full: ReturnType<typeof walkForward>): PinnedEval => {
+  const { mde: _mde, byCell: _byCell, ...e } = full;
+  return {...e, hitRate: r12(e.hitRate), baseHitRate: r12(e.baseHitRate), brier: r12(e.brier), brierBase: r12(e.brierBase), bss: r12(e.bss), bssLow: r12(e.bssLow), bssHigh: r12(e.bssHigh) };
+};
 const alternating = (n: number, phase: number) => {
   const c: number[] = [];
   let p = 100;
@@ -206,7 +217,7 @@ const sinCloses = () => {
   return c;
 };
 const alt600 = alternating(3000, 600);
-const characterised: [string, number[], number[], ReturnType<typeof roundEval>, number, string][] = [
+const characterised: [string, number[], number[], PinnedEval, number, string][] = [
   ["alt300", alternating(3000, 300), alternating(3000, 300).map(() => 15), { points: 108, hitRate: 0.62962962963, baseHitRate: 0.472222222222, brier: 0.20902409256, brierBase: 0.257032009644, bss: 0.186777970378, bssLow: -0.013115603516, bssHigh: 0.366382563506, firstDate: "2016-12-24", lastDate: "2023-02-18" }, 0.195804195804, "trend+vix"],
   ["alt600", alt600, alt600.map(() => 15), { points: 108, hitRate: 0.685185185185, baseHitRate: 0.518518518519, brier: 0.162957845483, brierBase: 0.267705074275, bss: 0.39127845849, bssLow: 0.178358878759, bssHigh: 0.589503908611, firstDate: "2016-12-24", lastDate: "2023-02-18" }, 0.913705583756, "trend+vix"],
   ["noise", noiseCloses(), noiseCloses().map(() => 15), { points: 108, hitRate: 0.509259259259, baseHitRate: 0.490740740741, brier: 0.254412814031, brierBase: 0.254412814031, bss: 0, bssLow: 0, bssHigh: 0, firstDate: "2016-12-24", lastDate: "2023-02-18" }, 0.455395683453, "trend+vix"],
@@ -250,7 +261,7 @@ test("walkForward = evaluateRows(walkForwardRows)；只有趨勢旗標的模型�
   const o = buildOutlook(series(spx), series(vix), trendOnly)!;
   assert.equal(o.modelVersion, "test-trend");
   assert.equal(o.pick.basis, "trend");
-  assert.equal(buildOutlook(series(spx), series(vix))!.modelVersion, "2026-10-g01");
+  assert.equal(buildOutlook(series(spx), series(vix))!.modelVersion, "2026-10-g03g08");
 
   // dates 只算指定日期。
   const some = rows.slice(0, 3).map((r) => r.date);
@@ -258,8 +269,8 @@ test("walkForward = evaluateRows(walkForwardRows)；只有趨勢旗標的模型�
 });
 
 // 特徵測試（DEFAULT_MODEL，G04 生效）：數值由 2026-10-g01（G01 收縮 k=40 已採用）的程式算出並固定；一個選到 trend+vix，一個退回基準率。
-const defaultPinned: [string, number[], ReturnType<typeof roundEval>, number, string, string, Record<string, number>][] = [
-  ["alt300x8000", alternating(8000, 300), { points: 346, hitRate: 0.609826589595, baseHitRate: 0.505780346821, brier: 0.217984235643, brierBase: 0.25404237914, bss: 0.141937513022, bssLow: 0.069892530683, bssHigh: 0.212958654559, firstDate: "2016-12-24", lastDate: "2036-10-25" }, 0.721968536106, "trend+vix", "up", { base: 171, "trend+vix": 175 }],
+const defaultPinned: [string, number[], PinnedEval, number, string, string, Record<string, number>][] = [
+  ["alt300x8000", alternating(8000, 300), { points: 346, hitRate: 0.609826589595, baseHitRate: 0.505780346821, brier: 0.217984235643, brierBase: 0.25404237914, bss: 0.141937513022, bssLow: 0.073320031309, bssHigh: 0.21579054706, firstDate: "2016-12-24", lastDate: "2036-10-25" }, 0.721968536106, "trend+vix", "inconclusive", { base: 171, "trend+vix": 175 }],
   ["alt600x3000-fallback", alt600, { points: 108, hitRate: 0.481481481481, baseHitRate: 0.518518518519, brier: 0.267705074275, brierBase: 0.267705074275, bss: 0, bssLow: 0, bssHigh: 0, firstDate: "2016-12-24", lastDate: "2023-02-18" }, 0.568345323741, "base", "inconclusive", { base: 108 }],
 ];
 
@@ -338,4 +349,159 @@ test("G01 收縮：shrinkK = nEff 時恰為基準率與條件機率的中點；s
   assert.equal(b.basis, "base");
   assert.equal(b.p, b.base.p);
   assert.equal(b.shrinkWeight, 0);
+});
+
+// G03：全域 bssLow > 0、條件機率也有差，但「今天這個 cell」在 walk-forward 裡的列數不足 30 → 不給方向。
+// 趨勢兩側各有很多段；VIX ≥ 30 只出現在前 3600 天的上升段中（每段 2 個短爆發，共 12 段），最後 60 天再出現，所以今天的 cell = trend+vix(aboveSma200=true, vixStress=true)。
+const g03StressSeries = () => {
+  const N = 8000;
+  const closes = alternating(N, 300);
+  const inBurst = (i: number) => {
+    const m = i % 600;
+    return (m >= 100 && m < 160) || (m >= 190 && m < 250);
+  };
+  const vix = closes.map((_, i) => ((i < 3600 && inBurst(i)) || i >= N - 60 ? 35 : 15));
+  return [series(closes), series(vix)] as const;
+};
+
+test("G03：全域 bssLow > 0、pick.distinct，但今天的 cell 在 walk-forward 只有 < 30 列 → inconclusive", () => {
+  const [spx, vix] = g03StressSeries();
+  const o = buildOutlook(spx, vix)!;
+  assert.equal(o.pick.basis, "trend+vix");
+  assert.equal(o.pick.distinct, true);
+  assert.ok(o.evaluation.bssLow! > 0, `bssLow=${o.evaluation.bssLow}`);
+  assert.deepEqual(o.regime, { aboveSma200: true, vixStress: true });
+  assert.equal(o.pick.cell, "trend+vix(aboveSma200=true,vixStress=true)");
+  assert.ok(o.cellGate.rows < MIN_CELL_ROWS, `rows=${o.cellGate.rows}`);
+  assert.equal(o.cellGate.passed, false);
+  assert.equal(o.call, "inconclusive");
+  assert.ok(o.reasons.some((r) => r.includes("只有") && r.includes("列")));
+});
+
+test("G03 空重抽：該 cell 沒有任何列的重抽被跳過；有效重抽 < 1900 時 bssLow 為 null、閘門不過", () => {
+  const row = (i: number, cell: string): WalkRow => ({ date: day(i * 21), basis: cell, cell, p: 0.7, pBase: 0.5, y: i % 2, distinct: true });
+  // 40 列裡只有 1 列屬於 rare：每次重抽抽不到它的機率約 (39/40)^40 ≈ 36%，有效重抽遠少於 1900
+  const rows = Array.from({ length: 40 }, (_, i) => row(i, i === 17 ? "rare" : "common"));
+  const ev = cellEvaluations(rows);
+  const rare = ev.find((e) => e.cell === "rare")!;
+  const common = ev.find((e) => e.cell === "common")!;
+  assert.ok(rare.validReplicates < MIN_VALID_REPLICATES && rare.validReplicates > 0, `valid=${rare.validReplicates}`);
+  assert.equal(rare.bssLow, null);
+  assert.equal(rare.bssHigh, null);
+  assert.equal(common.validReplicates, 2000); // 39 列的 cell 不會抽不到
+  assert.ok(common.bssLow !== null);
+  assert.equal(cellGateOf(ev, "rare").passed, false);
+  assert.deepEqual(cellGateOf(ev, "missing"), { rows: 0, runs: 0, bssLow: null, validReplicates: 0, passed: false });
+  // 即使列數與段數都夠，bssLow 為 null 就不過
+  const okEval: CellEval = { cell: "x", rows: 100, runs: 20, bss: 0.3, bssLow: null, bssHigh: null, mde: 0.1, validReplicates: 1899 };
+  assert.equal(cellGateOf([okEval], "x").passed, false);
+  assert.equal(cellGateOf([{ ...okEval, bssLow: 0.05, validReplicates: 1900 }], "x").passed, true);
+  assert.equal(cellGateOf([{ ...okEval, bssLow: 0.05, rows: 29 }], "x").passed, false);
+  assert.equal(cellGateOf([{ ...okEval, bssLow: 0.05, runs: 7 }], "x").passed, false);
+  assert.equal(cellGateOf([{ ...okEval, bssLow: 0, validReplicates: 2000 }], "x").passed, false);
+  // callOf：distinct 與閘門缺一不可；符號沿用 p ≥ 0.5
+  assert.equal(callOf({ p: 0.7, distinct: true }, { passed: true }), "up");
+  assert.equal(callOf({ p: 0.4, distinct: true }, { passed: true }), "down");
+  assert.equal(callOf({ p: 0.7, distinct: false }, { passed: true }), "inconclusive");
+  assert.equal(callOf({ p: 0.7, distinct: true }, { passed: false }), "inconclusive");
+});
+
+test("G03 / G08：evaluation.byCell 與 cell 的列數、段數；mde = 2.8 × bootstrap sd（標準差為 0 時 null）；固定種子不依賴列數", () => {
+  const closes = alternating(12000, 300);
+  const spx = series(closes);
+  const vix = series(closes.map(() => 15));
+  const obs = buildObservations(spx, vix);
+  const rows = walkForwardRows(obs);
+  const ev = evaluateRows(rows);
+  // 獨立重算 mde：同種子、同一個 stationary 索引序列
+  const rand = mulberry32(EVAL_SEED);
+  const stats: number[] = [];
+  for (let k = 0; k < 2000; k++) stats.push(bssOf(stationaryBootstrapIndices(rows.length, 6, rand).map((i) => rows[i])));
+  assert.ok(Math.abs(ev.mde! - 2.8 * sdOf(stats)) < 1e-9, `${ev.mde} vs ${2.8 * sdOf(stats)}`);
+  const sorted = [...stats].sort((a, b) => a - b);
+  assert.equal(ev.bssLow, sorted[50]);
+  assert.equal(ev.bssHigh, sorted[1950]);
+  // byCell：列數加總 = 列數；runs 由原始順序數出
+  assert.equal(ev.byCell.reduce((a, c) => a + c.rows, 0), rows.length);
+  const t = ev.byCell.find((c) => c.cell === "trend+vix(aboveSma200=true,vixStress=false)")!;
+  assert.equal(t.rows, rows.filter((r) => r.cell === t.cell).length);
+  let runs = 0;
+  rows.forEach((r, i) => {
+    if (r.cell === t.cell && (i === 0 || rows[i - 1].cell !== t.cell)) runs++;
+  });
+  assert.equal(t.runs, runs);
+  assert.ok(t.mde !== null && t.mde > 0);
+  // 全部列 p = pBase 時 BSS 恆為 0、sd 為 0 → mde null
+  const flat = rows.map((r) => ({ ...r, p: r.pBase }));
+  assert.equal(evaluateRows(flat).mde, null);
+  assert.equal(evaluateRows(flat.slice(0, 11)).mde, null);
+  // 與列數無關的固定種子：同一批列重複算結果一樣；舊區塊法的 mde 也有（LEGACY）
+  assert.deepEqual(evaluateRows(rows), ev);
+  assert.ok(evaluateRows(rows, LEGACY.bootstrap).mde !== undefined);
+});
+
+test("G08 (2)：隨機漫步在每個相位 offset 0..20 都是 inconclusive（point-in-time）", () => {
+  let s = 7;
+  const rnd = () => ((s = (s * 16807) % 2147483647) / 2147483647);
+  let q = 100;
+  const closes = Array.from({ length: 6000 }, () => (q *= 1 + (rnd() - 0.5) * 0.02));
+  const obs = buildObservations(series(closes), series(closes.map(() => 15)));
+  const grid = phaseGrid(obs, 504, PHASES);
+  assert.equal(grid.length, 21);
+  const knownOn = new Map(obs.map((o) => [o.date, o.knownOn]));
+  let total = 0;
+  for (let o = 0; o < PHASES; o++) {
+    const rows = walkForwardRows(obs, DEFAULT_MODEL, { dates: grid[o].map((i) => obs[i].date) });
+    total += rows.length;
+    const calls = pointInTimeCalls(rows, knownOn);
+    assert.ok(calls.every((c) => c === "inconclusive"), `offset ${o}: ${calls.filter((c) => c !== "inconclusive").length} 個方向`);
+  }
+  assert.ok(total > 21 * 50, `rows=${total}`);
+  // 正式版在序列末端也不給方向
+  assert.equal(buildOutlook(series(closes), series(closes.map(() => 15)))!.call, "inconclusive");
+});
+
+test("G08 (4) 正向對照：訊號強、滿足 G04 與 G03 (b)(c) 的合成序列，cell bssLow > 0 並給方向", () => {
+  const closes = alternating(12000, 300);
+  const o = buildOutlook(series(closes), series(closes.map(() => 15)))!;
+  assert.equal(o.pick.basis, "trend+vix");
+  assert.ok(o.pick.conditional!.nEff >= 30 && o.pick.conditional!.episodes >= MIN_EPISODES);
+  assert.equal(o.pick.distinct, true);
+  assert.ok(o.cellGate.rows >= MIN_CELL_ROWS, `rows=${o.cellGate.rows}`);
+  assert.ok(o.cellGate.runs >= MIN_CELL_RUNS, `runs=${o.cellGate.runs}`);
+  assert.ok(o.cellGate.bssLow! > 0, `bssLow=${o.cellGate.bssLow}`);
+  assert.ok(o.cellGate.validReplicates >= MIN_VALID_REPLICATES);
+  assert.equal(o.cellGate.passed, true);
+  assert.notEqual(o.call, "inconclusive");
+  const mine = o.evaluation.byCell.find((c) => c.cell === o.pick.cell)!;
+  assert.equal(mine.bssLow, o.cellGate.bssLow);
+  assert.ok(mine.mde! > 0);
+});
+
+test("G03 (d)：兩個列數與段數都夠的 cell，一個有 skill、一個反向；全域 bssLow > 0，反向 cell 的 bssLow 仍 ≤ 0 且閘門不過", () => {
+  // 10 輪：每輪 A 連續 12 列（預測 0.95 對的方向）、B 連續 4 列（預測 0.45 偏向錯的方向，比基準 0.5 更差）。
+  const rows: WalkRow[] = [];
+  for (let round = 0; round < 10; round++) {
+    for (let k = 0; k < 16; k++) {
+      const i = rows.length;
+      const y = i % 2;
+      const skilled = k < 12;
+      const p = skilled ? (y ? 0.95 : 0.05) : y ? 0.45 : 0.55;
+      rows.push({ date: day(i * 21), basis: skilled ? "A" : "B", cell: skilled ? "A" : "B", p, pBase: 0.5, y, distinct: true });
+    }
+  }
+  const ev = cellEvaluations(rows);
+  const a = ev.find((e) => e.cell === "A")!;
+  const b = ev.find((e) => e.cell === "B")!;
+  assert.ok(a.rows >= 30 && a.runs >= 8 && b.rows >= 30 && b.runs >= 8, `A ${a.rows}/${a.runs} B ${b.rows}/${b.runs}`);
+  // 全域 bssLow > 0（A 的 skill 蓋過 B 的反向），所以若 B 的重抽誤用全域 BSS 就會過閘門
+  assert.ok(evaluateRows(rows).bssLow! > 0, `global bssLow=${evaluateRows(rows).bssLow}`);
+  assert.ok(a.bss > 0.5 && a.bssLow! > 0);
+  assert.ok(b.bss < 0, `B bss=${b.bss}`);
+  assert.ok(b.bssLow !== null && b.bssLow <= 0, `B bssLow=${b.bssLow}`);
+  assert.equal(cellGateOf(ev, "A").passed, true);
+  assert.equal(cellGateOf(ev, "B").passed, false);
+  // 今天的 cell 是反向的那個：即使 pick.distinct，也不給方向；是 skill 的那個才給。
+  assert.equal(callOf({ p: 0.45, distinct: true }, cellGateOf(ev, "B")), "inconclusive");
+  assert.equal(callOf({ p: 0.95, distinct: true }, cellGateOf(ev, "A")), "up");
 });

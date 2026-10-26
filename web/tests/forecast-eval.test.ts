@@ -5,7 +5,7 @@ import { EVAL_SEED, bootstrapCI, bssOf, intersectRegimes, nullPairedBss, pairedB
 
 const day = (i: number) => new Date(Date.UTC(2015, 0, 1) + i * 864e5).toISOString().slice(0, 10);
 const mkRows = (n: number, f: (i: number) => { p: number; pBase: number; y: number }): WalkRow[] =>
-  Array.from({ length: n }, (_, i) => ({ date: day(i * 21), basis: "base", distinct: false, ...f(i) }));
+  Array.from({ length: n }, (_, i) => ({ date: day(i * 21), basis: "base", cell: "base", distinct: false, ...f(i) }));
 
 test("stationary bootstrap：固定種子索引相同，平均區塊長約等於 meanBlock", () => {
   const a = stationaryBootstrapIndices(200, 6, mulberry32(7));
@@ -106,7 +106,7 @@ test("A2 點估計與 bootstrap 用同一批格：缺列的最後一格整格捨
   const cells: (WalkRow | null)[][] = Array.from({ length: 21 }, (_, o) =>
     Array.from({ length: o === 20 ? 12 : 13 }, (_, k) => {
       const y = rand() > 0.4 ? 1 : 0;
-      return { date: day(o + 21 * k), basis: "base", distinct: false, p: 0.6, pBase: 0.5 + (o % 3) * 0.02, y };
+      return { date: day(o + 21 * k), basis: "base", cell: "base", distinct: false, p: 0.6, pBase: 0.5 + (o % 3) * 0.02, y };
     }),
   );
   const r = phaseAverageFromCells(cells, { resamples: 300 });
@@ -121,12 +121,14 @@ test("A3 方向計數 point-in-time：後期才出現的 skill 不能讓早期�
     const late = i >= 90;
     // 前 90 列：預測與基準相同（BSS 0）；後 30 列預測明顯優於基準
     const y = i % 2;
-    return { date: day(i * 21), basis: "b", distinct: true, y, pBase: 0.5, p: late ? (y ? 0.9 : 0.1) : 0.5 };
+    return { date: day(i * 21), basis: "b", cell: Math.floor(i / 3) % 2 ? "c" : "b", distinct: true, y, pBase: 0.5, p: late ? (y ? 0.9 : 0.1) : 0.5 };
   });
   const knownOn = new Map(rows.map((r, i) => [r.date, day(i * 21 + 21)]));
-  const calls = pointInTimeCalls(rows, knownOn, { blockSize: 3, resamples: 200 });
+  const calls = pointInTimeCalls(rows, knownOn);
   assert.equal(calls.slice(0, 90).filter((c) => c !== "inconclusive").length, 0);
   assert.equal(calls.slice(0, 12).every((c) => c === "inconclusive"), true);
+  // 後期的 skill 累積到足夠的列數與段數後，cell 閘門就會通過（測試有鑑別力）
+  assert.ok(calls.slice(90).some((c) => c !== "inconclusive"), "後期應有方向");
 });
 
 test("A4 配對：候選多 5 天暖機也能完整配對，丟掉的日期有回報；交集讓雙方訓練樣本一致", () => {
@@ -227,7 +229,7 @@ test("B1 配對下界的 MC 標準誤：5 個下界的 sd，兩個不同模型�
 });
 
 test("per-cell 摘要：段數 = offset 0 列中連續屬於該 cell 的最長段，只算該 cell 的列", () => {
-  const mk = (i: number, basis: string): WalkRow => ({ date: day(i), basis, p: 0.7, pBase: 0.5, y: i % 2, distinct: true });
+  const mk = (i: number, basis: string): WalkRow => ({ date: day(i), basis, p: 0.7, pBase: 0.5, y: i % 2, distinct: true, cell: basis });
   const rows = [mk(0, "x"), mk(1, "x"), mk(2, "y"), mk(3, "x"), mk(4, "y")];
   const s = summarizeByCell(rows, (r) => r.basis, { resamples: 50 });
   const x = s.find((c) => c.cell === "x")!;

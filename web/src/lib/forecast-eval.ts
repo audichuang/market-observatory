@@ -1,11 +1,12 @@
 // 回測用的評估工具：stationary bootstrap、配對比較、相位平均、虛無分佈。純計算，不碰 D1 與網路。
 // 規則出處：docs/forecast.md「事前登記」（G08、L02、L03、L08、配對）。
 
-import { HORIZON, callOf, evaluateRows, mulberry32, walkForwardRows, type ModelConfig, type Observation, type WalkRow } from "./forecast.ts";
+import { EVAL_SEED, G08_BOOTSTRAP, HORIZON, callOf, cellEvaluations, cellGateOf, mulberry32, sdOf, stationaryBootstrapIndices, walkForwardRows, type ModelConfig, type Observation, type WalkRow } from "./forecast.ts";
 
-/** 固定種子（不依賴列數）；變體比較與換資料時結果才可重現。 */
-export const EVAL_SEED = 20261026;
-export const EVAL_DEFAULTS = { meanBlock: 6, resamples: 2000, seed: EVAL_SEED };
+// 評估用的 bootstrap 原語（stationary bootstrap、固定種子）定義在 forecast.ts（正式版 G08 與回測共用），這裡再匯出。
+export { EVAL_SEED, stationaryBootstrapIndices };
+
+export const EVAL_DEFAULTS = G08_BOOTSTRAP;
 export const PHASES = 21;
 
 export interface BootOpts {
@@ -19,25 +20,6 @@ export interface CI {
   low: number;
   high: number;
   sd: number;
-}
-
-/** Politis–Romano stationary bootstrap：每步以 1/meanBlock 的機率換新起點，否則接續下一列（環狀）。 */
-export function stationaryBootstrapIndices(n: number, meanBlock: number, rand: () => number): number[] {
-  const out: number[] = new Array(n);
-  if (n === 0) return out;
-  const q = 1 / Math.max(1, meanBlock);
-  let cur = Math.floor(rand() * n);
-  for (let i = 0; i < n; i++) {
-    if (i > 0) cur = rand() < q ? Math.floor(rand() * n) : (cur + 1) % n;
-    out[i] = cur;
-  }
-  return out;
-}
-
-function sdOf(xs: number[]): number {
-  if (xs.length < 2) return 0;
-  const m = xs.reduce((a, b) => a + b, 0) / xs.length;
-  return Math.sqrt(xs.reduce((a, b) => a + (b - m) ** 2, 0) / (xs.length - 1));
 }
 
 function pctInterval(stats: number[]): { low: number; high: number } {
@@ -128,15 +110,6 @@ export function summarizeByCell(rows: WalkRow[], cellOf: (r: WalkRow) => string,
     const sd = sdOf(st);
     return { cell, rows: mine.length, runs: runs.get(cell) ?? 0, bss: { point: bssOf(mine), low, high, sd }, mde: sd > 0 ? 2.8 * sd : null };
   });
-}
-
-/** WalkRow 所屬的 cell：basis 加上被選候選的旗標值（basis 名稱只是標籤）。 */
-export function cellKeyOf(r: WalkRow, regimeOf: (date: string) => Record<string, boolean> | null, cfg: ModelConfig): string {
-  if (r.basis === "base") return "base";
-  const names = r.basis.split("+");
-  const reg = regimeOf(r.date);
-  const flags = cfg.flags.filter((f) => names.includes(f.basisId)).map((f) => `${f.id}=${reg?.[f.id]}`);
-  return `${r.basis}(${flags.join(",")})`;
 }
 
 /** 配對比較前：兩邊 regime 都不為 null 的日子才保留（訓練樣本取交集）。 */
@@ -262,17 +235,18 @@ export function pairedBrierDiffMcStdErr(refObs: Observation[], candObs: Observat
 }
 
 /**
- * 方向計數的 point-in-time 閘門：第 i 列只用 knownOn ≤ 該列日期的列算 bssLow
- * （與正式版同一個 evaluateRows bootstrap、至少 12 列，否則 inconclusive）。
+ * 方向計數的 point-in-time 閘門（G03）：第 i 列只用 knownOn ≤ 該列日期的列，
+ * 在這些列上算該列 cell 的列數、段數與 bssLow（同正式版的 cellEvaluations），再交給 callOf。
+ * 該列 pick 不 distinct 時一定是 inconclusive，不必跑 bootstrap。
  */
-export function pointInTimeCalls(rows: WalkRow[], knownOn: Map<string, string | null>, bootstrap: { blockSize: number; resamples: number }): ("up" | "down" | "inconclusive")[] {
+export function pointInTimeCalls(rows: WalkRow[], knownOn: Map<string, string | null>): ("up" | "down" | "inconclusive")[] {
   return rows.map((r) => {
+    if (!r.distinct) return "inconclusive";
     const prior = rows.filter((x) => {
       const k = knownOn.get(x.date);
       return k !== null && k !== undefined && k <= r.date;
     });
-    if (prior.length < 12) return "inconclusive";
-    return callOf(r, evaluateRows(prior, bootstrap).bssLow);
+    return callOf(r, cellGateOf(cellEvaluations(prior), r.cell));
   });
 }
 

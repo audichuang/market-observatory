@@ -311,3 +311,30 @@ test("D1：1990-01-02 之前的觀測值沒有 regime，historyStart 與條件�
   // 窗口內第一天的 SMA200 用到窗口前的 SPX 暖機資料，所以 historyStart 就是 1990-01-02。
   assert.equal(o.historyStart, "1990-01-02");
 });
+
+test("G01 收縮：shrinkK = nEff 時恰為基準率與條件機率的中點；shrinkK null 與原行為一致；basis 為 base 時 p = p_base", () => {
+  const closes = alternating(8000, 300);
+  const obs = buildObservations(series(closes), series(closes.map(() => 15)));
+  const last = obs.at(-1)!;
+  const hard = pickProbability(obs, last.date, last.regime!)!;
+  assert.equal(hard.basis, "trend+vix");
+  assert.equal(hard.shrinkWeight, 0);
+  const n = hard.conditional!.nEff;
+  assert.ok(Math.abs(hard.conditional!.p - hard.base.p) > 0.1);
+  // k = n：權重 1/2
+  const mid = pickProbability(obs, last.date, last.regime!, { ...DEFAULT_MODEL, shrinkK: n })!;
+  assert.equal(mid.basis, hard.basis);
+  assert.equal(mid.shrinkWeight, 0.5);
+  assert.ok(Math.abs(mid.p - (mid.base.p + mid.conditional!.p) / 2) < 1e-12);
+  assert.equal(mid.distinct, hard.distinct);
+  // 一般公式（k = 40）
+  const k40 = pickProbability(obs, last.date, last.regime!, { ...DEFAULT_MODEL, shrinkK: 40 })!;
+  assert.ok(Math.abs(k40.p - (40 * k40.base.p + n * k40.conditional!.p) / (40 + n)) < 1e-12);
+  assert.ok(Math.abs(k40.shrinkWeight - n / (40 + n)) < 1e-12);
+  // basis 為 base：條件樣本不足，p = p_base，權重 0
+  const short = buildObservations(series(Array.from({ length: 900 }, (_, i) => 100 + i)), series(Array.from({ length: 900 }, () => 15)));
+  const b = pickProbability(short, day(899), short.at(-1)!.regime!, { ...DEFAULT_MODEL, shrinkK: 40 })!;
+  assert.equal(b.basis, "base");
+  assert.equal(b.p, b.base.p);
+  assert.equal(b.shrinkWeight, 0);
+});

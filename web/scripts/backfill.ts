@@ -44,6 +44,8 @@ async function backfillIndexHistory() {
     const r = await run("backfill-index-history");
     const left = r.detail?.remaining;
     if (!left) throw new Error(`backfill-index-history ${r.status}：${r.summary}`);
+    // SPX 被略過（重疊不足或與 Yahoo 不一致）就不算完成：印出原因、以非零狀態結束。
+    if (r.status === "partial") throw new Error(`backfill-index-history partial：${r.summary}`);
     if (Object.values(left).every((n) => n === 0)) return;
     const progressed = Object.values(r.detail?.inserted ?? {}).some((n) => n > 0);
     if (!progressed) throw new Error(`backfill-index-history 沒有進展（${r.status}）：${r.summary}`);

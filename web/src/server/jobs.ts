@@ -290,6 +290,8 @@ async function jobBackfillPrices(db: D1Database, opts: JobOptions, budget: Budge
  */
 export const HISTORY_ROWS_PER_RUN = 2400;
 const HISTORY_OVERLAP_DATES = 250;
+/** SPX 至少要比對到這麼多個重疊日期才信任 Cboe；沒有重疊就無從驗證，不寫入。 */
+const HISTORY_MIN_OVERLAP = 20;
 
 /**
  * Yahoo 窗口（約十年）之前的 SPX／VIX 歷史由 Cboe 補（source='cboe'、不做交叉核對）。
@@ -307,10 +309,11 @@ async function jobBackfillIndexHistory(db: D1Database, opts: JobOptions, budget:
   const [spx, vix] = await Promise.all([fetchCboeDaily("SPX", "0000-00-00", budget), fetchCboeDaily("VIX", "0000-00-00", budget)]);
   const cboe = { SPX: spx, VIX: vix };
 
-  // SPX 安全檢查：Cboe 與既有列在重疊日期的收盤要一致，否則可能是來源出錯，不往前接。
+  // SPX 安全檢查：Cboe 與 Yahoo（非 cboe 來源）列在重疊日期的收盤要一致，否則可能是來源出錯，不往前接。
+  // 樣本固定取最早的 Yahoo 列，不隨已補進來的 Cboe 歷史往前移（否則補滿 250 列後就只是 Cboe 比 Cboe）。
   const overlapRows = await db
-    .prepare("SELECT date, close FROM prices WHERE symbol = ? AND date >= ? ORDER BY date LIMIT ?")
-    .bind(INDEX_SYMBOL, earliest.SPX, HISTORY_OVERLAP_DATES)
+    .prepare("SELECT date, close FROM prices WHERE symbol = ? AND source != ? ORDER BY date LIMIT ?")
+    .bind(INDEX_SYMBOL, CBOE_SOURCE, HISTORY_OVERLAP_DATES)
     .all<{ date: string; close: number }>();
   const cboeSpx = new Map(spx.map((b) => [b.date, b.close]));
   let compared = 0;
@@ -321,7 +324,7 @@ async function jobBackfillIndexHistory(db: D1Database, opts: JobOptions, budget:
     compared++;
     if (compareCloses(r.close, c) === "mismatch") overlapMismatches++;
   }
-  const spxTrusted = !(compared > 0 && overlapMismatches / compared > 0.01);
+  const spxTrusted = compared >= HISTORY_MIN_OVERLAP && overlapMismatches / compared <= 0.01;
 
   const inserted = { SPX: 0, VIX: 0 };
   const remaining = { SPX: 0, VIX: 0 };
@@ -338,7 +341,7 @@ async function jobBackfillIndexHistory(db: D1Database, opts: JobOptions, budget:
   const status = spxTrusted ? "ok" : "partial";
   return {
     status,
-    summary: `SPX +${inserted.SPX}（剩 ${remaining.SPX}）、VIX +${inserted.VIX}（剩 ${remaining.VIX}）${spxTrusted ? "" : `；SPX 與 Cboe 重疊 ${compared} 天有 ${overlapMismatches} 天不一致，略過 SPX`}`,
+    summary: `SPX +${inserted.SPX}（剩 ${remaining.SPX}）、VIX +${inserted.VIX}（剩 ${remaining.VIX}）${spxTrusted ? "" : `；SPX 與 Cboe 重疊 ${compared} 天（至少要 ${HISTORY_MIN_OVERLAP}）有 ${overlapMismatches} 天不一致，略過 SPX`}`,
     detail: { inserted, remaining, earliest: after, overlapMismatches, overlapCompared: compared },
   };
 }

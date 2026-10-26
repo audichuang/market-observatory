@@ -109,3 +109,41 @@ test("還沒有日線時失敗並提示先跑 backfill-prices", async () => {
   assert.equal(r.status, "failed");
   assert.match(r.summary, /backfill-prices/);
 });
+
+test("重疊樣本一律取 Yahoo 列：Cboe 列滿 250 筆後，Yahoo 日期被改高 10% 仍要擋下 SPX", async () => {
+  const { db, sql } = await seeded();
+  serveCboe();
+  const r1 = await runJob(db, "backfill-index-history", "test", { historyRows: 260 });
+  assert.equal(r1.status, "ok", r1.summary);
+  assert.equal(rowsOf(sql, "SPX").length, YAHOO_DAYS + 260);
+  upstream.rules = [];
+  upstream.rules.push((url) => {
+    if (url.host !== "cdn-api.cboe.com" || url.pathname.includes("VIX")) return null;
+    const rows = all.map((d, i) => {
+      const yi = i - (CBOE_DAYS - YAHOO_DAYS);
+      return `${mdy(d)},${(yi >= 0 ? yahooClose("SPX", yi) * 1.1 : (3000 + i * 0.5)).toFixed(6)}`;
+    });
+    return new Response(["DATE,SPX", ...rows].join("\n"), { status: 200 });
+  });
+  const r2 = await runJob(db, "backfill-index-history", "test", { historyRows: 260 });
+  const d = r2.detail as unknown as { inserted: Record<string, number>; overlapMismatches: number };
+  assert.equal(r2.status, "partial", r2.summary);
+  assert.equal(d.inserted.SPX, 0);
+  assert.equal(d.overlapMismatches, YAHOO_DAYS);
+  assert.equal(rowsOf(sql, "SPX").length, YAHOO_DAYS + 260);
+});
+
+test("Cboe 日期完全落在 Yahoo 窗口之前（沒有重疊）：無法驗證，SPX 不寫入、partial", async () => {
+  const { db, sql } = await seeded();
+  upstream.rules.push((url) => {
+    if (url.host !== "cdn-api.cboe.com" || url.pathname.includes("VIX")) return null;
+    const rows = all.slice(0, CBOE_DAYS - YAHOO_DAYS).map((d, i) => `${mdy(d)},${(3000 + i).toFixed(6)}`);
+    return new Response(["DATE,SPX", ...rows].join("\n"), { status: 200 });
+  });
+  const r = await runJob(db, "backfill-index-history", "test");
+  const d = r.detail as unknown as { inserted: Record<string, number>; remaining: Record<string, number> };
+  assert.equal(r.status, "partial", r.summary);
+  assert.equal(d.inserted.SPX, 0);
+  assert.ok(d.remaining.SPX > 0);
+  assert.equal(rowsOf(sql, "SPX").length, YAHOO_DAYS);
+});

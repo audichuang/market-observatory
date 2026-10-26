@@ -76,7 +76,7 @@ export interface ModelConfig {
 }
 
 export const DEFAULT_MODEL: ModelConfig = {
-  version: "2026-10-g03g08",
+  version: "2026-10-g09",
   flags: [
     { id: "aboveSma200", basisId: "trend", compute: (c) => (c.sma200 === null ? null : c.close > c.sma200) },
     // VIX 一般狀態（<30）幾乎就是全部樣本，沒有資訊量，單獨成候選時跳過。
@@ -91,8 +91,12 @@ export const DEFAULT_MODEL: ModelConfig = {
   vixMaxStaleSessions: 3,
 };
 
+/** 計分目標：up = 21 日後收高；dd5（D4）= t+1..t+21 任一收盤 ≤ t 日收盤 × 0.95。兩者標籤在同一天（t+21 收盤）才知道。 */
+export type Label = "up" | "dd5";
+export const DD5_THRESHOLD = 0.95;
+
 export interface Rate {
-  /** 上漲比例 */
+  /** 標籤為真的比例（up：上漲；dd5：出現 ≥5% 回撤） */
   p: number;
   /** 重疊窗口的天數 */
   days: number;
@@ -128,7 +132,13 @@ export interface Observation {
   up: boolean | null;
   /** 這個標籤在哪一天收盤後才知道 */
   knownOn: string | null;
+  /** D4：t+1..t+21 任一收盤 ≤ close × 0.95；t+21 不存在為 null（缺省視同 null） */
+  dd5?: boolean | null;
+  /** 21 個交易日報酬（t+21 收盤 ÷ t 收盤 − 1）；只用於顯示分位數 */
+  ret?: number | null;
 }
+
+export const labelOf = (o: Observation, label: Label): boolean | null => (label === "up" ? o.up : (o.dd5 ?? null));
 
 /** M5：spx 第 i 天可用的 VIX（當天或之前最近一筆，且不早於 spx.points[i−maxStale].date）；沒有就 null。maxStale 為 null 時不設下限。 */
 export function vixAt(spx: Series, vix: Series, i: number, maxStale: number | null): number | null {
@@ -159,7 +169,17 @@ export function buildObservations(spx: Series, vix: Series, cfg: ModelConfig = D
       regime[f.id] = x;
     }
     const future = pts[i + HORIZON];
-    return { date: p.date, close: p.close, regime, up: future ? future.close > p.close : null, knownOn: future?.date ?? null };
+    let dd5: boolean | null = null;
+    if (future) {
+      dd5 = false;
+      for (let k = 1; k <= HORIZON; k++) {
+        if (pts[i + k].close <= p.close * DD5_THRESHOLD) {
+          dd5 = true;
+          break;
+        }
+      }
+    }
+    return { date: p.date, close: p.close, regime, up: future ? future.close > p.close : null, knownOn: future?.date ?? null, dd5, ret: future ? future.close / p.close - 1 : null };
   });
 }
 
@@ -168,20 +188,21 @@ function matches(r: RegimeFlags, cond: Partial<RegimeFlags>): boolean {
   return true;
 }
 
-/** 在「asOf 當天收盤後已知」的標籤中，符合條件的上漲比例。 */
-export function conditionalRate(obs: Observation[], asOf: string, cond: Partial<RegimeFlags> = {}): Rate | null {
+/** 在「asOf 當天收盤後已知」的標籤中，符合條件的標籤為真比例（label 預設 up）。 */
+export function conditionalRate(obs: Observation[], asOf: string, cond: Partial<RegimeFlags> = {}, label: Label = "up"): Rate | null {
   let ups = 0;
   let days = 0;
   let episodes = 0;
   let prev = -Infinity;
   for (let i = 0; i < obs.length; i++) {
     const o = obs[i];
-    if (o.up === null || !o.knownOn || o.knownOn > asOf || !o.regime) continue;
+    const y = labelOf(o, label);
+    if (y === null || !o.knownOn || o.knownOn > asOf || !o.regime) continue;
     if (!matches(o.regime, cond)) continue;
     days++;
     if (i - prev >= HORIZON) episodes++;
     prev = i;
-    if (o.up) ups++;
+    if (y) ups++;
   }
   return rateOf(ups, days, episodes);
 }
@@ -205,8 +226,8 @@ export interface Pick {
  * 只用 asOf 當天已知的資料，替 regime 挑一個機率：
  * 依 cfg.candidates 的順序試（預設先最細的 200 日線 × VIX，再單一條件），有效樣本或段數（G04）不足就往下，再不夠就用基準率。
  */
-export function pickProbability(obs: Observation[], asOf: string, regime: RegimeFlags, cfg: ModelConfig = DEFAULT_MODEL): Pick | null {
-  const base = conditionalRate(obs, asOf);
+export function pickProbability(obs: Observation[], asOf: string, regime: RegimeFlags, cfg: ModelConfig = DEFAULT_MODEL, label: Label = "up"): Pick | null {
+  const base = conditionalRate(obs, asOf, {}, label);
   if (!base) return null;
   const flagOf = new Map(cfg.flags.map((f) => [f.id, f]));
   for (const ids of cfg.candidates) {
@@ -215,7 +236,7 @@ export function pickProbability(obs: Observation[], asOf: string, regime: Regime
     if (defs.length === 1 && defs[0].skipSingleWhen !== undefined && regime[defs[0].id] === defs[0].skipSingleWhen) continue;
     const cond: RegimeFlags = {};
     for (const id of ids) cond[id] = regime[id];
-    const r = conditionalRate(obs, asOf, cond);
+    const r = conditionalRate(obs, asOf, cond, label);
     if (!r || r.nEff < cfg.minEffectiveN || r.episodes < cfg.minEpisodes) continue;
     const basis = defs.map((f) => f.basisId).join("+");
     const distinct = base.p < r.low || base.p > r.high;
@@ -291,7 +312,8 @@ export interface WalkRow {
  * 每次只用當天已知的標籤估機率，再跟實際結果比。
  * 給 opts.dates 時只算這些日期（略過暖機與間隔限制，由呼叫端決定；標籤未知或 regime 為 null 的日子仍然不算）。
  */
-export function walkForwardRows(obs: Observation[], cfg: ModelConfig = DEFAULT_MODEL, opts: { dates?: string[]; label?: "up"; burnInDays?: number } = {}): WalkRow[] {
+export function walkForwardRows(obs: Observation[], cfg: ModelConfig = DEFAULT_MODEL, opts: { dates?: string[]; label?: Label; burnInDays?: number } = {}): WalkRow[] {
+  const label = opts.label ?? "up";
   const burnInDays = opts.burnInDays ?? 504;
   const only = opts.dates ? new Set(opts.dates) : null;
   const rows: WalkRow[] = [];
@@ -300,9 +322,10 @@ export function walkForwardRows(obs: Observation[], cfg: ModelConfig = DEFAULT_M
   let lastRow = -Infinity;
   for (let i = 0; i < obs.length; i++) {
     const j = i - HORIZON;
-    if (j >= 0 && obs[j].regime && obs[j].up !== null) known++;
+    if (j >= 0 && obs[j].regime && labelOf(obs[j], label) !== null) known++;
     const o = obs[i];
-    if (!o.regime || o.up === null) continue;
+    const y = labelOf(o, label);
+    if (!o.regime || y === null) continue;
     if (only) {
       if (!only.has(o.date)) continue;
     } else {
@@ -310,9 +333,9 @@ export function walkForwardRows(obs: Observation[], cfg: ModelConfig = DEFAULT_M
       if (i - lastRow < HORIZON) continue;
       lastRow = i;
     }
-    const pick = pickProbability(obs, o.date, o.regime, cfg);
+    const pick = pickProbability(obs, o.date, o.regime, cfg, label);
     if (!pick) continue;
-    rows.push({ date: o.date, basis: pick.basis, p: pick.p, pBase: pick.base.p, y: o.up ? 1 : 0, distinct: pick.distinct, cell: pick.cell });
+    rows.push({ date: o.date, basis: pick.basis, p: pick.p, pBase: pick.base.p, y: y ? 1 : 0, distinct: pick.distinct, cell: pick.cell });
   }
   return rows;
 }
@@ -438,8 +461,8 @@ export function evaluateRows(rows: WalkRow[], bootstrap: BootstrapCfg = DEFAULT_
 }
 
 /** 滾動驗證 = 逐點預測 + 評估。 */
-export function walkForward(obs: Observation[], burnInDays = 504, blockSize?: number, resamples?: number, cfg: ModelConfig = DEFAULT_MODEL): Evaluation {
-  return evaluateRows(walkForwardRows(obs, cfg, { burnInDays }), { ...cfg.bootstrap, blockSize: blockSize ?? cfg.bootstrap.blockSize, resamples: resamples ?? cfg.bootstrap.resamples });
+export function walkForward(obs: Observation[], burnInDays = 504, blockSize?: number, resamples?: number, cfg: ModelConfig = DEFAULT_MODEL, label: Label = "up"): Evaluation {
+  return evaluateRows(walkForwardRows(obs, cfg, { burnInDays, label }), { ...cfg.bootstrap, blockSize: blockSize ?? cfg.bootstrap.blockSize, resamples: resamples ?? cfg.bootstrap.resamples });
 }
 
 export interface Outlook {
@@ -456,9 +479,56 @@ export interface Outlook {
   evaluation: Evaluation;
   /** G03：今天所選 cell 的閘門（列數 ≥ 30、段數 ≥ 8、bssLow > 0）；call 另外還要 pick.distinct */
   cellGate: CellGate;
+  /** G09／D4：21 日內出現 ≥5% 回撤的機率；同一套 regime、候選、G04、G01、G08、G03 機制。scored = 全域 bssLow > 0 且所用 cell nEff ≥ 30、段數 ≥ 8，否則只供參考 */
+  drawdown: { pick: Pick; evaluation: Evaluation; cellGate: CellGate; scored: boolean };
+  /** L04：過去 21 日報酬的 10／50／90 百分位（只顯示、不計分）；cell = 今天所選條件，all = 不分條件 */
+  returnQuantiles: { cell: ReturnQuantiles | null; all: ReturnQuantiles | null };
   /** "up"／"down"／"inconclusive"：只有條件機率顯著不同於基準、且滾動驗證勝過基準時才給方向 */
   call: "up" | "down" | "inconclusive";
   reasons: string[];
+}
+
+export interface ReturnQuantiles {
+  p10: number;
+  p50: number;
+  p90: number;
+  n: number;
+}
+
+/** 線性內插的分位數（q 在 0..1）；xs 需已排序且非空。 */
+export function quantileOf(xs: number[], q: number): number {
+  const pos = (xs.length - 1) * q;
+  const lo = Math.floor(pos);
+  const hi = Math.ceil(pos);
+  return xs[lo] + (xs[hi] - xs[lo]) * (pos - lo);
+}
+
+/** asOf 當天已知的 21 日報酬（符合條件者）的 10／50／90 百分位；沒有樣本回 null。 */
+export function returnQuantiles(obs: Observation[], asOf: string, cond: Partial<RegimeFlags> = {}): ReturnQuantiles | null {
+  const xs: number[] = [];
+  for (const o of obs) {
+    if (o.ret === null || o.ret === undefined || !o.knownOn || o.knownOn > asOf || !o.regime || !matches(o.regime, cond)) continue;
+    xs.push(o.ret);
+  }
+  if (!xs.length) return null;
+  xs.sort((a, b) => a - b);
+  return { p10: quantileOf(xs, 0.1), p50: quantileOf(xs, 0.5), p90: quantileOf(xs, 0.9), n: xs.length };
+}
+
+/** 由 pick 還原所選候選的旗標條件（基準率為 {}）。 */
+export function condOfPick(pick: Pick, regime: RegimeFlags, cfg: ModelConfig = DEFAULT_MODEL): RegimeFlags {
+  if (pick.basis === "base") return {};
+  const flagOf = new Map(cfg.flags.map((f) => [f.id, f]));
+  const ids = cfg.candidates.find((c) => c.map((id) => flagOf.get(id)!.basisId).join("+") === pick.basis && pick.cell === `${pick.basis}(${c.map((id) => `${id}=${regime[id]}`).join(",")})`) ?? [];
+  const cond: RegimeFlags = {};
+  for (const id of ids) cond[id] = regime[id];
+  return cond;
+}
+
+/** G09：dd5 是否計分（全域 bssLow > 0，且所用 cell（無條件候選時為基準率）nEff ≥ minEffectiveN、段數 ≥ minEpisodes）。 */
+export function drawdownScored(pick: Pick, evaluation: Evaluation, cfg: ModelConfig = DEFAULT_MODEL): boolean {
+  const used = pick.conditional ?? pick.base;
+  return evaluation.bssLow !== null && evaluation.bssLow > 0 && used.nEff >= cfg.minEffectiveN && used.episodes >= cfg.minEpisodes;
 }
 
 export interface CellGate {
@@ -492,6 +562,10 @@ export function buildOutlook(spx: Series, vix: Series, cfg: ModelConfig = DEFAUL
   const sma = smaSeries(spx.points, 200).at(-1) as number;
   const evaluation = walkForward(obs, 504, undefined, undefined, cfg);
   const cellGate = cellGateOf(evaluation.byCell, pick.cell);
+  const ddPick = pickProbability(obs, last.date, last.regime, cfg, "dd5");
+  if (!ddPick) return null;
+  const ddEval = walkForward(obs, 504, undefined, undefined, cfg, "dd5");
+  const cond = condOfPick(ddPick, last.regime, cfg);
   const reasons: string[] = [];
   if (!pick.distinct) reasons.push("目前條件下的上漲比例，信賴區間包含歷史基準率（或樣本不足），看不出差別");
   if (evaluation.bssLow === null) reasons.push("滾動驗證的預測次數不足 12 次");
@@ -515,6 +589,8 @@ export function buildOutlook(spx: Series, vix: Series, cfg: ModelConfig = DEFAUL
     pick,
     evaluation,
     cellGate,
+    drawdown: { pick: ddPick, evaluation: ddEval, cellGate: cellGateOf(ddEval.byCell, ddPick.cell), scored: drawdownScored(ddPick, ddEval, cfg) },
+    returnQuantiles: { cell: returnQuantiles(obs, last.date, cond), all: returnQuantiles(obs, last.date) },
     call,
     reasons,
   };

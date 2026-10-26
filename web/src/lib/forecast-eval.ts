@@ -1,7 +1,7 @@
 // 回測用的評估工具：stationary bootstrap、配對比較、相位平均、虛無分佈。純計算，不碰 D1 與網路。
 // 規則出處：docs/forecast.md「事前登記」（G08、L02、L03、L08、配對）。
 
-import { EVAL_SEED, G08_BOOTSTRAP, HORIZON, callOf, cellEvaluations, cellGateOf, mulberry32, sdOf, stationaryBootstrapIndices, walkForwardRows, type ModelConfig, type Observation, type WalkRow } from "./forecast.ts";
+import { EVAL_SEED, G08_BOOTSTRAP, HORIZON, callOf, cellEvaluations, cellGateOf, mulberry32, sdOf, stationaryBootstrapIndices, walkForwardRows, type Label, type ModelConfig, type Observation, type WalkRow } from "./forecast.ts";
 
 // 評估用的 bootstrap 原語（stationary bootstrap、固定種子）定義在 forecast.ts（正式版 G08 與回測共用），這裡再匯出。
 export { EVAL_SEED, stationaryBootstrapIndices };
@@ -143,7 +143,7 @@ export function phaseGrid(refObs: Observation[], burnInDays = 504, phases = PHAS
 }
 
 /** 在格點上跑 walk-forward（dates 選項）；回傳 [相位][格] 的列，缺的格是 null。 */
-export function phaseCells(obs: Observation[], cfg: ModelConfig, grid: number[][], label: "up"): Cells {
+export function phaseCells(obs: Observation[], cfg: ModelConfig, grid: number[][], label: Label): Cells {
   return grid.map((idx) => {
     const rows = walkForwardRows(obs, cfg, { dates: idx.map((i) => obs[i].date), label });
     const by = new Map(rows.map((r) => [r.date, r]));
@@ -197,7 +197,7 @@ export function phaseAverageFromCells(cellsA: Cells, opts: BootOpts & { cellsB?:
   return { bssByPhase, rowsByPhase, mean, min: Math.min(...bssByPhase), max: Math.max(...bssByPhase), ci: { point: mean, low, high, sd: sdOf(stats) }, cycles };
 }
 
-export function phaseAveraged(obs: Observation[], cfg: ModelConfig, label: "up", opts: BootOpts & { phases?: number; grid?: number[][] } = {}): PhaseResult {
+export function phaseAveraged(obs: Observation[], cfg: ModelConfig, label: Label, opts: BootOpts & { phases?: number; grid?: number[][] } = {}): PhaseResult {
   const grid = opts.grid ?? phaseGrid(obs, 504, opts.phases);
   return phaseAverageFromCells(phaseCells(obs, cfg, grid, label), opts);
 }
@@ -206,7 +206,7 @@ export function phaseAveraged(obs: Observation[], cfg: ModelConfig, label: "up",
  * 配對的相位平均 BSS（候選 vs 參考）：訓練樣本取兩者 regime 的交集，
  * 一律在參考變體的格點上評分；回報整格被捨去的格數（任一方缺列）。
  */
-export function pairedPhaseAveraged(refObs: Observation[], candObs: Observation[], refCfg: ModelConfig, candCfg: ModelConfig, opts: BootOpts & { phases?: number; label?: "up" } = {}): PhaseResult {
+export function pairedPhaseAveraged(refObs: Observation[], candObs: Observation[], refCfg: ModelConfig, candCfg: ModelConfig, opts: BootOpts & { phases?: number; label?: Label } = {}): PhaseResult {
   const [r, c] = intersectRegimes(refObs, candObs);
   const grid = phaseGrid(r, 504, opts.phases);
   const label = opts.label ?? "up";
@@ -217,7 +217,7 @@ export function pairedPhaseAveraged(refObs: Observation[], candObs: Observation[
  * 配對的相位平均 Brier 差（候選 − 參考）：與 pairedPhaseAveraged 同一組交集、格點與 cycle bootstrap，
  * 統計量改為各相位 Brier(候選) − Brier(參考) 再取平均；> 0 表示候選較差。
  */
-export function pairedBrierDiffPhase(refObs: Observation[], candObs: Observation[], refCfg: ModelConfig, candCfg: ModelConfig, opts: BootOpts & { phases?: number; label?: "up" } = {}): PhaseResult {
+export function pairedBrierDiffPhase(refObs: Observation[], candObs: Observation[], refCfg: ModelConfig, candCfg: ModelConfig, opts: BootOpts & { phases?: number; label?: Label } = {}): PhaseResult {
   const [r, c] = intersectRegimes(refObs, candObs);
   const grid = phaseGrid(r, 504, opts.phases);
   const label = opts.label ?? "up";
@@ -225,7 +225,7 @@ export function pairedBrierDiffPhase(refObs: Observation[], candObs: Observation
 }
 
 /** L03：配對 Brier 差下界以外，報告差的 CI 下界在種子 1..5 下的 MC 標準誤（不除以 √5）。 */
-export function pairedBrierDiffMcStdErr(refObs: Observation[], candObs: Observation[], refCfg: ModelConfig, candCfg: ModelConfig, opts: BootOpts & { phases?: number; label?: "up"; seeds?: number[] } = {}): { values: number[]; mean: number; se: number } {
+export function pairedBrierDiffMcStdErr(refObs: Observation[], candObs: Observation[], refCfg: ModelConfig, candCfg: ModelConfig, opts: BootOpts & { phases?: number; label?: Label; seeds?: number[] } = {}): { values: number[]; mean: number; se: number } {
   const [r, c] = intersectRegimes(refObs, candObs);
   const grid = phaseGrid(r, 504, opts.phases);
   const label = opts.label ?? "up";
@@ -261,7 +261,7 @@ export function mcStdErr(fn: (seed: number) => number | null, seeds: number[] = 
  * L03 對「決策用下界」的 MC 標準誤：配對（候選 vs 參考）相位平均 BSS 的下界，
  * 在同一組交集後觀測與同一組格點上，用種子 1..5 各跑一次 cycle bootstrap，回傳 5 個下界的標準差（不除以 √5）。
  */
-export function pairedMcStdErr(refObs: Observation[], candObs: Observation[], refCfg: ModelConfig, candCfg: ModelConfig, opts: BootOpts & { phases?: number; label?: "up"; seeds?: number[] } = {}): { values: number[]; mean: number; se: number } {
+export function pairedMcStdErr(refObs: Observation[], candObs: Observation[], refCfg: ModelConfig, candCfg: ModelConfig, opts: BootOpts & { phases?: number; label?: Label; seeds?: number[] } = {}): { values: number[]; mean: number; se: number } {
   const [r, c] = intersectRegimes(refObs, candObs);
   const grid = phaseGrid(r, 504, opts.phases);
   const label = opts.label ?? "up";

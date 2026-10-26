@@ -531,7 +531,12 @@ export async function recordForecast(db: D1Database): Promise<ForecastRecord> {
         S, outlook.pick.p, outlook.pick.base.p, outlook.pick.basis, outlook.call, outlook.close, nowIso(),
         outlook.modelVersion, JSON.stringify(outlook.regime), outlook.pick.conditional?.p ?? null, outlook.pick.conditional?.nEff ?? null,
         outlook.evaluation.bssLow, outlook.historyStart,
-        JSON.stringify({ vixDate: S, vix: vixToday, spxCheck: status, recordedLagSessions: lag }),
+        // bss_low 欄位存的是全域值；up 的 cell 閘門與 dd5（G09）一併記在 detail。
+        JSON.stringify({
+          vixDate: S, vix: vixToday, spxCheck: status, recordedLagSessions: lag,
+          cellGate: outlook.cellGate,
+          drawdown: { p: outlook.drawdown.pick.p, base: outlook.drawdown.pick.base.p, scored: outlook.drawdown.scored, cellGate: outlook.drawdown.cellGate },
+        }),
       )
       .run();
     if ((res.meta?.changes ?? 0) > 0) {

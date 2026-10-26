@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Series } from "../src/lib/analytics.ts";
-import { DEFAULT_MODEL, EVAL_SEED, HORIZON, MIN_CELL_ROWS, MIN_CELL_RUNS, MIN_EPISODES, MIN_VALID_REPLICATES, buildObservations, buildOutlook, callOf, cellEvaluations, cellGateOf, conditionalRate, evaluateRows, mulberry32, pickProbability, sdOf, stationaryBootstrapIndices, walkForward, walkForwardRows, wilson, type CellEval, type ModelConfig, type Observation, type WalkRow } from "../src/lib/forecast.ts";
+import { DEFAULT_MODEL, EVAL_SEED, HORIZON, drawdownScored, returnQuantiles, MIN_CELL_ROWS, MIN_CELL_RUNS, MIN_EPISODES, MIN_VALID_REPLICATES, buildObservations, buildOutlook, callOf, cellEvaluations, cellGateOf, conditionalRate, evaluateRows, mulberry32, pickProbability, sdOf, stationaryBootstrapIndices, walkForward, walkForwardRows, wilson, type CellEval, type ModelConfig, type Observation, type WalkRow } from "../src/lib/forecast.ts";
 import { PHASES, bssOf, phaseGrid, pointInTimeCalls } from "../src/lib/forecast-eval.ts";
 
 const day = (i: number) => new Date(Date.UTC(2015, 0, 1) + i * 864e5).toISOString().slice(0, 10);
@@ -261,7 +261,7 @@ test("walkForward = evaluateRows(walkForwardRows)；只有趨勢旗標的模型�
   const o = buildOutlook(series(spx), series(vix), trendOnly)!;
   assert.equal(o.modelVersion, "test-trend");
   assert.equal(o.pick.basis, "trend");
-  assert.equal(buildOutlook(series(spx), series(vix))!.modelVersion, "2026-10-g03g08");
+  assert.equal(buildOutlook(series(spx), series(vix))!.modelVersion, "2026-10-g09");
 
   // dates 只算指定日期。
   const some = rows.slice(0, 3).map((r) => r.date);
@@ -504,4 +504,108 @@ test("G03 (d)：兩個列數與段數都夠的 cell，一個有 skill、一個�
   // 今天的 cell 是反向的那個：即使 pick.distinct，也不給方向；是 skill 的那個才給。
   assert.equal(callOf({ p: 0.45, distinct: true }, cellGateOf(ev, "B")), "inconclusive");
   assert.equal(callOf({ p: 0.95, distinct: true }, cellGateOf(ev, "A")), "up");
+});
+
+// ---- D4／G09：dd5 目標 ----
+
+test("D4 標籤：21 個交易日內任一收盤 ≤ 95% 才為 1；最後 21 列為 null；knownOn 與 up 相同", () => {
+  const n = 60;
+  const closes = Array.from({ length: n }, () => 100);
+  closes[15] = 94; // 距 t=0 為 15 天內、跌 6% → dd5
+  closes[40] = 96; // 跌 4%：不算
+  const obs = buildObservations(series(closes), series(closes.map(() => 15)));
+  assert.equal(obs[0].dd5, true);
+  assert.equal(obs[0].knownOn, day(21));
+  // t=19：窗口 t+1..t+21 = 20..40，只有 96（−4%）→ 0
+  assert.equal(obs[19].dd5, false);
+  // t=16..（窗口含 40 但不含 15）；t=-: 窗口剛好包含第 15 天的最後一個 t 是 14
+  assert.equal(obs[14].dd5, true);
+  assert.equal(obs[15].dd5, false);
+  for (let i = n - HORIZON; i < n; i++) assert.equal(obs[i].dd5, null, `row ${i}`);
+  assert.equal(obs[n - HORIZON - 1].dd5 !== null, true);
+  // 恰好 −5% 也算（≤）
+  const edge = Array.from({ length: 30 }, () => 100);
+  edge[5] = 95;
+  assert.equal(buildObservations(series(edge), series(edge.map(() => 15)))[0].dd5, true);
+  // 21 日報酬
+  assert.equal(obs[0].ret, 0);
+  assert.ok(Math.abs(obs[19].ret! - (closes[40] / closes[19] - 1)) < 1e-12);
+});
+
+function dd5Obs(n: number): Observation[] {
+  const rand = mulberry32(11);
+  const flags: { a: boolean; v: boolean }[] = [];
+  return Array.from({ length: n }, (_, i) => {
+    const b = Math.floor(i / 30);
+    flags[b] ??= { a: rand() > 0.4, v: rand() > 0.5 };
+    const { a, v } = flags[b];
+    const known = i + 21 < n;
+    return {
+      date: day(i),
+      close: 100,
+      regime: { aboveSma200: a, vixStress: v },
+      up: known ? rand() > 0.35 : null,
+      knownOn: known ? day(i + 21) : null,
+      dd5: known ? rand() < (v ? 0.7 : 0.1) : null,
+      ret: known ? rand() * 0.1 - 0.05 : null,
+    };
+  });
+}
+
+test("dd5 的 pick／walk-forward：regime 相關的回撤機率被抓到，且有 skill", () => {
+  const obs = dd5Obs(4000);
+  const asOf = day(3999);
+  const calm = pickProbability(obs, asOf, { aboveSma200: true, vixStress: false }, DEFAULT_MODEL, "dd5")!;
+  const stress = pickProbability(obs, asOf, { aboveSma200: true, vixStress: true }, DEFAULT_MODEL, "dd5")!;
+  assert.equal(stress.basis, "trend+vix");
+  assert.ok(stress.p > 0.5 && calm.p < 0.25, `${stress.p} ${calm.p}`);
+  assert.ok(Math.abs(stress.base.p - conditionalRate(obs, asOf, {}, "dd5")!.p) < 1e-12);
+  const ev = walkForward(obs, 504, undefined, undefined, DEFAULT_MODEL, "dd5");
+  assert.ok(ev.bssLow! > 0, `bssLow ${ev.bssLow}`);
+  assert.ok(ev.points > 50);
+  // up 目標不受 dd5 標籤影響：up 的 base 與只看 up 欄位一致。
+  const upBase = conditionalRate(obs, asOf)!;
+  const upOnly = conditionalRate(obs.map((o) => ({ ...o, dd5: null })), asOf)!;
+  assert.deepEqual(upBase, upOnly);
+  const rows = walkForwardRows(obs, DEFAULT_MODEL, { label: "dd5" });
+  assert.ok(rows.every((r) => r.y === 0 || r.y === 1));
+});
+
+test("G09 計分判定：全域 bssLow > 0 且所用 cell nEff ≥ 30、段數 ≥ 8", () => {
+  const obs = dd5Obs(4000);
+  const pick = pickProbability(obs, day(3999), { aboveSma200: true, vixStress: true }, DEFAULT_MODEL, "dd5")!;
+  const ev = walkForward(obs, 504, undefined, undefined, DEFAULT_MODEL, "dd5");
+  assert.equal(drawdownScored(pick, ev), true);
+  assert.equal(drawdownScored(pick, { ...ev, bssLow: -0.01 }), false);
+  assert.equal(drawdownScored(pick, { ...ev, bssLow: null }), false);
+  const thin = { ...pick, conditional: { ...pick.conditional!, nEff: 29 } };
+  assert.equal(drawdownScored(thin, ev), false);
+  assert.equal(drawdownScored({ ...pick, conditional: { ...pick.conditional!, episodes: 7 } }, ev), false);
+});
+
+test("returnQuantiles：已知分佈的 10／50／90 百分位，只用 asOf 已知且符合條件的列", () => {
+  const obs: Observation[] = Array.from({ length: 150 }, (_, i) => ({
+    date: day(i), close: 100, regime: { aboveSma200: i < 100, vixStress: false }, up: true, knownOn: day(i + 21), dd5: false, ret: i < 100 ? i / 100 : 9,
+  }));
+  const q = returnQuantiles(obs, day(1000), { aboveSma200: true })!;
+  assert.equal(q.n, 100);
+  assert.ok(Math.abs(q.p10 - 0.099) < 1e-12 && Math.abs(q.p50 - 0.495) < 1e-12 && Math.abs(q.p90 - 0.891) < 1e-12);
+  // knownOn ≤ asOf：asOf = day(60) 只含 i + 21 ≤ 60 的列（i = 0..39）
+  assert.equal(returnQuantiles(obs, day(60), { aboveSma200: true })!.n, 40);
+  assert.equal(returnQuantiles(obs, day(0)), null);
+  assert.equal(returnQuantiles(obs, day(1000))!.n, 150);
+});
+
+test("buildOutlook 帶 drawdown 與 returnQuantiles（加法式），up 的欄位不變", () => {
+  const n = 1200;
+  const rand = mulberry32(5);
+  let px = 100;
+  const closes = Array.from({ length: n }, () => (px *= 1 + (rand() - 0.47) * 0.02));
+  const o = buildOutlook(series(closes), series(closes.map(() => 15)))!;
+  assert.ok(o.drawdown.pick.base.p >= 0 && o.drawdown.pick.base.p <= 1);
+  assert.equal(typeof o.drawdown.scored, "boolean");
+  assert.ok(o.drawdown.cellGate && o.drawdown.evaluation.points > 0);
+  assert.ok(o.returnQuantiles.all!.p10 < o.returnQuantiles.all!.p50 && o.returnQuantiles.all!.p50 < o.returnQuantiles.all!.p90);
+  assert.ok(o.returnQuantiles.cell!.n > 0);
+  assert.equal(o.modelVersion, "2026-10-g09");
 });

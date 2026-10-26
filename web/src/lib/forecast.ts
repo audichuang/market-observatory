@@ -12,7 +12,65 @@ export const HORIZON = 21;
 export const MIN_EFFECTIVE_N = 30;
 export const VIX_STRESS = 30;
 
+/** 預設模型的 regime 形狀（App 非可選解碼，欄位不能變）。 */
 export type Regime = { aboveSma200: boolean; vixStress: boolean };
+/** 一般化的 regime：旗標 id → 是否成立。 */
+export type RegimeFlags = Record<string, boolean>;
+
+/** 計算旗標時能看到的當日資料。 */
+export interface FlagCtx {
+  date: string;
+  index: number;
+  close: number;
+  /** 200 日線；資料不足為 null */
+  sma200: number | null;
+  /** 當日（或之前最近一天）的 VIX；缺值為 null */
+  vix: number | null;
+}
+
+export interface FlagDef {
+  id: string;
+  /** 組成 Pick.basis 的名稱（多個旗標以 + 連接） */
+  basisId: string;
+  /** 算不出來（資料不足）回 null，該日 regime 即為 null */
+  compute: (ctx: FlagCtx) => boolean | null;
+  /** 單一旗標的候選在 regime[id] 等於這個值時跳過（沒有資訊量） */
+  skipSingleWhen?: boolean;
+}
+
+/** 所有模型變化都走這個設定；DEFAULT_MODEL 必須與重構前的行為完全一致。 */
+export interface ModelConfig {
+  version: string;
+  flags: FlagDef[];
+  /** 依序嘗試的旗標 id 組合（明確列出，不由旗標順序推導）；全部落空就用基準率 */
+  candidates: string[][];
+  minEffectiveN: number;
+  /** 保留欄位：0 = 不設門檻 */
+  minEpisodes: number;
+  /** 保留欄位：null = 不收縮 */
+  shrinkK: number | null;
+  bootstrap: { blockSize: number; resamples: number };
+  /** 保留欄位：null = 基準率用全部歷史 */
+  baseWindowStart: string | null;
+  /** 保留欄位：null = VIX 缺值時一直往前找 */
+  vixMaxStaleSessions: number | null;
+}
+
+export const DEFAULT_MODEL: ModelConfig = {
+  version: "2026-10-base",
+  flags: [
+    { id: "aboveSma200", basisId: "trend", compute: (c) => (c.sma200 === null ? null : c.close > c.sma200) },
+    // VIX 一般狀態（<30）幾乎就是全部樣本，沒有資訊量，單獨成候選時跳過。
+    { id: "vixStress", basisId: "vix", compute: (c) => (c.vix === null ? null : c.vix >= VIX_STRESS), skipSingleWhen: false },
+  ],
+  candidates: [["aboveSma200", "vixStress"], ["vixStress"], ["aboveSma200"]],
+  minEffectiveN: MIN_EFFECTIVE_N,
+  minEpisodes: 0,
+  shrinkK: null,
+  bootstrap: { blockSize: 3, resamples: 1000 },
+  baseWindowStart: null,
+  vixMaxStaleSessions: null,
+};
 
 export interface Rate {
   /** 上漲比例 */
@@ -44,31 +102,41 @@ export function rateOf(ups: number, days: number): Rate | null {
 export interface Observation {
   date: string;
   close: number;
-  regime: Regime | null;
+  regime: RegimeFlags | null;
   /** 21 個交易日後是否較高；還不知道就是 null */
   up: boolean | null;
   /** 這個標籤在哪一天收盤後才知道 */
   knownOn: string | null;
 }
 
-/** 把 SPX 與 VIX 對齊成逐日觀測值；200 日線不足、VIX 缺值的日子 regime 為 null。 */
-export function buildObservations(spx: Series, vix: Series): Observation[] {
+/** 把 SPX 與 VIX 對齊成逐日觀測值；任一旗標算不出來（200 日線不足、VIX 缺值）的日子 regime 為 null。 */
+export function buildObservations(spx: Series, vix: Series, cfg: ModelConfig = DEFAULT_MODEL): Observation[] {
   const pts = spx.points;
   const sma = smaSeries(pts, 200);
   return pts.map((p, i) => {
     const v = vix.at(p.date) ?? vix.onOrBefore(p.date)?.close ?? null;
-    const regime = sma[i] === null || v === null ? null : { aboveSma200: p.close > (sma[i] as number), vixStress: v >= VIX_STRESS };
+    const ctx: FlagCtx = { date: p.date, index: i, close: p.close, sma200: sma[i], vix: v };
+    let regime: RegimeFlags | null = {};
+    for (const f of cfg.flags) {
+      const x = f.compute(ctx);
+      if (x === null) {
+        regime = null;
+        break;
+      }
+      regime[f.id] = x;
+    }
     const future = pts[i + HORIZON];
     return { date: p.date, close: p.close, regime, up: future ? future.close > p.close : null, knownOn: future?.date ?? null };
   });
 }
 
-function matches(r: Regime, cond: Partial<Regime>): boolean {
-  return (cond.aboveSma200 === undefined || r.aboveSma200 === cond.aboveSma200) && (cond.vixStress === undefined || r.vixStress === cond.vixStress);
+function matches(r: RegimeFlags, cond: Partial<RegimeFlags>): boolean {
+  for (const k in cond) if (cond[k] !== undefined && r[k] !== cond[k]) return false;
+  return true;
 }
 
 /** 在「asOf 當天收盤後已知」的標籤中，符合條件的上漲比例。 */
-export function conditionalRate(obs: Observation[], asOf: string, cond: Partial<Regime> = {}): Rate | null {
+export function conditionalRate(obs: Observation[], asOf: string, cond: Partial<RegimeFlags> = {}): Rate | null {
   let ups = 0;
   let days = 0;
   for (const o of obs) {
@@ -83,7 +151,8 @@ export function conditionalRate(obs: Observation[], asOf: string, cond: Partial<
 export interface Pick {
   p: number;
   /** 採用的依據 */
-  basis: "base" | "trend" | "vix" | "trend+vix";
+  /** "base" 或旗標 basisId 以 + 連接（預設模型：trend+vix／vix／trend） */
+  basis: string;
   base: Rate;
   conditional: Rate | null;
   /** 條件機率的區間不含基準率、且有效樣本夠，才算「條件有差」 */
@@ -92,21 +161,21 @@ export interface Pick {
 
 /**
  * 只用 asOf 當天已知的資料，替 regime 挑一個機率：
- * 先試最細的組合（200 日線 × VIX），有效樣本不足就退到單一條件，再不夠就用基準率。
+ * 依 cfg.candidates 的順序試（預設先最細的 200 日線 × VIX，再單一條件），有效樣本不足就往下，再不夠就用基準率。
  */
-export function pickProbability(obs: Observation[], asOf: string, regime: Regime): Pick | null {
+export function pickProbability(obs: Observation[], asOf: string, regime: RegimeFlags, cfg: ModelConfig = DEFAULT_MODEL): Pick | null {
   const base = conditionalRate(obs, asOf);
   if (!base) return null;
-  const candidates: [Pick["basis"], Partial<Regime>][] = [
-    ["trend+vix", regime],
-    ["vix", { vixStress: regime.vixStress }],
-    ["trend", { aboveSma200: regime.aboveSma200 }],
-  ];
-  for (const [basis, cond] of candidates) {
+  const flagOf = new Map(cfg.flags.map((f) => [f.id, f]));
+  for (const ids of cfg.candidates) {
+    const defs = ids.map((id) => flagOf.get(id)!);
+    // 單一旗標的候選若處於「沒有資訊量」的狀態就跳過。
+    if (defs.length === 1 && defs[0].skipSingleWhen !== undefined && regime[defs[0].id] === defs[0].skipSingleWhen) continue;
+    const cond: RegimeFlags = {};
+    for (const id of ids) cond[id] = regime[id];
     const r = conditionalRate(obs, asOf, cond);
-    if (!r || r.nEff < MIN_EFFECTIVE_N) continue;
-    // VIX 一般狀態（<30）幾乎就是全部樣本，沒有資訊量，跳過。
-    if (basis === "vix" && !regime.vixStress) continue;
+    if (!r || r.nEff < cfg.minEffectiveN) continue;
+    const basis = defs.map((f) => f.basisId).join("+");
     const distinct = base.p < r.low || base.p > r.high;
     // 區間包含基準率就看不出差別：輸出基準率，條件機率只留著給頁面對照。
     return { p: distinct ? r.p : base.p, basis, base, conditional: r, distinct };
@@ -141,12 +210,24 @@ function mulberry32(seed: number) {
   };
 }
 
+export interface WalkRow {
+  date: string;
+  basis: string;
+  p: number;
+  pBase: number;
+  y: number;
+  distinct: boolean;
+}
+
 /**
- * 滾動驗證：從有 burnInDays 天已知標籤之後開始，每 21 個交易日預測一次（不重疊），
+ * 滾動驗證的逐點預測：從有 burnInDays 天已知標籤之後開始，每 21 個交易日預測一次（不重疊），
  * 每次只用當天已知的標籤估機率，再跟實際結果比。
+ * 給 opts.dates 時只算這些日期（略過暖機與間隔限制，由呼叫端決定；標籤未知或 regime 為 null 的日子仍然不算）。
  */
-export function walkForward(obs: Observation[], burnInDays = 504, blockSize = 3, resamples = 1000): Evaluation {
-  const rows: { date: string; p: number; pBase: number; y: number }[] = [];
+export function walkForwardRows(obs: Observation[], cfg: ModelConfig = DEFAULT_MODEL, opts: { dates?: string[]; label?: "up"; burnInDays?: number } = {}): WalkRow[] {
+  const burnInDays = opts.burnInDays ?? 504;
+  const only = opts.dates ? new Set(opts.dates) : null;
+  const rows: WalkRow[] = [];
   // 第 j 天的標籤在第 j+21 天收盤後已知，所以到第 i 天為止已知的標籤，就是 i−21 天以前、有 regime 的那些。
   let known = 0;
   let lastRow = -Infinity;
@@ -155,17 +236,27 @@ export function walkForward(obs: Observation[], burnInDays = 504, blockSize = 3,
     if (j >= 0 && obs[j].regime && obs[j].up !== null) known++;
     const o = obs[i];
     if (!o.regime || o.up === null) continue;
-    if (known < burnInDays) continue;
-    if (i - lastRow < HORIZON) continue;
-    lastRow = i;
-    const pick = pickProbability(obs, o.date, o.regime);
+    if (only) {
+      if (!only.has(o.date)) continue;
+    } else {
+      if (known < burnInDays) continue;
+      if (i - lastRow < HORIZON) continue;
+      lastRow = i;
+    }
+    const pick = pickProbability(obs, o.date, o.regime, cfg);
     if (!pick) continue;
-    rows.push({ date: o.date, p: pick.p, pBase: pick.base.p, y: o.up ? 1 : 0 });
+    rows.push({ date: o.date, basis: pick.basis, p: pick.p, pBase: pick.base.p, y: o.up ? 1 : 0, distinct: pick.distinct });
   }
+  return rows;
+}
+
+/** 由逐點預測算命中率、Brier、BSS 與區塊 bootstrap 區間。 */
+export function evaluateRows(rows: WalkRow[], bootstrap: { blockSize: number; resamples: number } = DEFAULT_MODEL.bootstrap): Evaluation {
+  const { blockSize, resamples } = bootstrap;
   const empty: Evaluation = { points: rows.length, hitRate: null, baseHitRate: null, brier: null, brierBase: null, bss: null, bssLow: null, bssHigh: null, firstDate: null, lastDate: null };
   if (rows.length < 12) return empty;
-  const brierOf = (rs: typeof rows, key: "p" | "pBase") => rs.reduce((a, r) => a + (r[key] - r.y) ** 2, 0) / rs.length;
-  const bssOf = (rs: typeof rows) => {
+  const brierOf = (rs: WalkRow[], key: "p" | "pBase") => rs.reduce((a, r) => a + (r[key] - r.y) ** 2, 0) / rs.length;
+  const bssOf = (rs: WalkRow[]) => {
     const b = brierOf(rs, "pBase");
     return b === 0 ? 0 : 1 - brierOf(rs, "p") / b;
   };
@@ -174,7 +265,7 @@ export function walkForward(obs: Observation[], burnInDays = 504, blockSize = 3,
   const stats: number[] = [];
   const blocks = Math.ceil(rows.length / blockSize);
   for (let k = 0; k < resamples; k++) {
-    const sample: typeof rows = [];
+    const sample: WalkRow[] = [];
     for (let b = 0; b < blocks; b++) {
       const start = Math.floor(rand() * (rows.length - blockSize + 1));
       sample.push(...rows.slice(start, start + blockSize));
@@ -196,10 +287,16 @@ export function walkForward(obs: Observation[], burnInDays = 504, blockSize = 3,
   };
 }
 
+/** 滾動驗證 = 逐點預測 + 評估。 */
+export function walkForward(obs: Observation[], burnInDays = 504, blockSize?: number, resamples?: number, cfg: ModelConfig = DEFAULT_MODEL): Evaluation {
+  return evaluateRows(walkForwardRows(obs, cfg, { burnInDays }), { blockSize: blockSize ?? cfg.bootstrap.blockSize, resamples: resamples ?? cfg.bootstrap.resamples });
+}
+
 export interface Outlook {
+  modelVersion: string;
   asOf: string;
   horizonDays: number;
-  regime: Regime;
+  regime: RegimeFlags;
   close: number;
   sma200: number;
   vix: number;
@@ -210,20 +307,21 @@ export interface Outlook {
   reasons: string[];
 }
 
-export function buildOutlook(spx: Series, vix: Series): Outlook | null {
-  const obs = buildObservations(spx, vix);
+export function buildOutlook(spx: Series, vix: Series, cfg: ModelConfig = DEFAULT_MODEL): Outlook | null {
+  const obs = buildObservations(spx, vix, cfg);
   const last = obs.at(-1);
   if (!last?.regime) return null;
-  const pick = pickProbability(obs, last.date, last.regime);
+  const pick = pickProbability(obs, last.date, last.regime, cfg);
   if (!pick) return null;
   const sma = smaSeries(spx.points, 200).at(-1) as number;
-  const evaluation = walkForward(obs);
+  const evaluation = walkForward(obs, 504, undefined, undefined, cfg);
   const reasons: string[] = [];
   if (!pick.distinct) reasons.push("目前條件下的上漲比例，信賴區間包含歷史基準率（或樣本不足），看不出差別");
   if (evaluation.bssLow === null) reasons.push("滾動驗證的預測次數不足 12 次");
   else if (evaluation.bssLow <= 0) reasons.push("滾動驗證中，這套條件機率沒有穩定勝過「永遠用基準率」");
   const conclusive = pick.distinct && evaluation.bssLow !== null && evaluation.bssLow > 0;
   return {
+    modelVersion: cfg.version,
     asOf: last.date,
     horizonDays: HORIZON,
     regime: last.regime,

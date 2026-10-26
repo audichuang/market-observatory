@@ -183,9 +183,43 @@ test("walkForward = evaluateRows(walkForwardRows)；只有趨勢旗標的模型�
   const o = buildOutlook(series(spx), series(vix), trendOnly)!;
   assert.equal(o.modelVersion, "test-trend");
   assert.notEqual(o.pick.basis, "vix");
-  assert.equal(buildOutlook(series(spx), series(vix))!.modelVersion, "2026-10-base");
+  assert.equal(buildOutlook(series(spx), series(vix))!.modelVersion, "2026-10-m1m5");
 
   // dates 只算指定日期。
   const some = rows.slice(0, 3).map((r) => r.date);
   assert.deepEqual(walkForwardRows(tObs, trendOnly, { dates: some }).map((r) => r.date), some);
+});
+
+test("M5：VIX 比最後一個 SPX 日期早結束 5 個交易日 → 沒有展望；3 個交易日以內仍有", () => {
+  const n = 900;
+  const spx = series(Array.from({ length: n }, (_, i) => 100 + i));
+  const vixEndingBefore = (k: number) => series(Array.from({ length: n - k }, () => 15));
+  assert.equal(buildOutlook(spx, vixEndingBefore(5)), null);
+  assert.equal(buildOutlook(spx, vixEndingBefore(4)), null);
+  const o = buildOutlook(spx, vixEndingBefore(3))!;
+  assert.ok(o.regime);
+  assert.equal(o.vix, 15);
+  // Outlook.vix 與 regime 用同一個有界查找；不設上限（舊行為）時 5 天前的 VIX 仍被沿用。
+  assert.ok(buildOutlook(spx, vixEndingBefore(5), { ...DEFAULT_MODEL, vixMaxStaleSessions: null }));
+});
+
+test("D1：1990-01-02 之前的觀測值沒有 regime，historyStart 與條件樣本都不含更早的日子", () => {
+  const n = 9000;
+  const dayFrom1985 = (i: number) => new Date(Date.UTC(1985, 0, 1) + i * 864e5).toISOString().slice(0, 10);
+  const spx = new Series(Array.from({ length: n }, (_, i) => ({ date: dayFrom1985(i), close: 100 + i })));
+  const vix = new Series(Array.from({ length: n }, (_, i) => ({ date: dayFrom1985(i), close: 15 })));
+  const obs = buildObservations(spx, vix);
+  assert.ok(obs.some((o) => o.date < "1990-01-02"));
+  assert.ok(obs.filter((o) => o.date < "1990-01-02").every((o) => o.regime === null));
+  const o = buildOutlook(spx, vix)!;
+  assert.ok(o.historyStart! >= "1990-01-02", `historyStart=${o.historyStart}`);
+  const legacy: ModelConfig = { ...DEFAULT_MODEL, baseWindowStart: null, vixMaxStaleSessions: null };
+  const lo = buildOutlook(spx, vix, legacy)!;
+  assert.ok(lo.historyStart! < "1990-01-02");
+  const asOf = obs.at(-1)!.date;
+  const windowed = conditionalRate(obs, asOf)!;
+  const full = conditionalRate(buildObservations(spx, vix, legacy), asOf)!;
+  assert.ok(windowed.days < full.days);
+  // 窗口內第一天的 SMA200 用到窗口前的 SPX 暖機資料，所以 historyStart 就是 1990-01-02。
+  assert.equal(o.historyStart, "1990-01-02");
 });

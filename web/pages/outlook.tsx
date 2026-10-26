@@ -23,7 +23,7 @@ export default function OutlookPage({ outlook, cells, track, recent, consensus, 
     return (
       <>
         <h1>下月展望</h1>
-        <div className="notice warn">歷史資料不足，無法計算。</div>
+        <div className="notice warn">資料不足，或 VIX 超過 3 個交易日未更新</div>
       </>
     );
   }
@@ -55,7 +55,7 @@ export default function OutlookPage({ outlook, cells, track, recent, consensus, 
         <div className="outlook-call">
           <span className={`badge ${cls} big`}>{label}</span>
           <p className="sub">{why}</p>
-          <p className="sub">歷史基準：{pct(pick.base.p)}（有效樣本約 {Math.round(pick.base.nEff)} 個月）</p>
+          <p className="sub">歷史基準：{pct(pick.base.p)}（有效樣本約 {Math.round(pick.base.nEff)} 個月）{outlook.historyStart && <span className="meta"> · 樣本起點 {outlook.historyStart}</span>}</p>
         </div>
         <div className="prob-bar" aria-hidden>
           <div className="prob-ci" style={{ left: `${(pick.conditional?.low ?? pick.base.low) * 100}%`, width: `${((pick.conditional?.high ?? pick.base.high) - (pick.conditional?.low ?? pick.base.low)) * 100}%` }} />

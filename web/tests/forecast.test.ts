@@ -810,6 +810,7 @@ test("season 候選設定與觀測值；預設模型不變", () => {
   const last = o.at(-1)!;
   assert.equal(last.regime!.winter, isWinter(last.date));
   assert.equal(Object.keys(buildObservations(spx, vix).at(-1)!.regime!).length, 2);
+});
 
 test("L01：方向相對基準率，不是 50%", () => {
   const pass = { passed: true };

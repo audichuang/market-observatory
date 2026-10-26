@@ -5,5 +5,5 @@
 
 ## 交付
 
-- 宣告完成、合併、部署或上傳 TestFlight 之前，照 `/verify`（`.claude/skills/verify/`）把改到的功能實際操作一遍並留證據；單元測試與 build 通過不等於驗證過。驗不到的項目要明說「未驗證：缺什麼」。
+- 宣告完成、合併、部署或上傳 TestFlight 之前，照 `/verify`（`.claude/skills/verify/`）把改到的功能實際操作一遍並留證據；單元測試與 build 通過不等於驗證過。網頁用 ego-browser 點；iOS 畫面用 `scripts/ios-walkthrough.sh`、互動（切換、輸入、左滑、推播點開）用 `scripts/ios-test.sh` 跑 `VerifyInteractionTests`，細節在 SKILL.md 的 Drive。驗不到的項目要明說「未驗證：缺什麼」。
 - 功能地圖（`.claude/skills/verify/features/`）跟著功能改：新增或改變使用者看得到的行為時一起更新；定期用 `/maintain-verification-skill` 對帳。

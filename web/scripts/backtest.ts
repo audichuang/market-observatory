@@ -7,18 +7,32 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { Series } from "../src/lib/analytics.ts";
 import { addDays } from "../src/lib/calendar.ts";
-import { DEFAULT_MODEL, HORIZON, MIN_EFFECTIVE_N, VIX_STRESS, buildObservations, evaluateRows, type ModelConfig } from "../src/lib/forecast.ts";
-import { EVAL_DEFAULTS, PHASES, bootstrapCI, brierOf, bssOf, cellKeyOf, intersectRegimes, mcStdErr, nullPairedBss, pairedBrierDiffMcStdErr, pairedBrierDiffPhase, pairedMcStdErr, pairedPhaseAveraged, phaseAverageFromCells, phaseCells, phaseGrid, pointInTimeCalls, summarizeByCell } from "../src/lib/forecast-eval.ts";
+import { DEFAULT_MODEL, HORIZON, MIN_EFFECTIVE_N, VIX_STRESS, buildObservations, evaluateRows, type ModelConfig, type WalkRow } from "../src/lib/forecast.ts";
+import { EVAL_DEFAULTS, PHASES, bootstrapCI, brierOf, bssOf, intersectRegimes, mcStdErr, nullPairedBss, pairedBrierDiffMcStdErr, pairedBrierDiffPhase, pairedMcStdErr, pairedPhaseAveraged, phaseAverageFromCells, phaseCells, phaseGrid, pointInTimeCalls } from "../src/lib/forecast-eval.ts";
 import { CBOE_URLS, parseCboeCsv } from "../src/lib/sources/cboe.ts";
 
-// 變體登錄：base／hard = 現行 DEFAULT_MODEL；shrink40 = G01 收縮 k=40；shrink20／shrink80 只做敏感度。
+// 變體登錄：base／shrink40 = 現行 DEFAULT_MODEL（G01 k=40 + G03 + G08）；hard = G01 之前的硬切換；shrink20／shrink80 只做敏感度；
+// pre-g03 = G03／G08 之前的預設（同一組 p；舊區塊 bootstrap 3/1000；方向閘門用舊規則：distinct 且全域 bssLow > 0，見 legacyCalls），只供記錄對照。
 const VARIANTS: Record<string, ModelConfig> = {
   base: DEFAULT_MODEL,
+  "pre-g03": { ...DEFAULT_MODEL, version: "2026-10-g01", bootstrap: { kind: "block", blockSize: 3, resamples: 1000 } },
   hard: { ...DEFAULT_MODEL, version: "2026-10-g04", shrinkK: null },
   shrink40: DEFAULT_MODEL,
   shrink20: { ...DEFAULT_MODEL, version: "2026-10-g04+shrink20", shrinkK: 20 },
   shrink80: { ...DEFAULT_MODEL, version: "2026-10-g04+shrink80", shrinkK: 80 },
 };
+/** G03 之前的方向閘門（point-in-time）：distinct 且 prior 列（至少 12 列）的全域 bssLow > 0；只用在 pre-g03 對照。 */
+function legacyCalls(rows: WalkRow[], knownOn: Map<string, string | null>, cfg: ModelConfig): ("up" | "down" | "inconclusive")[] {
+  return rows.map((r) => {
+    const prior = rows.filter((x) => {
+      const k = knownOn.get(x.date);
+      return k !== null && k !== undefined && k <= r.date;
+    });
+    if (prior.length < 12 || !r.distinct) return "inconclusive";
+    const low = evaluateRows(prior, cfg.bootstrap).bssLow;
+    return low !== null && low > 0 ? (r.p >= 0.5 ? "up" : "down") : "inconclusive";
+  });
+}
 const SENSITIVITY = new Set(["shrink20", "shrink80"]);
 // 目標登錄：dd5 的標籤與計分在之後的票接上（forecast.ts 的 label 選項）。
 const TARGETS = ["up"] as const;
@@ -72,7 +86,7 @@ const out: Record<string, unknown> = {
     models: names.map((n) => `${n}=${VARIANTS[n].version}`),
     window: { since, asOf, prodWindow: args["prod-window"], target },
     constants: { HORIZON, MIN_EFFECTIVE_N, VIX_STRESS, burnInDays: 504, phases: PHASES },
-    bootstrap: { existing: "區塊 bootstrap（evaluateRows，區塊長依 cfg，種子依列數）", stationary: boot },
+    bootstrap: { evaluateRows: "依 cfg.bootstrap（DEFAULT = G08 stationary；pre-g03 = 舊區塊法）；cell／MDE 一律 G08 stationary", stationary: boot },
     mcSeeds: [1, 2, 3, 4, 5],
   },
 };
@@ -108,12 +122,11 @@ for (const name of names) {
   const st = bootstrapCI(rows, bssOf, boot);
   const phase = phaseAverageFromCells(cells, boot);
   const mc = mcStdErr((seed) => phaseAverageFromCells(cells, { ...boot, seed }).ci.low);
-  // 方向計數：與 buildOutlook 同一個閘門，每列只用當時已知的 walk-forward 列（point-in-time）。
+  // 方向計數：與 buildOutlook 同一個 G03 閘門（pre-g03 除外），每列只用當時已知的 walk-forward 列（point-in-time）。
   const knownOn = new Map(obs.map((o) => [o.date, o.knownOn]));
   const calls = { up: 0, down: 0, inconclusive: 0 };
-  for (const c of pointInTimeCalls(rows, knownOn, cfg.bootstrap)) calls[c]++;
-  const regimeOf = new Map(obs.map((o) => [o.date, o.regime]));
-  const cellsSummary = summarizeByCell(rows, (r) => cellKeyOf(r, (d) => regimeOf.get(d) ?? null, cfg), boot);
+  for (const c of name === "pre-g03" ? legacyCalls(rows, knownOn, cfg) : pointInTimeCalls(rows, knownOn)) calls[c]++;
+  const cellsSummary = ev.byCell;
   const paired = name === refName ? null : pairedPhaseAveraged(refObsRaw, rawObs, refCfg, cfg, boot);
   const pairedMc = paired && pairedMcStdErr(refObsRaw, rawObs, refCfg, cfg, boot);
   const entry: Record<string, unknown> = { variant: name, version: cfg.version, historyStart, rows: rows.length, first: ev.firstDate, last: ev.lastDate, evaluation: ev, stationary: st, brier: brierOf(rows), hitRate: ev.hitRate, calls, phase: { mean: phase.mean, min: phase.min, max: phase.max, ci: phase.ci, byPhase: phase.bssByPhase, cycles: phase.cycles }, mc, pairedMc, cells: cellsSummary, paired: paired && { mean: paired.mean, ci: paired.ci, min: paired.min, max: paired.max, cycles: paired.cycles } };
@@ -129,13 +142,13 @@ for (const name of names) {
   const lines = SENSITIVITY.has(name) ? sensLines : mainLines;
   lines.push("", `== 變體 ${name}（${cfg.version}）history_start ${historyStart}`);
   lines.push(`列數 ${rows.length}（${ev.firstDate} .. ${ev.lastDate}）`);
-  lines.push(`BSS 區塊 bootstrap ${ci(ev.bss ?? NaN, ev.bssLow ?? NaN, ev.bssHigh ?? NaN)}；stationary ${ci(st.point, st.low, st.high)}`);
+  lines.push(`BSS evaluateRows（${cfg.bootstrap.kind}）${ci(ev.bss ?? NaN, ev.bssLow ?? NaN, ev.bssHigh ?? NaN)}；stationary ${ci(st.point, st.low, st.high)}；MDE ${fmt(ev.mde)}`);
   lines.push(`Brier ${fmt(ev.brier, 4)}（基準 ${fmt(ev.brierBase, 4)}）；命中率 ${fmt(ev.hitRate)}（永遠看漲 ${fmt(ev.baseHitRate)}）`);
   lines.push(`方向（point-in-time）up ${calls.up} / down ${calls.down} / inconclusive ${calls.inconclusive}`);
   lines.push(`相位平均 BSS ${ci(phase.mean, phase.ci.low, phase.ci.high)}（各相位 ${fmt(phase.min)} ~ ${fmt(phase.max)}）；格 ${phase.cycles.used}/${phase.cycles.total}，捨去 ${phase.cycles.dropped}`);
   lines.push(`下界 MC 標準誤（standalone，相位平均 BSS 的下界）${fmt(mc.se, 4)}（種子 1..5：${mc.values.map((v) => fmt(v)).join(", ")}；決策用種子 ${fixedSeed}）`);
-  lines.push("cell                                  列數  段數  BSS [CI]                      MDE");
-  for (const b of cellsSummary) lines.push(`${b.cell.padEnd(36)} ${String(b.rows).padStart(4)} ${String(b.runs).padStart(5)}  ${ci(b.bss.point, b.bss.low, b.bss.high).padEnd(28)} ${fmt(b.mde)}`);
+  lines.push("cell                                  列數  段數  BSS [CI]                      MDE    有效重抽");
+  for (const b of cellsSummary) lines.push(`${b.cell.padEnd(36)} ${String(b.rows).padStart(4)} ${String(b.runs).padStart(5)}  ${ci(b.bss, b.bssLow ?? NaN, b.bssHigh ?? NaN).padEnd(28)} ${fmt(b.mde)}  ${b.validReplicates}`);
   if (paired) lines.push(`配對相位平均 BSS（${name} vs ${refName}）${ci(paired.mean, paired.ci.low, paired.ci.high)}；格 ${paired.cycles.used}/${paired.cycles.total}，捨去 ${paired.cycles.dropped}`);
   if (pairedDiff) lines.push(`配對相位平均 Brier 差（${name} − ${refName}，> 0 表示 ${name} 較差）${fmt(pairedDiff.mean, 5)} [${fmt(pairedDiff.ci.low, 5)}, ${fmt(pairedDiff.ci.high, 5)}]；格 ${pairedDiff.cycles.used}/${pairedDiff.cycles.total}；差的下界 MC 標準誤（種子 1..5 的 sd）${fmt(pairedDiffMc!.se, 5)}（${pairedDiffMc!.values.map((v) => fmt(v, 5)).join(", ")}）`);
   if (pairedMc) lines.push(`配對下界 MC 標準誤（決策用，種子 1..5 的 sd）${fmt(pairedMc.se, 4)}（${pairedMc.values.map((v) => fmt(v)).join(", ")}）；|下界| < 2×SE 視為不確定`);

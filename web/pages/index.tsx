@@ -88,7 +88,7 @@ export default function Overview({ snapshot, dates, expectedClose, news, digests
           <div className="sub" style={{ flex: 1 }}>
             歷史基準 {Math.round(forecast.base_rate * 100)}% ·{" "}
             <span className={`badge ${forecast.call === "up" ? "ok" : forecast.call === "down" ? "bad" : "warn"}`}>
-              {forecast.call === "up" ? "偏多" : forecast.call === "down" ? "偏空" : "不確定"}
+              {forecast.call === "up" ? "偏多" : forecast.call === "down" ? "偏空" : "偵測不到 skill"}
             </span>
           </div>
           <span aria-hidden>→</span>

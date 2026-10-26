@@ -354,7 +354,29 @@ final class VerifyInteractionTests: XCTestCase {
         app.buttons["已有帳號，改為登入"].tap(); sleep(1)
         let pw3 = app.secureTextFields["password"]; pw3.tap()
         replaceText(pw3, try XCTUnwrap(env["MO_PASSWORD"]))
+        note("A5-before-relogin", "email=\(app.textFields["email"].value ?? "nil") pw=\(app.secureTextFields["password"].value ?? "nil")")
         app.buttons["submit"].tap()
-        XCTAssertTrue(app.buttons["總覽"].waitForExistence(timeout: 20), "正確密碼登不進去")
+        // 跟 signedIn 一樣：密碼建議列出現時這一下點擊偶爾被吃掉（伺服器紀錄沒有請求），還在登入畫面就再點一次。
+        if !app.buttons["總覽"].waitForExistence(timeout: 8), app.textFields["email"].exists { app.buttons["submit"].tap() }
+        if !app.buttons["總覽"].waitForExistence(timeout: 20) { snap("fail-relogin"); note("fail-relogin", texts(app)) }
+        XCTAssertTrue(app.buttons["總覽"].exists, "正確密碼登不進去")
+    }
+
+    // Z2、Z3：刪除帳號，先取消再確認。只對一次性帳號跑。
+    func test11_DeleteAccount() throws {
+        let app = try signedIn()
+        tab(app, "更多"); open(app, "帳號")
+        let del = app.buttons["刪除帳號"].firstMatch
+        XCTAssertTrue(del.waitForExistence(timeout: 10)); del.tap()
+        XCTAssertTrue(app.alerts["確定要刪除帳號？"].waitForExistence(timeout: 5), "沒有確認對話框")
+        snap("Z2-confirm"); note("Z2-confirm", app.alerts.firstMatch.debugDescription)
+        app.alerts.buttons["取消"].tap(); sleep(2)
+        XCTAssertTrue(app.navigationBars["帳號"].exists, "取消後不在帳號頁")
+        XCTAssertFalse(app.textFields["email"].exists, "取消後被登出了")
+        del.tap()
+        XCTAssertTrue(app.alerts["確定要刪除帳號？"].waitForExistence(timeout: 5))
+        app.alerts.buttons["刪除帳號"].tap()
+        XCTAssertTrue(app.textFields["email"].waitForExistence(timeout: 20), "刪除後沒有回到登入畫面")
+        snap("Z3-deleted")
     }
 }

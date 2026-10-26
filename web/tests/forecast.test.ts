@@ -261,7 +261,7 @@ test("walkForward = evaluateRows(walkForwardRows)；只有趨勢旗標的模型�
   const o = buildOutlook(series(spx), series(vix), trendOnly)!;
   assert.equal(o.modelVersion, "test-trend");
   assert.equal(o.pick.basis, "trend");
-  assert.equal(buildOutlook(series(spx), series(vix))!.modelVersion, "2026-10-g09");
+  assert.equal(buildOutlook(series(spx), series(vix))!.modelVersion, "2026-10-l01");
 
   // dates 只算指定日期。
   const some = rows.slice(0, 3).map((r) => r.date);
@@ -399,11 +399,11 @@ test("G03 空重抽：該 cell 沒有任何列的重抽被跳過；有效重抽 
   assert.equal(cellGateOf([{ ...okEval, bssLow: 0.05, rows: 29 }], "x").passed, false);
   assert.equal(cellGateOf([{ ...okEval, bssLow: 0.05, runs: 7 }], "x").passed, false);
   assert.equal(cellGateOf([{ ...okEval, bssLow: 0, validReplicates: 2000 }], "x").passed, false);
-  // callOf：distinct 與閘門缺一不可；符號沿用 p ≥ 0.5
-  assert.equal(callOf({ p: 0.7, distinct: true }, { passed: true }), "up");
-  assert.equal(callOf({ p: 0.4, distinct: true }, { passed: true }), "down");
-  assert.equal(callOf({ p: 0.7, distinct: false }, { passed: true }), "inconclusive");
-  assert.equal(callOf({ p: 0.7, distinct: true }, { passed: false }), "inconclusive");
+  // callOf：distinct 與閘門缺一不可；方向相對基準率（L01）
+  assert.equal(callOf({ p: 0.7, distinct: true, pBase: 0.6 }, { passed: true }), "up");
+  assert.equal(callOf({ p: 0.4, distinct: true, pBase: 0.6 }, { passed: true }), "down");
+  assert.equal(callOf({ p: 0.7, distinct: false, pBase: 0.6 }, { passed: true }), "inconclusive");
+  assert.equal(callOf({ p: 0.7, distinct: true, pBase: 0.6 }, { passed: false }), "inconclusive");
 });
 
 test("G03 / G08：evaluation.byCell 與 cell 的列數、段數；mde = 2.8 × bootstrap sd（標準差為 0 時 null）；固定種子不依賴列數", () => {
@@ -473,6 +473,10 @@ test("G08 (4) 正向對照：訊號強、滿足 G04 與 G03 (b)(c) 的合成序�
   assert.ok(o.cellGate.validReplicates >= MIN_VALID_REPLICATES);
   assert.equal(o.cellGate.passed, true);
   assert.notEqual(o.call, "inconclusive");
+  // L12：有方向時四個固定評估項都 pass；L01：方向相對基準率
+  assert.deepEqual(Object.values(o.assessments).map((a) => a.status), ["pass", "pass", "pass", "pass"]);
+  assert.equal(o.call, o.pick.p > o.pick.base.p ? "up" : "down");
+  assert.deepEqual(o.reasons, [], "有方向時不能有說「看不出」的理由");
   const mine = o.evaluation.byCell.find((c) => c.cell === o.pick.cell)!;
   assert.equal(mine.bssLow, o.cellGate.bssLow);
   assert.ok(mine.mde! > 0);
@@ -502,8 +506,8 @@ test("G03 (d)：兩個列數與段數都夠的 cell，一個有 skill、一個�
   assert.equal(cellGateOf(ev, "A").passed, true);
   assert.equal(cellGateOf(ev, "B").passed, false);
   // 今天的 cell 是反向的那個：即使 pick.distinct，也不給方向；是 skill 的那個才給。
-  assert.equal(callOf({ p: 0.45, distinct: true }, cellGateOf(ev, "B")), "inconclusive");
-  assert.equal(callOf({ p: 0.95, distinct: true }, cellGateOf(ev, "A")), "up");
+  assert.equal(callOf({ p: 0.45, distinct: true, pBase: 0.6 }, cellGateOf(ev, "B")), "inconclusive");
+  assert.equal(callOf({ p: 0.95, distinct: true, pBase: 0.6 }, cellGateOf(ev, "A")), "up");
 });
 
 // ---- D4／G09：dd5 目標 ----
@@ -607,7 +611,7 @@ test("buildOutlook 帶 drawdown 與 returnQuantiles（加法式），up 的欄�
   assert.ok(o.drawdown.cellGate && o.drawdown.evaluation.points > 0);
   assert.ok(o.returnQuantiles.all!.p10 < o.returnQuantiles.all!.p50 && o.returnQuantiles.all!.p50 < o.returnQuantiles.all!.p90);
   assert.ok(o.returnQuantiles.cell!.n > 0);
-  assert.equal(o.modelVersion, "2026-10-g09");
+  assert.equal(o.modelVersion, "2026-10-l01");
 });
 
 // ---- T11 review：不變量守護 ----
@@ -807,4 +811,15 @@ test("season 候選設定與觀測值；預設模型不變", () => {
   const last = o.at(-1)!;
   assert.equal(last.regime!.winter, isWinter(last.date));
   assert.equal(Object.keys(buildObservations(spx, vix).at(-1)!.regime!).length, 2);
+});
+
+test("L01：方向相對基準率，不是 50%", () => {
+  const pass = { passed: true };
+  // 基準 0.64、p 0.60：高於 50% 但低於平常 → down（舊的 p ≥ 0.5 規則會給 up）
+  assert.equal(callOf({ p: 0.6, distinct: true, base: { p: 0.64 } }, pass), "down");
+  assert.equal(callOf({ p: 0.6, distinct: true, pBase: 0.64 }, pass), "down");
+  // 基準 0.4、p 0.45：低於 50% 但高於平常 → up
+  assert.equal(callOf({ p: 0.45, distinct: true, base: { p: 0.4 } }, pass), "up");
+  // 相等 → inconclusive
+  assert.equal(callOf({ p: 0.64, distinct: true, base: { p: 0.64 } }, pass), "inconclusive");
 });

@@ -52,6 +52,7 @@ test("同一交易日第二次寫入不覆蓋；新欄位都有值", async () =>
   assert.equal(r.bss_low, outlook.evaluation.bssLow);
   const detail = JSON.parse(r.detail as string);
   assert.deepEqual(detail.cellGate, outlook.cellGate);
+  assert.deepEqual(detail.assessments, JSON.parse(JSON.stringify(outlook.assessments)));
   assert.equal(detail.drawdown.p, outlook.drawdown.pick.p);
   assert.equal(detail.drawdown.base, outlook.drawdown.pick.base.p);
   assert.equal(detail.drawdown.scored, outlook.drawdown.scored);

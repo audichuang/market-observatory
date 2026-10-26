@@ -8,7 +8,7 @@ import { parseArgs } from "node:util";
 import { Series } from "../src/lib/analytics.ts";
 import { addDays } from "../src/lib/calendar.ts";
 import { DEFAULT_MODEL, HORIZON, MIN_EFFECTIVE_N, VIX_STRESS, buildObservations, evaluateRows, type ModelConfig } from "../src/lib/forecast.ts";
-import { EVAL_DEFAULTS, PHASES, bootstrapCI, brierOf, bssOf, cellKeyOf, intersectRegimes, mcStdErr, nullPairedBss, pairedPhaseAveraged, phaseAverageFromCells, phaseCells, phaseGrid, pointInTimeCalls, summarizeByCell } from "../src/lib/forecast-eval.ts";
+import { EVAL_DEFAULTS, PHASES, bootstrapCI, brierOf, bssOf, cellKeyOf, intersectRegimes, mcStdErr, nullPairedBss, pairedMcStdErr, pairedPhaseAveraged, phaseAverageFromCells, phaseCells, phaseGrid, pointInTimeCalls, summarizeByCell } from "../src/lib/forecast-eval.ts";
 import { CBOE_URLS, parseCboeCsv } from "../src/lib/sources/cboe.ts";
 
 // 變體登錄：目前只有 base；新變體在登記合併後的票裡加。
@@ -106,7 +106,8 @@ for (const name of names) {
   const regimeOf = new Map(obs.map((o) => [o.date, o.regime]));
   const cellsSummary = summarizeByCell(rows, (r) => cellKeyOf(r, (d) => regimeOf.get(d) ?? null, cfg), boot);
   const paired = name === refName ? null : pairedPhaseAveraged(refObsRaw, rawObs, refCfg, cfg, boot);
-  const entry: Record<string, unknown> = { variant: name, version: cfg.version, historyStart, rows: rows.length, first: ev.firstDate, last: ev.lastDate, evaluation: ev, stationary: st, brier: brierOf(rows), hitRate: ev.hitRate, calls, phase: { mean: phase.mean, min: phase.min, max: phase.max, ci: phase.ci, byPhase: phase.bssByPhase, cycles: phase.cycles }, mc, cells: cellsSummary, paired: paired && { mean: paired.mean, ci: paired.ci, min: paired.min, max: paired.max, cycles: paired.cycles } };
+  const pairedMc = paired && pairedMcStdErr(refObsRaw, rawObs, refCfg, cfg, boot);
+  const entry: Record<string, unknown> = { variant: name, version: cfg.version, historyStart, rows: rows.length, first: ev.firstDate, last: ev.lastDate, evaluation: ev, stationary: st, brier: brierOf(rows), hitRate: ev.hitRate, calls, phase: { mean: phase.mean, min: phase.min, max: phase.max, ci: phase.ci, byPhase: phase.bssByPhase, cycles: phase.cycles }, mc, pairedMc, cells: cellsSummary, paired: paired && { mean: paired.mean, ci: paired.ci, min: paired.min, max: paired.max, cycles: paired.cycles } };
   if (args.null && paired) {
     const nul = nullPairedBss(refObsRaw, rawObs, refCfg, cfg);
     entry.nullThreshold = nul;
@@ -119,10 +120,11 @@ for (const name of names) {
   lines.push(`Brier ${fmt(ev.brier, 4)}（基準 ${fmt(ev.brierBase, 4)}）；命中率 ${fmt(ev.hitRate)}（永遠看漲 ${fmt(ev.baseHitRate)}）`);
   lines.push(`方向（point-in-time）up ${calls.up} / down ${calls.down} / inconclusive ${calls.inconclusive}`);
   lines.push(`相位平均 BSS ${ci(phase.mean, phase.ci.low, phase.ci.high)}（各相位 ${fmt(phase.min)} ~ ${fmt(phase.max)}）；格 ${phase.cycles.used}/${phase.cycles.total}，捨去 ${phase.cycles.dropped}`);
-  lines.push(`下界 MC 標準誤 ${fmt(mc.se, 4)}（種子 1..5：${mc.values.map((v) => fmt(v)).join(", ")}；決策用種子 ${fixedSeed}）`);
+  lines.push(`下界 MC 標準誤（standalone，相位平均 BSS 的下界）${fmt(mc.se, 4)}（種子 1..5：${mc.values.map((v) => fmt(v)).join(", ")}；決策用種子 ${fixedSeed}）`);
   lines.push("cell                                  列數  段數  BSS [CI]                      MDE");
   for (const b of cellsSummary) lines.push(`${b.cell.padEnd(36)} ${String(b.rows).padStart(4)} ${String(b.runs).padStart(5)}  ${ci(b.bss.point, b.bss.low, b.bss.high).padEnd(28)} ${fmt(b.mde)}`);
   if (paired) lines.push(`配對相位平均 BSS（${name} vs ${refName}）${ci(paired.mean, paired.ci.low, paired.ci.high)}；格 ${paired.cycles.used}/${paired.cycles.total}，捨去 ${paired.cycles.dropped}`);
+  if (pairedMc) lines.push(`配對下界 MC 標準誤（決策用，種子 1..5 的 sd）${fmt(pairedMc.se, 4)}（${pairedMc.values.map((v) => fmt(v)).join(", ")}）；|下界| < 2×SE 視為不確定`);
   if (entry.nullThreshold) lines.push(`L08 虛無門檻（20 組最大值）${fmt((entry.nullThreshold as { threshold: number }).threshold)}`);
 }
 if (args.null && names.length < 2) lines.push("", "--null 需要至少兩個變體（參考 + 候選）；略過");

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { DEFAULT_MODEL, mulberry32, walkForwardRows, type Observation, type WalkRow } from "../src/lib/forecast.ts";
-import { bootstrapCI, bssOf, intersectRegimes, nullPairedBss, pairedBrierDiff, pairedPhaseAveraged, phaseAveraged, phaseAverageFromCells, phaseGrid, pointInTimeCalls, stationaryBootstrapIndices, summarizeByCell } from "../src/lib/forecast-eval.ts";
+import { DEFAULT_MODEL, HORIZON, mulberry32, walkForwardRows, type ModelConfig, type Observation, type WalkRow } from "../src/lib/forecast.ts";
+import { EVAL_SEED, bootstrapCI, bssOf, intersectRegimes, nullPairedBss, pairedBrierDiff, pairedMcStdErr, pairedPhaseAveraged, phaseAveraged, phaseAverageFromCells, phaseGrid, pointInTimeCalls, stationaryBootstrapIndices, summarizeByCell } from "../src/lib/forecast-eval.ts";
 
 const day = (i: number) => new Date(Date.UTC(2015, 0, 1) + i * 864e5).toISOString().slice(0, 10);
 const mkRows = (n: number, f: (i: number) => { p: number; pBase: number; y: number }): WalkRow[] =>
@@ -69,6 +69,17 @@ test("bootstrapCI：點估計等於統計量本身", () => {
   assert.equal(bootstrapCI(rows, bssOf, { resamples: 100 }).point, bssOf(rows));
 });
 
+// 有訊號的合成序列：aboveSma200 為真時上漲機率 0.8，否則 0.3；vixStress 偶發。regime 慢速切換，避免每日獨立。
+function informativeObs(n: number): Observation[] {
+  const rand = mulberry32(9);
+  let above = true;
+  return Array.from({ length: n }, (_, i) => {
+    if (rand() < 0.03) above = !above;
+    const up = i + 21 < n ? rand() < (above ? 0.8 : 0.3) : null;
+    return { date: day(i), close: 100, regime: { aboveSma200: above, vixStress: rand() > 0.93 }, up, knownOn: up === null ? null : day(i + 21) };
+  });
+}
+
 const clone = (obs: Observation[]) => obs.map((o) => ({ ...o, regime: o.regime && { ...o.regime } }));
 
 test("A1 相位格點固定：中段 40 天 regime 為 null，各相位仍落在不同日期", () => {
@@ -134,13 +145,85 @@ test("A4 配對：候選多 5 天暖機也能完整配對，丟掉的日期有�
   assert.ok(Number.isFinite(r.ci.low));
 });
 
-test("L08 虛無分佈：20 組、固定種子可重現", () => {
-  const obs = syntheticObs(1200);
-  const a = nullPairedBss(obs, obs, DEFAULT_MODEL, DEFAULT_MODEL, { N: 3, phases: 2, firstDate: day(0) });
-  const b = nullPairedBss(obs, obs, DEFAULT_MODEL, DEFAULT_MODEL, { N: 3, phases: 2, firstDate: day(0) });
-  assert.equal(a.values.length, 3);
+// 獨立重算用：在格點日期上直接跑 walkForwardRows，丟掉不完整的格後取各相位 BSS（配對時為 1 − ΣA/ΣB）的平均。
+function completeCycleMean(a: Observation[], cfgA: ModelConfig, b: Observation[] | null, cfgB: ModelConfig, phases: number): { mean: number; kept: number; meanAll: number } {
+  const grid = phaseGrid(a, 504, phases);
+  const rowsOf = (obs: Observation[], cfg: ModelConfig, o: number) => {
+    const rows = walkForwardRows(obs, cfg, { dates: grid[o].map((i) => obs[i].date) });
+    return grid[o].map((i) => rows.find((r) => r.date === obs[i].date) ?? null);
+  };
+  const A = grid.map((_, o) => rowsOf(a, cfgA, o));
+  const B = b ? grid.map((_, o) => rowsOf(b, cfgB, o)) : null;
+  const total = Math.max(...grid.map((g) => g.length));
+  const keep: number[] = [];
+  for (let k = 0; k < total; k++) if (A.every((c) => c[k]) && (!B || B.every((c) => c[k]))) keep.push(k);
+  const sq = (r: WalkRow) => (r.p - r.y) ** 2;
+  const stat = (ks: number[], o: number) => {
+    const ra = ks.map((k) => A[o][k]).filter((r): r is WalkRow => !!r);
+    if (!B) return 1 - ra.reduce((s, r) => s + (r.p - r.y) ** 2, 0) / ra.reduce((s, r) => s + (r.pBase - r.y) ** 2, 0);
+    const rb = ks.map((k) => B[o][k]).filter((r): r is WalkRow => !!r);
+    return 1 - ra.reduce((s, r) => s + sq(r), 0) / rb.reduce((s, r) => s + sq(r), 0);
+  };
+  const all = Array.from({ length: total }, (_, k) => k);
+  const mean = (ks: number[]) => grid.reduce((s, _, o) => s + stat(ks, o), 0) / grid.length;
+  return { mean: mean(keep), kept: keep.length, meanAll: mean(all) };
+}
+
+test("A2 獨立重算：點估計 = 完整格的平均（含一個影響很大的被捨去的不完整格）", () => {
+  const obs = informativeObs(1500);
+  const grid = phaseGrid(obs);
+  // 讓某個相位的第 10 格 regime 為 null → 該格不完整；其餘相位的第 10 格標籤全翻成與基準相反，使它影響很大
+  obs[grid[3][10]].regime = null;
+  for (let o = 0; o < 21; o++) if (o !== 3) obs[grid[o][10]].up = false;
+  const r = phaseAveraged(obs, DEFAULT_MODEL, "up", { resamples: 50 });
+  const ind = completeCycleMean(obs, DEFAULT_MODEL, null, DEFAULT_MODEL, 21);
+  assert.equal(r.cycles.used, ind.kept);
+  assert.ok(Math.abs(r.mean - ind.mean) < 1e-12, `${r.mean} vs ${ind.mean}`);
+  // 兩種估計法確實不同，測試才有鑑別力
+  assert.ok(Math.abs(ind.mean - ind.meanAll) > 1e-4, `${ind.mean} vs ${ind.meanAll}`);
+});
+
+test("L08 虛無分佈：兩個不同模型、預設 N = 20、值不全相同、第 1 組與獨立重算一致", () => {
+  const obs = informativeObs(3000);
+  const cand: ModelConfig = { ...DEFAULT_MODEL, version: "cand", candidates: [["aboveSma200"]], minEffectiveN: 5 };
+  const phases = 3;
+  // 前段保留真實標籤（讓兩個模型都學到條件機率），只置換 firstDate 之後的標籤，這樣虛無值才會因模型不同而不同
+  const firstDate = day(1800);
+  const a = nullPairedBss(obs, obs, DEFAULT_MODEL, cand, { phases, firstDate });
+  const b = nullPairedBss(obs, obs, DEFAULT_MODEL, cand, { phases, firstDate });
+  assert.equal(a.values.length, 20);
   assert.deepEqual(a, b);
+  assert.ok(new Set(a.values).size > 1, "虛無值不該全部相同");
   assert.equal(a.threshold, Math.max(...a.values));
+  // 獨立重算第 1 組（種子 EVAL_SEED + 1）：區塊長 21×b，b ∈ 6..12，置換每日 up 標籤
+  const [r0, c0] = intersectRegimes(obs, obs);
+  const labeled = r0.flatMap((o, i) => (o.date >= firstDate && o.up !== null ? [i] : []));
+  const rand = mulberry32(EVAL_SEED + 1);
+  const len = (6 + Math.floor(rand() * 7)) * HORIZON;
+  const blocks: number[][] = [];
+  for (let s = 0; s < labeled.length; s += len) blocks.push(labeled.slice(s, s + len));
+  for (let i = blocks.length - 1; i > 0; i--) {
+    const k = Math.floor(rand() * (i + 1));
+    [blocks[i], blocks[k]] = [blocks[k], blocks[i]];
+  }
+  const order = blocks.flat();
+  const perm = (xs: Observation[]) => {
+    const out = xs.map((o) => ({ ...o }));
+    labeled.forEach((pos, n) => (out[pos].up = xs[order[n]].up));
+    return out;
+  };
+  const ind = completeCycleMean(perm(c0), cand, perm(r0), DEFAULT_MODEL, phases);
+  assert.ok(Math.abs(a.values[0] - ind.mean) < 1e-12, `${a.values[0]} vs ${ind.mean}`);
+});
+
+test("B1 配對下界的 MC 標準誤：5 個下界的 sd，兩個不同模型時 > 0 或至少可重現", () => {
+  const obs = informativeObs(1400);
+  const cand: ModelConfig = { ...DEFAULT_MODEL, version: "cand", candidates: [["aboveSma200"]], minEffectiveN: 5 };
+  const a = pairedMcStdErr(obs, obs, DEFAULT_MODEL, cand, { resamples: 100, phases: 3 });
+  assert.equal(a.values.length, 5);
+  assert.ok(new Set(a.values).size > 1);
+  assert.ok(a.se > 0);
+  assert.deepEqual(a, pairedMcStdErr(obs, obs, DEFAULT_MODEL, cand, { resamples: 100, phases: 3 }));
 });
 
 test("per-cell 摘要：段數 = offset 0 列中連續屬於該 cell 的最長段，只算該 cell 的列", () => {

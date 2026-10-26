@@ -261,6 +261,19 @@ export function mcStdErr(fn: (seed: number) => number | null, seeds: number[] = 
 }
 
 /**
+ * L03 對「決策用下界」的 MC 標準誤：配對（候選 vs 參考）相位平均 BSS 的下界，
+ * 在同一組交集後觀測與同一組格點上，用種子 1..5 各跑一次 cycle bootstrap，回傳 5 個下界的標準差（不除以 √5）。
+ */
+export function pairedMcStdErr(refObs: Observation[], candObs: Observation[], refCfg: ModelConfig, candCfg: ModelConfig, opts: BootOpts & { phases?: number; label?: "up"; seeds?: number[] } = {}): { values: number[]; mean: number; se: number } {
+  const [r, c] = intersectRegimes(refObs, candObs);
+  const grid = phaseGrid(r, 504, opts.phases);
+  const label = opts.label ?? "up";
+  const cellsA = phaseCells(c, candCfg, grid, label);
+  const cellsB = phaseCells(r, refCfg, grid, label);
+  return mcStdErr((seed) => phaseAverageFromCells(cellsA, { ...opts, seed, cellsB }).ci.low, opts.seeds);
+}
+
+/**
  * L08 虛無分佈：第 j 組（j = 1..N）用種子 EVAL_SEED + j；區塊長 = 21 × b 個交易日，b 由該種子在 6..12 均勻抽出；
  * 把 firstDate 起每日有標籤的 `up` 以區塊置換（regime 與 knownOn 不動，候選與參考用同一組置換），
  * 再算相位平均配對 BSS（候選 vs 參考）。門檻 = 各組的最大值。

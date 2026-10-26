@@ -50,14 +50,14 @@ export interface ModelConfig {
   /** 保留欄位：null = 不收縮 */
   shrinkK: number | null;
   bootstrap: { blockSize: number; resamples: number };
-  /** 保留欄位：null = 基準率用全部歷史 */
+  /** D1：早於此日的觀測值 regime 為 null（基準率與所有條件只用此日之後）；SPX 之前的資料只用來暖機 200 日線。null = 用全部歷史 */
   baseWindowStart: string | null;
-  /** 保留欄位：null = VIX 缺值時一直往前找 */
+  /** M5：第 i 天只用日期不早於 spx.points[i−n] 的最近一筆 VIX（至多落後 n 個 SPX 交易日），否則該日 regime 為 null。null = 一直往前找 */
   vixMaxStaleSessions: number | null;
 }
 
 export const DEFAULT_MODEL: ModelConfig = {
-  version: "2026-10-base",
+  version: "2026-10-m1m5",
   flags: [
     { id: "aboveSma200", basisId: "trend", compute: (c) => (c.sma200 === null ? null : c.close > c.sma200) },
     // VIX 一般狀態（<30）幾乎就是全部樣本，沒有資訊量，單獨成候選時跳過。
@@ -68,8 +68,8 @@ export const DEFAULT_MODEL: ModelConfig = {
   minEpisodes: 0,
   shrinkK: null,
   bootstrap: { blockSize: 3, resamples: 1000 },
-  baseWindowStart: null,
-  vixMaxStaleSessions: null,
+  baseWindowStart: "1990-01-02",
+  vixMaxStaleSessions: 3,
 };
 
 export interface Rate {
@@ -109,15 +109,27 @@ export interface Observation {
   knownOn: string | null;
 }
 
+/** M5：spx 第 i 天可用的 VIX（當天或之前最近一筆，且不早於 spx.points[i−maxStale].date）；沒有就 null。maxStale 為 null 時不設下限。 */
+export function vixAt(spx: Series, vix: Series, i: number, maxStale: number | null): number | null {
+  const pts = spx.points;
+  const v = vix.onOrBefore(pts[i].date);
+  if (!v) return null;
+  if (maxStale !== null && v.date < pts[Math.max(0, i - maxStale)].date) return null;
+  return v.close;
+}
+
 /** 把 SPX 與 VIX 對齊成逐日觀測值；任一旗標算不出來（200 日線不足、VIX 缺值）的日子 regime 為 null。 */
 export function buildObservations(spx: Series, vix: Series, cfg: ModelConfig = DEFAULT_MODEL): Observation[] {
   const pts = spx.points;
   const sma = smaSeries(pts, 200);
   return pts.map((p, i) => {
-    const v = vix.at(p.date) ?? vix.onOrBefore(p.date)?.close ?? null;
-    const ctx: FlagCtx = { date: p.date, index: i, close: p.close, sma200: sma[i], vix: v };
+    const ctx: FlagCtx = { date: p.date, index: i, close: p.close, sma200: sma[i], vix: vixAt(spx, vix, i, cfg.vixMaxStaleSessions) };
     let regime: RegimeFlags | null = {};
     for (const f of cfg.flags) {
+      if (cfg.baseWindowStart !== null && p.date < cfg.baseWindowStart) {
+        regime = null;
+        break;
+      }
       const x = f.compute(ctx);
       if (x === null) {
         regime = null;
@@ -300,6 +312,8 @@ export interface Outlook {
   close: number;
   sma200: number;
   vix: number;
+  /** 第一個有 regime 的日期（樣本起點；受 baseWindowStart 與暖機影響） */
+  historyStart: string | null;
   pick: Pick;
   evaluation: Evaluation;
   /** "up"／"down"／"inconclusive"：只有條件機率顯著不同於基準、且滾動驗證勝過基準時才給方向 */
@@ -327,7 +341,8 @@ export function buildOutlook(spx: Series, vix: Series, cfg: ModelConfig = DEFAUL
     regime: last.regime,
     close: last.close,
     sma200: sma,
-    vix: vix.onOrBefore(last.date)?.close ?? NaN,
+    vix: vixAt(spx, vix, obs.length - 1, cfg.vixMaxStaleSessions) ?? NaN,
+    historyStart: obs.find((o) => o.regime)?.date ?? null,
     pick,
     evaluation,
     call: !conclusive ? "inconclusive" : pick.p >= 0.5 ? "up" : "down",

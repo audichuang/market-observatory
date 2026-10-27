@@ -460,6 +460,7 @@ struct OverviewView: View {
 
 /// 「今天為什麼漲跌」：排程寫好的一段話，列首色條標整體偏多（紅）或偏空（綠）。
 private struct MarketDigestCard: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let digest: MarketDigest
 
     var body: some View {
@@ -467,17 +468,35 @@ private struct MarketDigestCard: View {
             Capsule().fill(Color.newsTone(digest.tone)).frame(width: 3).frame(maxHeight: .infinity)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
-                    Text("今天為什麼漲跌").font(.subheadline.weight(.semibold)).lineLimit(1)
-                    ToneTag(tone: digest.tone)
-                    Spacer(minLength: 0)
-                }
+                heading
                 Text(digest.summary).font(.subheadline).fixedSize(horizontal: false, vertical: true)
             }
         }
         .cardBackground()
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("market-digest")
+    }
+
+    @ViewBuilder
+    private var heading: some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: 6) {
+                title
+                ToneTag(tone: digest.tone)
+            }
+        } else {
+            HStack(spacing: 6) {
+                title
+                ToneTag(tone: digest.tone)
+                Spacer(minLength: 0)
+            }
+        }
+    }
+
+    private var title: some View {
+        Text("今天為什麼漲跌")
+            .font(.subheadline.weight(.semibold))
+            .fixedSize(horizontal: false, vertical: true)
     }
 }
 

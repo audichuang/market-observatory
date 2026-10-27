@@ -1,4 +1,5 @@
 import XCTest
+import Vision
 
 /// /verify 技能用的互動測試：walkthrough 只逐頁截圖，這裡實際操作（切換、輸入、左滑、對話框、存設定再讀回）。
 /// 環境變數同 WalkthroughTests（TEST_RUNNER_MO_BASE_URL／EMAIL／PASSWORD／SHOTS）。每個 test 把看到的值寫成
@@ -18,6 +19,18 @@ final class VerifyInteractionTests: XCTestCase {
     private func note(_ name: String, _ text: String) {
         try? FileManager.default.createDirectory(at: shots, withIntermediateDirectories: true)
         try? text.write(to: shots.appendingPathComponent("\(name).txt"), atomically: true, encoding: .utf8)
+    }
+
+    private func assertVisibleMarketTitle(_ size: String) throws {
+        // Accessibility labels retain truncated text; recognize the pixels the user actually sees.
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.recognitionLanguages = ["zh-Hant", "en-US"]
+        try VNImageRequestHandler(data: XCUIScreen.main.screenshot().pngRepresentation).perform([request])
+        let visible = (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }
+            .joined().filter { !$0.isWhitespace }
+        note("B12-title-ocr-\(size)", visible)
+        XCTAssertTrue(visible.contains("今天為什麼漲跌"), "市場摘要標題在實際畫面中不完整：\(visible)")
     }
 
     /// 畫面上所有文字（staticTexts 的 label），給對帳用。
@@ -454,6 +467,7 @@ final class VerifyInteractionTests: XCTestCase {
             XCTAssertTrue(market.waitForExistence(timeout: 10), "缺少市場摘要 fixture")
             XCTAssertTrue(market.label.contains("利多") || market.label.contains("利空"), "市場摘要沒有可朗讀的利多／利空標示")
             snap("B12-tone-\(size)"); note("B12-tone-\(size)", market.label)
+            try assertVisibleMarketTitle(size)
             tab(app, "新聞")
             let digest = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'news-digest-' AND (label CONTAINS '利多' OR label CONTAINS '利空')")).firstMatch
             reveal(app, digest)

@@ -12,6 +12,27 @@ export default function EtfPage({ asOf, catalogAsOf, rows, periods, plan, sim, d
   const issue = planIssue(form.data);
   const [monthly, setMonthly] = useState(String(sim.monthlyTwd));
   const [savedDefault, setSavedDefault] = useState(false);
+  const [savingDefault, setSavingDefault] = useState(false);
+  const [defaultError, setDefaultError] = useState<string | null>(null);
+
+  async function saveDefault() {
+    setSavingDefault(true);
+    setSavedDefault(false);
+    setDefaultError(null);
+    try {
+      const res = await action("/etfs", { data: { ...plan, etf: sim.etf, years: sim.years, monthlyTwd: sim.monthlyTwd } });
+      if (!res.ok) {
+        setDefaultError("無法儲存預設，請確認輸入格式後再試");
+        return;
+      }
+      setSavedDefault(true);
+      router.visit(simUrl({}));
+    } catch {
+      setDefaultError("儲存失敗，請檢查網路後再試");
+    } finally {
+      setSavingDefault(false);
+    }
+  }
   useEffect(() => setMonthly(String(sim.monthlyTwd)), [sim.monthlyTwd]);
   const isDefault = plan.etf === sim.etf && plan.years === sim.years && plan.monthlyTwd === sim.monthlyTwd;
   const simUrl = (patch: Partial<typeof sim>) => {
@@ -125,18 +146,15 @@ export default function EtfPage({ asOf, catalogAsOf, rows, periods, plan, sim, d
               <button
                 type="button"
                 className="secondary"
-                disabled={isDefault}
-                onClick={async () => {
-                  await action("/etfs", { data: { ...plan, etf: sim.etf, years: sim.years, monthlyTwd: sim.monthlyTwd } });
-                  setSavedDefault(true);
-                  router.refresh();
-                }}
+                disabled={isDefault || savingDefault}
+                onClick={saveDefault}
               >
-                {isDefault ? "已是我的預設" : "設為我的預設"}
+                {savingDefault ? "儲存中…" : isDefault ? "已是我的預設" : "設為我的預設"}
               </button>
               {savedDefault && isDefault && <span className="badge ok">已儲存</span>}
             </div>
           </form>
+          {defaultError && <p className="error" role="alert">{defaultError}</p>}
           {!dca ? (
             <p className="sub" style={{ marginTop: "1rem" }}>這檔的歷史資料不夠 {sim.years} 年，或尚未回補。</p>
           ) : (
@@ -185,7 +203,7 @@ export default function EtfPage({ asOf, catalogAsOf, rows, periods, plan, sim, d
               待定事項與備註
               <textarea value={form.data.notes} onChange={(e) => form.setData("notes", e.target.value)} />
             </label>
-            {issue ? <p className="error">{issue}</p> : form.error && <p className="error">{String(form.error)}</p>}
+            {issue ? <p className="error" role="status">{issue}</p> : form.error && <p className="error" role="alert">{String(form.error)}</p>}
             <div className="row">
               <button disabled={form.pending || !form.hasChanges || issue !== null}>{form.pending ? "儲存中…" : "儲存規劃"}</button>
               {form.recentlySuccessful && <span className="badge ok">已儲存</span>}

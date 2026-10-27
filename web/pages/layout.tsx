@@ -79,14 +79,14 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           <Link href="/" className="brand" prefetch={PREFETCH} cacheFor={CACHE_FOR}>市場觀測室</Link>
           <nav className="nav" aria-label="主要分頁">
             {NAV.map((n) => (
-              <Link key={n.href} href={n.href} prefetch={PREFETCH} cacheFor={CACHE_FOR} className={isActive(n.href, targetPath) ? "active" : ""}>
+              <Link key={n.href} href={n.href} prefetch={PREFETCH} cacheFor={CACHE_FOR} className={isActive(n.href, targetPath) ? "active" : ""} aria-current={isActive(n.href, targetPath) ? "page" : undefined}>
                 {n.label}
               </Link>
             ))}
           </nav>
           <div className="whoami">
             <span className="hide-sm">{shared.userEmail}</span>
-            <Link href="/sources" prefetch={PREFETCH} cacheFor={CACHE_FOR} className={`show-sm-inline icon-link ${isActive("/sources", targetPath) ? "active" : ""}`} aria-label="資料來源">
+            <Link href="/sources" prefetch={PREFETCH} cacheFor={CACHE_FOR} className={`show-sm-inline icon-link ${isActive("/sources", targetPath) ? "active" : ""}`} aria-label="資料來源" aria-current={isActive("/sources", targetPath) ? "page" : undefined}>
               資料
             </Link>
             <button
@@ -108,7 +108,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       <nav ref={tabbar} className="tabbar" aria-label="主要分頁" data-tab={tabIndex} style={{ "--tab": tabIndex } as React.CSSProperties}>
         <i className="tabbar-pill" aria-hidden />
         {TABS.map((n) => (
-          <Link key={n.href} href={n.href} prefetch={PREFETCH} cacheFor={CACHE_FOR} className={isActive(n.href, targetPath) ? "active" : ""}>
+          <Link key={n.href} href={n.href} prefetch={PREFETCH} cacheFor={CACHE_FOR} className={isActive(n.href, targetPath) ? "active" : ""} aria-current={isActive(n.href, targetPath) ? "page" : undefined}>
             <svg viewBox="0 0 24 24" aria-hidden>
               <path d={n.icon} />
             </svg>

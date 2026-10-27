@@ -270,7 +270,7 @@ export async function etfsView(c: ViewCtx, v: Viewer) {
   const plan = await getViewerSetting<Plan>(c.env.DB, v, PLAN_KEY, DEFAULT_PLAN);
   const etf = ETFS.some((e) => e.ticker === c.req.query("etf")) ? (c.req.query("etf") as string) : plan.etf;
   const years = [1, 2, 3, 5].includes(Number(c.req.query("years"))) ? Number(c.req.query("years")) : plan.years;
-  const monthlyTwd = Number(c.req.query("monthly")) > 0 ? Math.min(Number(c.req.query("monthly")), PLAN_LIMITS.monthlyMaxTwd) : plan.monthlyTwd;
+  const monthlyTwd = Number(c.req.query("monthly")) > 0 ? Math.round(Math.min(Number(c.req.query("monthly")), PLAN_LIMITS.monthlyMaxTwd)) : plan.monthlyTwd;
   const computed = await cachedPage(cacheCtx(c), db, `etfs?etf=${etf}&years=${years}&monthly=${monthlyTwd}`, async () => {
     const last = await db.prepare("SELECT MAX(date) AS d FROM prices WHERE symbol = ?").bind(INDEX_SYMBOL).first<{ d: string | null }>();
     const end = last?.d ?? new Date().toISOString().slice(0, 10);

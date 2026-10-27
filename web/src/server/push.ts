@@ -64,13 +64,18 @@ export interface DeviceRow {
   environment: string;
 }
 
+/** A delivered notification clears the previous failure, for scheduled and manual pushes alike. */
+export function clearDeviceErrorStatement(db: D1Database, token: string): D1PreparedStatement {
+  return db.prepare("UPDATE devices SET last_error = NULL WHERE token = ? AND last_error IS NOT NULL").bind(token);
+}
+
 export const apnsHost = (environment: string) => (environment === "sandbox" ? "https://api.sandbox.push.apple.com" : "https://api.push.apple.com");
 
 export function apnsPayload(msg: PushMessage) {
   return { aps: { alert: { title: msg.title, body: msg.body }, sound: "default", "thread-id": msg.kind }, kind: msg.kind, ...msg.data };
 }
 
-/** 送一則到一台裝置：成功回 "ok"；裝置已註銷（410）回 "gone"；其他錯誤回錯誤說明。 */
+/** 送一則到一台裝置：成功回 "ok"；裝置已註銷或 token 已失效回 "gone"；其他錯誤回錯誤說明。 */
 export async function sendPush(c: ApnsConfig, device: Pick<DeviceRow, "token" | "environment">, msg: PushMessage, budget: Budget): Promise<"ok" | "gone" | string> {
   try {
     const res = await fetchWithTimeout(APNS_SOURCE, `${apnsHost(device.environment)}/3/device/${device.token}`, {
@@ -93,7 +98,19 @@ export async function sendPush(c: ApnsConfig, device: Pick<DeviceRow, "token" | 
     await res.body?.cancel();
     return "ok";
   } catch (e) {
-    if (e instanceof SourceError && e.status === 410) return "gone";
+    if (e instanceof SourceError) {
+      if (e.status === 410) return "gone";
+      if (e.status === 400) {
+        // fetchWithTimeout includes the APNs JSON error body after the HTTP status.
+        const body = e.message.slice(e.message.indexOf("{"));
+        try {
+          const { reason } = JSON.parse(body) as { reason?: string };
+          if (reason === "BadDeviceToken" || reason === "Unregistered") return "gone";
+        } catch {
+          // Non-JSON errors are kept for diagnosis, never treated as invalid tokens.
+        }
+      }
+    }
     return e instanceof Error ? e.message : String(e);
   }
 }
@@ -176,14 +193,16 @@ async function deliver(db: D1Database, cfg: ApnsConfig | null, budget: Budget, d
   const now = jobs.slice(0, room);
   const results = await mapLimit(now, 6, (j) => sendPush(cfg, j.device, j.msg, budget));
   const delivered = new Map<string, number>();
+  const stmts: D1PreparedStatement[] = [];
   results.forEach((r, i) => {
     const j = now[i];
-    if (r === "ok") delivered.set(j.id, (delivered.get(j.id) ?? 0) + 1);
-    else if (r === "gone") gone.push(j.device.token);
+    if (r === "ok") {
+      delivered.set(j.id, (delivered.get(j.id) ?? 0) + 1);
+      stmts.push(clearDeviceErrorStatement(db, j.device.token));
+    } else if (r === "gone") gone.push(j.device.token);
     else errors[`${j.id}@${j.device.token.slice(0, 8)}`] = r;
   });
   for (const j of jobs.slice(room)) errors[`${j.id}@${j.device.token.slice(0, 8)}`] = "請求額度不足，這次沒有送";
-  const stmts: D1PreparedStatement[] = [];
   for (const id of new Set(jobs.map((j) => j.id))) {
     const n = delivered.get(id) ?? 0;
     if (n > 0) {

@@ -12,6 +12,7 @@ let restore: () => void;
 const apnsCalls: { url: string; status: number }[] = [];
 /** 測試可以指定某個 token 回什麼狀態碼（預設 200） */
 const apnsStatus = new Map<string, number>();
+const apnsReason = new Map<string, string>();
 before(() => {
   restore = upstream.install();
   upstream.rules = [
@@ -21,7 +22,7 @@ before(() => {
       const token = u.pathname.split("/").at(-1)!;
       const status = apnsStatus.get(token) ?? 200;
       apnsCalls.push({ url: u.href, status });
-      return new Response(status === 200 ? "" : JSON.stringify({ reason: status === 410 ? "Unregistered" : "BadDeviceToken" }), { status });
+      return new Response(status === 200 ? "" : JSON.stringify({ reason: apnsReason.get(token) ?? (status === 410 ? "Unregistered" : "BadDeviceToken") }), { status });
     },
   ];
 });
@@ -147,4 +148,39 @@ test("收盤推播接在抓價排程後面；沒設定 APNs 金鑰時記成 fail
   const r = await invokeCron(upstream, "prices", db, sql);
   assert.deepEqual(r.runs.map((x) => [x.job, x.status]), [["prices", "ok"], ["notify-close", "failed"]]);
   assert.match(r.runs[1].summary, /尚未設定 APNs 金鑰/);
+});
+
+test("APNs 永久失效 token 刪除、設定錯誤保留；送成功才清除 last_error", async (t) => {
+  const { db, sql } = await seededDb();
+  await invokeCron(upstream, "prices", db, sql);
+  const { pem } = await testKey();
+  const { notifyClose } = await import("../src/server/push.ts");
+  const cases = [
+    { token: "d".repeat(64), status: 200, reason: "", gone: false },
+    { token: "e".repeat(64), status: 400, reason: "BadDeviceToken", gone: true },
+    { token: "f".repeat(64), status: 400, reason: "Unregistered", gone: true },
+    { token: "1".repeat(64), status: 400, reason: "DeviceTokenNotForTopic", gone: false },
+    { token: "2".repeat(64), status: 400, reason: "TopicDisallowed", gone: false },
+    { token: "3".repeat(64), status: 429, reason: "TooManyRequests", gone: false },
+    { token: "4".repeat(64), status: 500, reason: "BadDeviceToken", gone: false },
+  ];
+  for (const c of cases) {
+    addDevice(sql, c.token, "owner", "watchlist");
+    apnsStatus.set(c.token, c.status);
+    apnsReason.set(c.token, c.reason);
+  }
+  sql.prepare("UPDATE devices SET last_error = 'old failure'").run();
+  upstream.reset();
+  const budget = new Budget(100);
+  await notifyClose(db, { teamId: "TEAM123456", keyId: "KEY1234567", privateKey: pem, bundleId: "app.test" }, budget);
+  assert.equal(budget.used, upstream.count);
+  for (const c of cases) await t.test(`${c.status} ${c.reason || "成功"}`, () => {
+    const row = sql.prepare("SELECT last_error FROM devices WHERE token = ?").get(c.token as never) as { last_error: string | null } | undefined;
+    if (c.gone) assert.equal(row, undefined, `${c.status} ${c.reason} 應移除`);
+    else {
+      assert.ok(row, `${c.status} ${c.reason} 應保留`);
+      if (c.status === 200) assert.equal(row.last_error, null, "送達後清除舊錯誤");
+      else assert.match(row.last_error!, new RegExp(c.reason));
+    }
+  });
 });

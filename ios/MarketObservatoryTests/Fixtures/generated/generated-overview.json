@@ -1,0 +1,237 @@
+{
+  "snapshot": {
+    "tradeDate": "2026-10-28",
+    "revision": 1,
+    "reason": "API 契約合成資料",
+    "createdAt": "2026-10-28T23:00:00.000Z",
+    "data": {
+      "version": 1,
+      "tradeDate": "2026-10-28",
+      "prevDate": "2026-10-27",
+      "index": {
+        "close": 2843.0875,
+        "prevClose": 2845.5888,
+        "changePts": -2.5012,
+        "returnPct": -0.0879,
+        "weekPct": -0.373,
+        "monthPct": 0.0648,
+        "ytdPct": 17.5209,
+        "yearPct": 25.7558,
+        "high52": 2858.93,
+        "low52": 2260.8002,
+        "fromHighPct": -0.5541,
+        "sma20": 2854.0293,
+        "sma60": 2777.6268,
+        "sma200": 2598.4367,
+        "check": {
+          "status": "match",
+          "source": null,
+          "close": null
+        }
+      },
+      "vix": {
+        "close": 21.7113,
+        "prevClose": 22.3342,
+        "change": -0.6229,
+        "monthHigh": 33.87138140739115,
+        "monthLow": 21.71131155710019
+      },
+      "breadth": {
+        "rspReturnPct": -0.0867,
+        "spxReturnPct": -0.0879,
+        "spreadPct": 0.0012,
+        "rspMonthPct": 0.0639,
+        "spxMonthPct": 0.0648
+      },
+      "mag7": [
+        {
+          "key": "NVDA",
+          "company": "NVIDIA",
+          "tickers": [
+            "NVDA"
+          ],
+          "close": 2923.0875,
+          "prevClose": 2925.5888,
+          "returnPct": -0.0855,
+          "weightPct": 5.9999,
+          "weightMethod": "rolled",
+          "contributionPts": -0.146,
+          "shareOfMovePct": 5.84,
+          "check": "match"
+        },
+        {
+          "key": "AAPL",
+          "company": "Apple",
+          "tickers": [
+            "AAPL"
+          ],
+          "close": 2943.0875,
+          "prevClose": 2945.5888,
+          "returnPct": -0.0849,
+          "weightPct": 5.4998,
+          "weightMethod": "rolled",
+          "contributionPts": -0.1329,
+          "shareOfMovePct": 5.31,
+          "check": "match"
+        },
+        {
+          "key": "MSFT",
+          "company": "Microsoft",
+          "tickers": [
+            "MSFT"
+          ],
+          "close": 2963.0875,
+          "prevClose": 2965.5888,
+          "returnPct": -0.0843,
+          "weightPct": 4.9998,
+          "weightMethod": "rolled",
+          "contributionPts": -0.12,
+          "shareOfMovePct": 4.8,
+          "check": "match"
+        },
+        {
+          "key": "AMZN",
+          "company": "Amazon",
+          "tickers": [
+            "AMZN"
+          ],
+          "close": 2983.0875,
+          "prevClose": 2985.5888,
+          "returnPct": -0.0838,
+          "weightPct": 4.4998,
+          "weightMethod": "rolled",
+          "contributionPts": -0.1073,
+          "shareOfMovePct": 4.29,
+          "check": "match"
+        },
+        {
+          "key": "GOOGL",
+          "company": "Alphabet",
+          "tickers": [
+            "GOOGL",
+            "GOOG"
+          ],
+          "close": 3003.0875,
+          "prevClose": 3005.5888,
+          "returnPct": -0.083,
+          "weightPct": 7.4996,
+          "weightMethod": "rolled",
+          "contributionPts": -0.177,
+          "shareOfMovePct": 7.08,
+          "check": "match"
+        },
+        {
+          "key": "META",
+          "company": "Meta",
+          "tickers": [
+            "META"
+          ],
+          "close": 3043.0875,
+          "prevClose": 3045.5888,
+          "returnPct": -0.0821,
+          "weightPct": 2.9998,
+          "weightMethod": "rolled",
+          "contributionPts": -0.0701,
+          "shareOfMovePct": 2.8,
+          "check": "match"
+        },
+        {
+          "key": "TSLA",
+          "company": "Tesla",
+          "tickers": [
+            "TSLA"
+          ],
+          "close": 3063.0875,
+          "prevClose": 3065.5888,
+          "returnPct": -0.0816,
+          "weightPct": 2.4998,
+          "weightMethod": "rolled",
+          "contributionPts": -0.058,
+          "shareOfMovePct": 2.32,
+          "check": "match"
+        }
+      ],
+      "mag7Total": {
+        "weightPct": 33.9985,
+        "contributionPts": -0.8113,
+        "shareOfMovePct": 32.44
+      },
+      "rest": {
+        "contributionPts": -1.6899,
+        "impliedReturnPct": -0.09
+      },
+      "weights": {
+        "asOf": "2026-10-28",
+        "method": "rolled",
+        "note": "權重取自 SPY ETF 每日持股（State Street），含少量現金，與 S&P 官方指數權重略有差異"
+      },
+      "quality": {
+        "missing": [],
+        "mismatches": [],
+        "pendingChecks": [],
+        "expectedSession": true,
+        "notes": [
+          "權重由 2026-10-28 的 SPY 持股依價格變動推算到 2026-10-27（假設期間股數不變）"
+        ]
+      },
+      "notTracked": []
+    }
+  },
+  "revisions": [
+    {
+      "revision": 1,
+      "reason": "API 契約合成資料",
+      "createdAt": "2026-10-28T23:00:00.000Z",
+      "digest": "699732de0f852773"
+    }
+  ],
+  "dates": [
+    {
+      "tradeDate": "2026-10-28",
+      "revision": 1
+    },
+    {
+      "tradeDate": "2026-10-27",
+      "revision": 1
+    }
+  ],
+  "expectedClose": "2026-10-28",
+  "news": [],
+  "events": [
+    {
+      "date": "2026-10-28",
+      "kind": "earnings",
+      "symbol": "NVDA",
+      "title": "NVIDIA 財報",
+      "status": "scheduled"
+    }
+  ],
+  "lastPriceRun": null,
+  "forecast": {
+    "trade_date": "2026-09-17",
+    "probability": 0.7,
+    "base_rate": 0.6,
+    "call": "up",
+    "drawdown": {
+      "p": 0.15,
+      "base": 0.2,
+      "scored": true
+    }
+  },
+  "restCount": 1,
+  "viewingLatest": true,
+  "digests": [
+    {
+      "symbol": "NVDA",
+      "date": "2026-10-28",
+      "summary": "合成公司重點",
+      "tone": "positive",
+      "company": "NVIDIA"
+    }
+  ],
+  "market": {
+    "date": "2026-10-28",
+    "summary": "合成市場重點",
+    "tone": "negative"
+  }
+}

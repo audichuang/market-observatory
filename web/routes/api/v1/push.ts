@@ -3,7 +3,7 @@ import { z } from "zod";
 import { requireViewer } from "../../../src/server/account.ts";
 import { PUSH_PREFS_PREFIX, sanitizePrefs } from "../../../src/lib/push.ts";
 import { Budget } from "../../../src/lib/sources/http.ts";
-import { type DeviceRow, apnsConfig, loadPrefs, sendPush } from "../../../src/server/push.ts";
+import { type DeviceRow, apnsConfig, clearDeviceErrorStatement, loadPrefs, sendPush } from "../../../src/server/push.ts";
 import { putSetting } from "../../../src/server/repo.ts";
 
 // 推播偏好（每個帳號一份，所有裝置共用）與「送一則測試推播到我的裝置」。
@@ -35,7 +35,8 @@ export const POST = defineHandler(async (c) => {
   const results = [];
   for (const d of devices.results) {
     const r = await sendPush(cfg, d, msg, budget);
-    if (r === "gone") await c.env.DB.prepare("DELETE FROM devices WHERE token = ?").bind(d.token).run();
+    if (r === "ok") await clearDeviceErrorStatement(c.env.DB, d.token).run();
+    else if (r === "gone") await c.env.DB.prepare("DELETE FROM devices WHERE token = ?").bind(d.token).run();
     results.push({ device: d.token.slice(0, 8), environment: d.environment, result: r });
   }
   return { results };

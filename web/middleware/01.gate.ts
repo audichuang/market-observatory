@@ -17,7 +17,14 @@ const PUBLIC_PREFIXES = [
 
 export default defineMiddleware(async (c, next) => {
   const path = c.req.path;
-  const user = c.get("user");
+  let user = c.get("user");
+  // A signed cookie can outlive account deletion on another device. Check the primary DB
+  // before any handler runs, including GET loaders that initialize per-user settings.
+  if (user && !(await c.env.DB.prepare('SELECT 1 AS present FROM "user" WHERE id = ?').bind(user.id).first())) {
+    c.set("user", null);
+    c.set("session", null);
+    user = null;
+  }
   const viewer = viewerOf(c);
   c.set("shared", { userEmail: user?.email ?? null, isOwner: viewer?.isOwner ?? false, path });
   if (user && path.startsWith("/api/admin/") && !viewer?.isOwner) return c.json({ error: "只有站長能執行" }, 403);

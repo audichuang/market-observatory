@@ -4,6 +4,7 @@ import { requireViewer, watchlistKey } from "../../../src/server/account.ts";
 import { PLAN_KEY } from "../../../src/server/views.ts";
 import { PUSH_PREFS_PREFIX } from "../../../src/lib/push.ts";
 import { Budget } from "../../../src/lib/sources/http.ts";
+import { newTrackedQuotaPrefix } from "../../../src/server/watchlist.ts";
 import { SiwaError, revokeAppleAuthorization, siwaConfig } from "../../../src/server/siwa.ts";
 
 // App 用的 JSON API（/api/v1/*）：跟網頁共用同一份資料（src/server/views.ts），登入狀態同樣由 middleware/01.gate.ts 把關。
@@ -61,6 +62,8 @@ export const DELETE = defineHandler(async (c) => {
 
   await db.batch([
     db.prepare("DELETE FROM settings WHERE key IN (?, ?, ?)").bind(watchlistKey(v), `${PLAN_KEY}:${v.id}`, `${PUSH_PREFS_PREFIX}${v.id}`),
+    // Prefix match without LIKE: '_' in a user id would be a wildcard and hit other users' rows.
+    db.prepare("DELETE FROM settings WHERE substr(key, 1, length(?1)) = ?1").bind(newTrackedQuotaPrefix(v.id)),
     db.prepare("DELETE FROM devices WHERE user_id = ?").bind(v.id),
     db.prepare("DELETE FROM push_log WHERE user_id = ?").bind(v.id),
     db.prepare('DELETE FROM "session" WHERE "userId" = ?').bind(v.id),

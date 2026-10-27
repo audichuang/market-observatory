@@ -38,6 +38,8 @@ final class SessionStore {
     var newsSectionRequest: Int?
     /// 名單每次增刪成功就加一：總覽與走勢據此重新載入。
     var watchlistRevision = 0
+    /// Advances for each push so tabs dismiss sheets and navigation covering its destination.
+    var deepLinkRevision = 0
     /// 名單頁點公司要看走勢：走勢頁讀到後切到該標的並清掉。
     var historySymbol: String?
     /// APNs 權杖存在 UserDefaults：離線啟動（停在 checking、還沒拿到新權杖）時登出也能把這台裝置從伺服器拿掉。
@@ -176,8 +178,9 @@ final class SessionStore {
         case "overview":
             overviewDate = payload["date"] as? String
             tab = .overview
-        default: break
+        default: return
         }
+        deepLinkRevision += 1
     }
 }
 

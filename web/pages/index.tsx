@@ -1,5 +1,7 @@
 import { Link, useRouter } from "@void/react";
-import type { Mag7Row } from "../src/lib/snapshot.ts";
+import { FORECAST_CALL, NO_INCREMENTAL_SKILL, dd5Definition, dd5ShortLabel, upTargetLabel } from "../src/lib/communication.ts";
+import { HORIZON } from "../src/lib/forecast.ts";
+import { REST_LABEL_SHORT, REST_NOTE, type Mag7Row } from "../src/lib/snapshot.ts";
 import { CenteredBar, CheckBadge, Delta } from "../src/ui/bits.tsx";
 import { dateWithWeekday, num, pctText, signed, taipeiTime } from "../src/ui/format.ts";
 import { NewsFeed, ToneBadge } from "../src/ui/NewsFeed.tsx";
@@ -43,6 +45,9 @@ export default function Overview({ snapshot, dates, expectedClose, news, digests
           最新快照是 {s.tradeDate}，但 {expectedClose} 應該已收盤。最近一次抓價：{lastPriceRun ? `${lastPriceRun.summary}（${taipeiTime(lastPriceRun.finished_at)}）` : "沒有紀錄"}。
         </div>
       )}
+      {s.quality.missing.length > 0 && (
+        <div className="notice warn">缺少當日收盤：{s.quality.missing.join("、")}。部分數字尚未齊全。</div>
+      )}
       {s.quality.mismatches.length > 0 && (
         <div className="notice bad">收盤價來源不一致：{s.quality.mismatches.join("、")}。歸因數字可能有誤，詳見「資料來源」頁。</div>
       )}
@@ -82,27 +87,28 @@ export default function Overview({ snapshot, dates, expectedClose, news, digests
       {forecast && viewingLatest && (
         <Link href="/outlook" className="panel section outlook-card">
           <div>
-            <div className="sub">下月展望（約 21 個交易日後）</div>
+            <div className="sub">下月展望（約 {HORIZON} 個交易日後）</div>
             <div style={{ display: "flex", gap: "1.2rem", flexWrap: "wrap" }}>
-              <div>
-                <div className="sub">收高機率</div>
-                <div style={{ fontSize: "1.6rem", fontWeight: 700 }}>{Math.round(forecast.probability * 100)}%</div>
-                <div className="sub">平常 {Math.round(forecast.base_rate * 100)}%</div>
-              </div>
               {forecast.drawdown && (
                 <div>
-                  <div className="sub">≥5% 跌幅機率</div>
+                  <div className="sub" title={dd5Definition()}>{dd5ShortLabel()}</div>
                   <div style={{ fontSize: "1.6rem", fontWeight: 700 }}>{Math.round(forecast.drawdown.p * 100)}%</div>
                   <div className="sub">平常 {Math.round(forecast.drawdown.base * 100)}%</div>
                   {!forecast.drawdown.scored && <div className="sub"><span className="badge warn">未通過驗證</span></div>}
                 </div>
               )}
+              <div>
+                <div className="sub">上漲機率（{upTargetLabel()}）</div>
+                <div style={{ fontSize: "1.6rem", fontWeight: 700 }}>{Math.round(forecast.probability * 100)}%</div>
+                <div className="sub">平常 {Math.round(forecast.base_rate * 100)}%</div>
+                <div className="sub">
+                  <span className={`badge ${FORECAST_CALL[forecast.call]?.[0] ?? "warn"}`}>
+                    {FORECAST_CALL[forecast.call]?.[1] ?? FORECAST_CALL.inconclusive[1]}
+                  </span>
+                </div>
+                {forecast.call === "inconclusive" && <div className="meta">{NO_INCREMENTAL_SKILL}</div>}
+              </div>
             </div>
-          </div>
-          <div className="sub" style={{ flex: 1 }}>
-            <span className={`badge ${forecast.call === "up" ? "ok" : forecast.call === "down" ? "bad" : "warn"}`}>
-              {forecast.call === "up" ? "高於平常" : forecast.call === "down" ? "低於平常" : "偵測不到預測力"}
-            </span>
           </div>
           <span aria-hidden>→</span>
         </Link>
@@ -134,7 +140,7 @@ export default function Overview({ snapshot, dates, expectedClose, news, digests
           <Link href="/watchlist" className="button secondary small">編輯名單</Link>
         </div>
         <p className="sub">
-          貢獻點數 = 前一交易日指數 × 前一交易日權重 × 當日報酬。{s.weights.method === "rolled" ? `權重由 ${s.weights.asOf} SPY 持股依價格推算。` : s.weights.asOf ? `權重來自 ${s.weights.asOf} SPY 持股。` : ""}
+          貢獻點數 = 前一交易日指數 × 前一交易日權重 × 當日報酬。{REST_NOTE}{s.weights.method === "rolled" ? `權重由 ${s.weights.asOf} SPY 持股依價格推算。` : s.weights.asOf ? `權重來自 ${s.weights.asOf} SPY 持股。` : ""}
         </p>
         <div className="table-wrap">
           <table>
@@ -152,7 +158,7 @@ export default function Overview({ snapshot, dates, expectedClose, news, digests
             <tbody>
               {s.mag7.map((r) => <Mag7Line key={r.key} r={r} max={maxContribution} />)}
               <tr>
-                <td>其餘{restCount ? ` ${restCount} 檔` : "成分股"} <span className="meta">（推算）</span></td>
+                <td>{REST_LABEL_SHORT}{restCount ? ` ${restCount} 檔` : ""} <span className="meta">（推算）</span></td>
                 <td className="num hide-sm">—</td>
                 <td className="num"><Delta value={s.rest.impliedReturnPct} percent /></td>
                 <td className="num">{s.mag7Total.weightPct === null ? "—" : `${num(100 - s.mag7Total.weightPct, 1)}%`}</td>
@@ -174,7 +180,7 @@ export default function Overview({ snapshot, dates, expectedClose, news, digests
             </tfoot>
           </table>
         </div>
-        {s.quality.notes.length > 0 && (
+        {(s.quality.notes.length > 0 || s.quality.missing.length > 0 || s.quality.pendingChecks.length > 0) && (
           <ul className="meta" style={{ marginTop: ".6rem", paddingLeft: "1.1rem" }}>
             {s.quality.notes.map((n) => <li key={n}>{n}</li>)}
             {s.quality.missing.length > 0 && <li>缺少當日收盤：{s.quality.missing.join("、")}</li>}

@@ -1,11 +1,13 @@
 # 推播
 
-App 登入後註冊 APNs；每個帳號可以設定每日收盤摘要、名單個股大漲大跌（門檻 %）、財報與 FOMC 當天提醒。收到推播點開會導到對應畫面（收盤摘要 → 那天的總覽；事件 → 新聞的日曆）。
+App 登入後註冊 APNs；每個帳號可以設定每日收盤摘要、名單個股大漲大跌（門檻 %）、財報與總經事件（FOMC、CPI、非農）當天提醒。收到推播點開會導到對應畫面（收盤摘要 → 那天的總覽；事件 → 新聞的日曆）。
 
 ## Sub-features
 
+- `push-device-health`：同帳號同環境重新註冊保留上次失敗，換帳號或環境清除；送達成功清錯誤，BadDeviceToken／Unregistered 刪 token；每人最多保留最近 10 台。
 - `push-prefs`（F7、F8）：推播設定頁四個項目；關掉每日摘要、門檻改 ±6.0%，離開再進來仍保留，API `/api/v1/push` 的 `prefs` 是 `daily:false`、`moveThresholdPct:6`；之後改回開、±5.0%。
 - `push-banner`（G1）：前景收到推播出現橫幅，標題與內文可讀。
+- `push-dismiss-overlay`（G4）：點推播關掉總覽日期／觀察名單 sheet、返回展望前的總覽，新聞明細 sheet 也會關閉；日期以 payload 為準。
 - `push-open-daily`（G2）：背景點收盤推播 → 總覽、顯示 payload 的那天。
 - `push-open-events`（G3）：背景點事件推播 → 新聞的日曆。
 
@@ -19,16 +21,18 @@ Preconditions:
 
 - 「MO Verify <run-id>」模擬器上 App 已登入測試帳號（跑過 walkthrough）。
 
+- **裝置衛生。** 本機測試跑 `cd web && node --test tests/devices.test.ts tests/push.test.ts tests/push-route.test.ts`，涵蓋重新註冊、換帳號／環境、成功清錯、APNs reason 分類、第 11 台淘汰，以及 POST 測試推播送達成功清除上次失敗（與排程共用相同 SQL）。真實 APNs 驗收需 TestFlight 實機：推播設定按「測試推播」，成功後「上次失敗」清空；模擬器僅驗呈現與點開導向。
 - **設定頁。** walkthrough 的 `09-push.png`、`09b-push-more.png`。改偏好跑 `ios-test.sh … VerifyInteractionTests/test07_PushPrefs`：關「每日收盤摘要」、門檻按兩次＋變 ±6.0%，離開再進來寫 `F8-reopen.txt`，再改回寫 `F8-restored.txt`。在改回之前要讀 API 的話，另用網頁的 `page.fetch("/api/v1/push")`（同一個測試帳號）比 `prefs`。
-- **送推播與點開。** 把下面兩個 payload 存到 `$RUN/daily.json`、`$RUN/events.json`。`date` 要是本機有快照的交易日，而且要等於 test 斷言的日子（test08 斷言 `10/22`，資料日期不同時兩邊一起改）；事件的 `date` 用 `/api/v1/news` 的 `events` 裡有的日子。再照 SKILL.md Drive 的「08／09 要 shell 同時送推播」跑 `test08_PushOpenDaily`（daily.json：G1 前景橫幅 `G1-foreground-banner.png`、G2 回桌面後點橫幅 → 10/22 總覽 `G2-opened-daily.png`）與 `test09_PushOpenEvents`（events.json：G3 點開 → 新聞的日曆 `G3-opened-events.png`）。
+- **送推播與點開。** payload 由 `ios-test.sh` 產生（`$RUN/daily.json`、`$RUN/events.json`）：daily 的 `date` 是本機站第二新的交易日，並同時傳給 test08 當斷言；events 的 `date` 是 `/api/v1/news` 今天以後第一個事件日。照 SKILL.md Drive 的「08／09 各自單獨跑一次」跑 `test08_PushOpenDaily`（G1 前景橫幅 `G1-foreground-banner.png`、G2 回桌面後點橫幅 → 那天的總覽 `G2-opened-daily.png`）與 `test09_PushOpenEvents`（G3 點開 → 新聞的日曆 `G3-opened-events.png`）。產生的格式如下（日期依當次資料）：
 
   ```json
-  {"aps":{"alert":{"title":"S&P 500 10/23 收盤 −0.52%","body":"7,623.68（−39.75 點） · VIX 19.4 · 名單 −11.1 點（28%） · NVDA −3.5"},"sound":"default","thread-id":"daily"},"kind":"daily","screen":"overview","date":"2026-10-22"}
+  {"aps":{"alert":{"title":"S&P 500 M/D 收盤","body":"驗證用推播（ios-test.sh 產生）"},"sound":"default","thread-id":"daily"},"kind":"daily","screen":"overview","date":"YYYY-MM-DD"}
   ```
   ```json
-  {"aps":{"alert":{"title":"今天（美東 10/28）的事件","body":"Microsoft 財報（盤後）、FOMC 利率決議（10/27–28）"},"thread-id":"events"},"kind":"events","screen":"news","date":"2026-10-28"}
+  {"aps":{"alert":{"title":"今天（美東 M/D）的事件","body":"驗證用推播（ios-test.sh 產生）"},"thread-id":"events"},"kind":"events","screen":"news","date":"YYYY-MM-DD"}
   ```
 
+- **遮擋畫面（App）。** 單獨跑 `ios-test.sh … VerifyInteractionTests/test13_PushDismissesWatchlist`：先開觀察名單 sheet，寫出 `G4-push-ready.txt` 後腳本才開始送 daily 推播，再點橫幅，等待 sheet 消失後斷言大標題為 payload 的第二新交易日；截圖 `G4-sheet-before-push`／`G4-sheet-dismissed`。另手動檢查日期 sheet、總覽進入的展望頁與新聞明細在推播後都已關閉。
 - **Proof。** `09-push.png`、`F8-changed.png`、`F8-reopen.png`／`.txt`、`F8-restored.txt`、`G1-foreground-banner.png`、`G2-opened-daily.png`、`G3-opened-events.png`。
 
 ## Gotchas

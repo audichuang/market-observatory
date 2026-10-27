@@ -10,7 +10,7 @@ const JOB_LABEL: Record<string, string> = {
   crosscheck: "Nasdaq 交叉核對",
   weights: "SPY 持股權重",
   news: "新聞",
-  events: "財報與 FOMC 日程",
+  events: "財報與總經日程",
   analysts: "分析師共識（16 檔）",
   factset: "FactSet 週報",
   forecast: "重算下月展望",
@@ -33,8 +33,15 @@ const NO_SECOND_SOURCE = new Set(["USDTWD", "VIX"]);
 const SCHEDULE = [
   ["抓收盤價", "週一至五 UTC 21:40（美東收盤後）；隔日 UTC 01:10 補抓並再核對", "Yahoo chart（主）、Cboe VIX／SPX"],
   ["交叉核對", "週一至五 UTC 22:50", "Nasdaq 歷史行情逐檔比對收盤"],
-  ["持股權重＋日曆＋週報", "每天 UTC 11:30", "State Street SPY 持股檔、Nasdaq 財報日期、聯準會 FOMC 日程、FactSet Earnings Insight（有新一期才解析）"],
+  ["持股權重＋日曆＋週報", "每天 UTC 11:30", "State Street SPY 持股檔、Nasdaq 財報日期、聯準會 FOMC 與勞工統計局 CPI／非農日程（程式內建的官方靜態日期）、FactSet Earnings Insight（有新一期才解析）"],
   ["新聞＋分析師共識", "每 4 小時", "Nasdaq 個股新聞；SPY 權重前 200 檔輪流抓目標價（前 100 檔加抓 EPS 修正，每次 16 檔）"],
+];
+
+/** U-04: what kind of data each source is, so readers don't mistake it for an official feed. */
+const DATA_NOTES = [
+  "Yahoo chart 與 Nasdaq（api.nasdaq.com）是網站自用的非官方端點，沒有公開 API 或服務保證，格式或可用性可能無預警改變；收盤價因此另用第二來源交叉核對。",
+  "S&P 500（^GSPC）是價格指數，各標的收盤是拆股調整後、不含股息的價格（不是 Adj Close）；漲跌與報酬都沒算股息，跟含息的總報酬比會偏低。",
+  "投行策略師年底目標表是人工維護的背景資訊，不進方向預測模型：標「已核對原文」的列對過機構官方原文，其餘取自媒體報導。",
 ];
 
 export default function SourcesPage({ expected, freshness, mismatches, runs, weights, counts, jobs, tolerance, calendar, links }: Props) {
@@ -116,6 +123,13 @@ export default function SourcesPage({ expected, freshness, mismatches, runs, wei
             </tbody>
           </table>
         </div>
+      </div>
+
+      <div className="panel section">
+        <h2>資料性質</h2>
+        <ul className="list">
+          {DATA_NOTES.map((n) => <li key={n} className="meta">{n}</li>)}
+        </ul>
       </div>
 
       <div className="panel section">

@@ -56,7 +56,7 @@ export default function LoginPage({ next }: Props) {
             密碼
             <input type="password" autoComplete={mode === "signin" ? "current-password" : "new-password"} minLength={8} required value={password} onChange={(e) => setPassword(e.target.value)} />
           </label>
-          {error && <p className="error">{error}</p>}
+          {error && <p className="error" role="alert">{error}</p>}
           <button disabled={pending}>{pending ? "處理中…" : mode === "signin" ? "登入" : "建立帳號"}</button>
           <button type="button" className="secondary" onClick={() => setMode(mode === "signin" ? "signup" : "signin")}>
             {mode === "signin" ? "還沒有帳號？建立帳號" : "已有帳號，改為登入"}

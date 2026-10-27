@@ -9,6 +9,8 @@ description: 像使用者一樣實際操作市場觀測室（網站 web/ 與 iOS
 
 ## 怎樣才算交付
 
+改到 view 回應時，先在 `web/` 跑 `node --test tests/api-contract.test.ts`。它用固定時間與合成 D1 資料呼叫六個真正 view，比對 `ios/MarketObservatoryTests/Fixtures/generated/`；差異需先檢查 Codable，再用 `MO_UPDATE_API_FIXTURES=1 node --test tests/api-contract.test.ts` 更新、審查 JSON diff，並跑 `MarketObservatoryTests`（同時解碼舊與 generated fixture）。這項契約檢查不能取代下列畫面操作。
+
 改動碰到哪個介面，就照 [功能地圖](features/README.md) 把**被改到的功能**實際操作一遍，並在 PR 或回報裡附上證據位置。少一項就不能說「完成」，只能說「已寫好、未驗證：缺 X」。
 
 | 改了什麼 | 交付前要有的證據 |
@@ -72,8 +74,9 @@ await page.goto("http://localhost:5181/login");
 await page.waitForFunction(() => { const a = [...document.querySelectorAll("a,button")].find(e => e.textContent.includes("還沒有帳號")); return a && Object.keys(a).some(k => k.startsWith("__react")); }, undefined, { timeout: 15000 });
 await page.click("text=還沒有帳號？建立帳號", { label: "switch to sign up" });
 await page.waitForSelector("loc=role:button[name='建立帳號']", { timeout: 5000 });
-await page.fill("input[type=email]", "verify-<run-id>@example.test");
-await page.fill("input[type=password]", "verify-<run-id>-pw");
+await page.evaluate(() => document.querySelector("input[type=email]").focus()); await page.keyboard.type("verify-<run-id>@example.test");
+await page.evaluate(() => document.querySelector("input[type=password]").focus()); await page.keyboard.type("verify-<run-id>-pw");
+await page.evaluate(() => document.querySelector("com-1password-uso")?.remove());
 await page.click("loc=role:button[name='建立帳號']", { label: "submit sign up" });
 await page.waitForSelector("text=S&P 500 收盤", { timeout: 20000 });
 await page.screenshot({ path: "<RUN>/evidence/web/01-overview.png" });
@@ -94,7 +97,9 @@ EOF
   ```
 
 - 等待用 `waitForSelector`／`waitForFunction` 等畫面上的結果，不要用固定秒數。
-- 對帳：`await page.fetch("/api/v1/<端點>")` 用同一個登入 cookie 讀 API，跟畫面比。
+- 對帳：`await page.fetch("/api/v1/<端點>")` 用同一個登入 cookie 讀 API，跟畫面比。回傳 `{ status, body }`，沒有 `.json()`，要 `JSON.parse(res.body)`。
+- 窄螢幕與深色模式：`page.cdp("Emulation.setDeviceMetricsOverride", { width: 320, height: 800, deviceScaleFactor: 2, mobile: true })`、`page.cdp("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: "dark" }] })`，結束前 `Emulation.clearDeviceMetricsOverride`。要模擬送出失敗，在頁面裡把 `window.fetch` 換成會 reject 的函式；用 CDP `Network.emulateNetworkConditions` 離線會讓腳本卡住。
+- 輸入用 `focus()`＋`keyboard.type`，不用 `page.fill`（在這個 app 的欄位上會失敗）；1Password 的 `com-1password-uso` 浮層會擋住點擊，送出前先移除。
 - 收尾：最後一輪 `await task.finish({ keep: [] })`。
 
 ### iOS：XCUITest（walkthrough＋互動測試）
@@ -115,23 +120,84 @@ printf '%s' 'verify-<run-id>-pw' > "$RUN/user.pw"; chmod 600 "$RUN/user.pw"
 | `test02_Overview` | B2 市場指標展開、B5 其他交易日與回到最新、B4 點公司到走勢、B8 完整日曆 |
 | `test03_History` | C2 區間、C3 快速連點、C4 標的選單、C6 點統計表的列 |
 | `test04_Watchlist` | D2 加入 AVGO、D4 ZZZZ、D5 已在名單、D6–D8 左滑與確認、D9 點公司 |
-| `test05_NewsCalendar` | E3 代號篩選、E4 快速連點、E5 點 10/28、換月、今天 |
+| `test05_NewsCalendar` | E3 代號篩選、E4 快速連點、E5 點今天以後第一個事件日、換月、今天 |
 | `test06_EtfsPlan` | F2 期間、F3 試算、F3b 設為預設再讀回、F4 出場漲幅 150、F5 每批投入 |
 | `test07_PushPrefs` | F8 關每日摘要、門檻 ±6.0%，離開再進來讀回，再改回 |
 | `test08_PushOpenDaily`、`test09_PushOpenEvents` | G1 前景橫幅、G2／G3 背景點開推播（要 shell 送推播，見下） |
+| `test12_Outlook` | H1 展望頁從上捲到底逐段截圖（`H1-outlook-NN.png`），斷言 dd5 與上漲兩個驗證區塊都在；文字存 `H1-outlook.txt` |
 | `test10_SignOutAndErrors` | Z1 登出、A5 錯誤密碼、A2 短密碼，最後用正確密碼登回 |
+| `test13_PushDismissesWatchlist` | G4 名單 sheet 開好後寫 `G4-push-ready.txt` 才開始送 daily 推播，點開後等待 sheet 消失且日期等於 payload；單獨跑 |
+| `test14_ForegroundLoadsNewTradingDay` | B11 背景時還原較新快照，回前景自動換到新交易日且不變暗；資料準備見下方 |
+| `test15_DigestToneLabels` | B12／E9 一般與最大字級的摘要語氣、完整市場標題（截圖 OCR）與 chip selected；先準備下方利多／利空 fixture |
+| `test11_DeleteAccount` | 刪除一次性帳號；會讓後續測試無法登入，整輪最後才單獨跑 |
 
-每個 test 把看到的畫面文字寫成 `<ID>.txt`（例如 `B5-older.txt`、`D2-added.txt`），拿去跟同帳號的 `/api/v1/*` 對帳。這些 test 寫死了寫測試當時本機站的資料（`2026-10-22`／`10/23` 交易日、`7/30 家 · 合計權重 34.01%`、事件日 10/28）；資料日期不同時先改 test 裡的字串，否則會 fail 在找不到元素。
+每個 test 把看到的畫面文字寫成 `<ID>.txt`（例如 `B5-older.txt`、`D2-added.txt`），拿去跟同帳號的 `/api/v1/*` 對帳。test 不寫死資料日期：test02 從「交易日」清單讀最新與第二新的一天（寫在 `B5-dates.txt`）；`ios-test.sh` 每次先用這個帳號讀本機站 API，把第二新的交易日（`MO_PUSH_DATE`）、今天以後第一個事件日（`MO_EVENT_DATE`）與 API 的 today 傳給 test，開頭印出「日期：推播 …、事件 …」。名單只斷言「7/30 家」，合計權重寫在 `D1-before.txt`／`D8-removed.txt`，跟 `/api/v1/watchlist` 的 `totalWeight` 對帳。
 
-**08／09 要 shell 同時送推播**：test 只等橫幅出現再點，推播由 shell 在背景每 8 秒送一次，test 跑完用旗標檔停掉迴圈。迴圈、test、停止要寫在**同一個 Bash 呼叫**裡（shell 狀態不跨呼叫，`S`、`RUN` 也要在這個呼叫裡設）：
+**08／09／13 各自單獨跑一次**：08／09 只等橫幅出現再點。`ios-test.sh` 的 test 參數**剛好只有** `VerifyInteractionTests/test08_PushOpenDaily`（或 `test09_PushOpenEvents`）時，會用上面讀到的日期寫好 `$RUN/daily.json`（`date`＝`MO_PUSH_DATE`，test08 斷言打開的就是這天）或 `$RUN/events.json`（`date`＝`MO_EVENT_DATE`），在背景每 8 秒 `simctl push` 一次直到測試結束。單獨跑 `VerifyInteractionTests/test13_PushDismissesWatchlist` 也送 daily，但先刪舊的 `G4-push-ready.txt`，等 test 開好名單 sheet、重新寫旗標才開始送。混跑時不送推播（橫幅會擋到別的 test），因此這三個都要各自單獨跑。
 
 ```sh
-UDID=$(cat "$RUN/sim.udid"); STOP="$RUN/push.stop"; rm -f "$STOP"
-( while [ ! -f "$STOP" ]; do xcrun simctl push "$UDID" com.audichuang.observatory "$RUN/daily.json"; sleep 8; done ) &
-"$S/ios-test.sh" <run-id> verify-<run-id>@example.test "$RUN/user.pw" VerifyInteractionTests/test08_PushOpenDaily; touch "$STOP"; wait
+"$S/ios-test.sh" <run-id> verify-<run-id>@example.test "$RUN/user.pw" VerifyInteractionTests/test08_PushOpenDaily
+"$S/ios-test.sh" <run-id> verify-<run-id>@example.test "$RUN/user.pw" VerifyInteractionTests/test09_PushOpenEvents
+"$S/ios-test.sh" <run-id> verify-<run-id>@example.test "$RUN/user.pw" VerifyInteractionTests/test13_PushDismissesWatchlist
 ```
 
-（test09 換成 `$RUN/events.json`；payload 在 [推播功能檔](features/push.md)，daily 的 `date` 要等於 test08 斷言的 `2026-10-22`。）
+整輪不要直接跑整個 `VerifyInteractionTests` class：XCTest 按名字排序，`test11_DeleteAccount` 會先刪帳號，排在後面的 `test12_Outlook`、`test13`、`test14`、`test15` 都會失敗。先跑 02–07、10、12、15 的明確清單，再各自單跑 08、09、13、14；所有非破壞情境完成後，最後才單跑 `test11_DeleteAccount`。15 與 14 的資料準備與還原如下。
+
+#### test14：背景時出現較新的交易日
+
+只在本機 worktree 操作，沿用既有 D1。兩個終端先設定同一輪的環境：
+
+```sh
+RUN="$HOME/.cache/mo-verify/<run-id>"
+source "$RUN/state.env"
+S="$(git rev-parse --show-toplevel)/.claude/skills/verify/scripts"
+```
+
+確認 `WEB` 是這個 worktree、`BASE` 是 localhost；在 `web/` 執行以下命令。需要至少三個交易日：隱藏最新一天後，`ios-test.sh` 仍須讀第二新的日期作 `MO_PUSH_DATE`。不用等真的隔夜收盤。暫存表名稱若已存在，先處理上一輪還原，不覆蓋它。
+
+1. **暫存最新一天的所有 revision，再隱藏它、失效頁面快取。**
+
+   ```sh
+   cd "$WEB"
+   npx void db execute "CREATE TABLE verify_held_snapshots AS SELECT * FROM snapshots WHERE trade_date = (SELECT MAX(trade_date) FROM snapshots);
+   DELETE FROM snapshots WHERE trade_date IN (SELECT trade_date FROM verify_held_snapshots);
+   INSERT INTO settings (key,value) VALUES ('data_version',json_object('v',CAST((julianday('now')-2440587.5)*86400000 AS INTEGER))) ON CONFLICT(key) DO UPDATE SET value=excluded.value;"
+   rm -f "$RUN/evidence/ios/B11-ready.txt"
+   ```
+
+2. **終端 A 單獨啟動** `ios-test.sh <run-id> <email> "$RUN/user.pw" VerifyInteractionTests/test14_ForegroundLoadsNewTradingDay`。test 用 DEBUG `-verifyOverviewRefreshInterval 0` 避免等 10 分鐘；先顯示較舊日期，回桌面後寫 `B11-ready.txt`。
+3. **終端 B 等就緒旗標，再搬回最新一天與 bump 版本。**
+
+   ```sh
+   while [ ! -f "$RUN/evidence/ios/B11-ready.txt" ]; do sleep 1; done
+   cd "$WEB"
+   npx void db execute "INSERT INTO snapshots SELECT * FROM verify_held_snapshots;
+   DROP TABLE verify_held_snapshots;
+   INSERT INTO settings (key,value) VALUES ('data_version',json_object('v',CAST((julianday('now')-2440587.5)*86400000 AS INTEGER))) ON CONFLICT(key) DO UPDATE SET value=excluded.value;"
+   ```
+
+   test 以同帳號 API 確認新日期確實增加，最多等 120 秒，然後回前景斷言標題。檢查 `B11-background`、`B11-foreground-updated`，前景刷新不變暗、工具列保留。測試失敗也要執行還原 SQL；若表已 DROP，代表已還原，勿重跑 INSERT。
+
+#### test15：準備可見的市場與公司語氣
+
+基準名單須包含 NVDA。先備份將覆寫的兩列，再只在這個 worktree 的 D1 寫合成摘要：市場日期必須等於最新 snapshot，NVDA 用 UTC 今天，才會落在新聞頁近三天的篩選內。
+
+```sh
+cd "$WEB"
+npx void db execute "CREATE TABLE verify_saved_digests AS SELECT * FROM news_digests WHERE (symbol='SPX' AND date=(SELECT MAX(trade_date) FROM snapshots)) OR (symbol='NVDA' AND date=date('now'));
+INSERT OR REPLACE INTO news_digests (symbol,date,summary,tone,news_ids,digest,model,created_at) SELECT 'SPX',MAX(trade_date),'驗證市場摘要：科技股承壓。','negative','[]','verify-i6','verify-i6',datetime('now') FROM snapshots;
+INSERT OR REPLACE INTO news_digests (symbol,date,summary,tone,news_ids,digest,model,created_at) VALUES ('NVDA',date('now'),'驗證公司摘要：營收成長。','positive','[]','verify-i6','verify-i6',datetime('now'));"
+"$S/ios-test.sh" <run-id> <email> "$RUN/user.pw" VerifyInteractionTests/test15_DigestToneLabels
+```
+
+看 `B12-tone-normal/largest.png`、`E9-tone-normal/largest.png`，最大字級「今天為什麼漲跌」完整換行，語氣標籤仍可見；公司名可截斷。只看完整的 AX label 不能證明未截字，test15 另以 Vision OCR 檢查實際畫面。完成或失敗都還原：
+
+```sh
+cd "$WEB"
+npx void db execute "DELETE FROM news_digests WHERE model='verify-i6' AND digest='verify-i6';
+INSERT OR REPLACE INTO news_digests SELECT * FROM verify_saved_digests;
+DROP TABLE verify_saved_digests;"
+```
 
 **跑完要逐張看截圖。** 測試通過只代表找得到元素、斷言的那一項成立，不代表畫面對：例如「市場指標」點了沒展開時，只斷言存在的舊版測試照樣過。字有沒有被切掉、顏色、數字是不是 0，都只能看圖。
 

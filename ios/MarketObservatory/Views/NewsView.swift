@@ -27,6 +27,7 @@ struct NewsView: View {
             applySectionRequest()
             if state.value == nil || state.value?.symbol != symbol { await load() }
         }
+        .onChange(of: session.deepLinkRevision) { _, _ in selected = nil }
         .onChange(of: session.newsCalendarDate) { _, new in
             if let d = new { openCalendar(d) }
         }
@@ -179,7 +180,7 @@ struct NewsView: View {
             .listRowInsets(EdgeInsets(top: 8, leading: 8, bottom: 4, trailing: 8))
             .listRowSeparator(.hidden)
             HStack(spacing: 14) {
-                legend(Color.up, "總經（FOMC）")
+                legend(Color.up, "總經（FOMC、CPI、非農）")
                 legend(Color.accentColor, "名單公司財報")
             }
             .font(.caption)
@@ -331,5 +332,6 @@ private struct Chip: View {
                 .foregroundStyle(selected ? Color.white : Color.primary)
         }
         .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }

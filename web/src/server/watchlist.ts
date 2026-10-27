@@ -1,16 +1,25 @@
 import { DEFAULT_WATCHLIST, type WatchMember } from "../lib/universe.ts";
 import { type Holding, mergeWatchlists, sanitizeWatchlist } from "../lib/watchlist.ts";
-import { type Db, getSetting } from "./repo.ts";
+import { type Db } from "./repo.ts";
 
 // 觀察名單存在 settings 表，每個使用者一列；每個排程與頁面都在執行時讀，不在模組載入時讀，改了名單下一次執行就生效。
 // 擁有者沿用開放註冊前的 key（WATCHLIST_KEY），其他使用者用 `watchlist:<user id>`，見 src/server/account.ts。
 export const WATCHLIST_KEY = "watchlist";
 export const USER_WATCHLIST_PREFIX = "watchlist:";
+/** Prefix of a user's per-day counters of newly tracked companies (`watch-new:<user id>:<eastern date>`); account deletion removes every row under it. */
+export const newTrackedQuotaPrefix = (userId: string) => `watch-new:${userId}:`;
 
-/** 一份名單（預設是擁有者的）；還沒存過就是預設的七巨頭。 */
-export async function loadWatchlist(db: Db, key = WATCHLIST_KEY): Promise<WatchMember[]> {
-  const raw = await getSetting<unknown>(db, key, null);
-  return sanitizeWatchlist(raw) ?? DEFAULT_WATCHLIST;
+/** 一份名單（預設是擁有者的）；missingFallback 只用於列不存在，壞資料仍回預設七巨頭。 */
+export function loadWatchlist(db: Db, key?: string): Promise<WatchMember[]>;
+export function loadWatchlist(db: Db, key: string, missingFallback: null): Promise<WatchMember[] | null>;
+export async function loadWatchlist(db: Db, key = WATCHLIST_KEY, missingFallback: WatchMember[] | null = DEFAULT_WATCHLIST): Promise<WatchMember[] | null> {
+  const row = await db.prepare("SELECT value FROM settings WHERE key = ?").bind(key).first<{ value: string }>();
+  if (!row) return missingFallback;
+  try {
+    return sanitizeWatchlist(JSON.parse(row.value)) ?? DEFAULT_WATCHLIST;
+  } catch {
+    return DEFAULT_WATCHLIST;
+  }
 }
 
 /**

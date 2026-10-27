@@ -3,7 +3,7 @@ import { addDays } from "../lib/calendar.ts";
 import { frequencySentences, liveTrackOf } from "../lib/communication.ts";
 import { aggregateConsensus, type ViewRow } from "../lib/consensus.ts";
 import { HORIZON, MIN_EFFECTIVE_N, MIN_EPISODES, buildObservations, buildOutlook, conditionalRate, type Rate, type Regime } from "../lib/forecast.ts";
-import { FACTSET_EARNINGS_INSIGHT_URL, REUTERS_POLL, STRATEGIST_TARGETS, STRATEGIST_TARGETS_CHECKED, median } from "../lib/strategists.ts";
+import { FACTSET_EARNINGS_INSIGHT_URL, REUTERS_POLL, STRATEGIST_TARGETS, STRATEGIST_TARGETS_CHECKED, strategistTable } from "../lib/strategists.ts";
 import { INDEX_SYMBOL, VIX_SYMBOL } from "../lib/universe.ts";
 import type { FactsetInsight } from "../lib/sources/factset.ts";
 import { FACTSET_HISTORY_KEY } from "./jobs.ts";
@@ -84,8 +84,9 @@ export async function outlookView(c: ViewCtx) {
       .map((v) => ({ ...v, weightPct: weights.get(v.symbol) ?? null, upsidePct: v.price && v.targetMean ? (v.targetMean / v.price - 1) * 100 : null }));
 
     const factset = (await getSetting<{ items: FactsetInsight[] }>(db, FACTSET_HISTORY_KEY, { items: [] })).items.slice(0, 26);
-    const targets = STRATEGIST_TARGETS.map((t) => t.target);
-    const med = median(targets);
+    // Median eligibility (year-end only, one vote per firm) lives in strategistTable.
+    const strat = strategistTable(STRATEGIST_TARGETS, today);
+    const med = strat.median;
     // 沒有預測時，指數水準用最新一筆 SPX 收盤。
     const close = outlook?.close ?? lastSpx?.close ?? null;
     return {
@@ -100,9 +101,8 @@ export async function outlookView(c: ViewCtx) {
         : null,
       factset,
       strategists: {
-        list: STRATEGIST_TARGETS,
+        ...strat,
         checked: STRATEGIST_TARGETS_CHECKED,
-        median: med,
         medianUpsidePct: med && close ? (med / close - 1) * 100 : null,
         close,
         poll: REUTERS_POLL,

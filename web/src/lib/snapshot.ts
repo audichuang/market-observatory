@@ -4,6 +4,16 @@ import { EQUAL_WEIGHT_SYMBOL, INDEX_SYMBOL, VIX_SYMBOL, type WatchMember } from 
 
 export const SNAPSHOT_VERSION = 1;
 
+/**
+ * Display label for the residual: index move minus the watchlist's contributions, i.e. the other
+ * constituents plus weight/price approximation error. Shared by pages, server views and the AI prompt.
+ */
+export const REST_LABEL = "其他成分股（含近似誤差）";
+/** Short form for tight spots (chart legends, table cells); pair it with REST_LABEL in nearby copy. */
+export const REST_LABEL_SHORT = "其他成分股";
+/** Explanatory sentence for the residual; REST_LABEL already says 含近似誤差, so the tail must not repeat it. */
+export const REST_NOTE = `${REST_LABEL}＝指數漲跌減掉名單合計（權重與價格口徑不同造成的誤差也算在這裡）。`;
+
 export type CheckStatus = "match" | "mismatch" | "pending" | "unavailable";
 
 export interface PriceCheck {
@@ -271,7 +281,7 @@ export function snapshotLoadWindow(targets: string[], weightAnchorDates: string[
 }
 
 /**
- * 快照是用「所有使用者名單的聯集」算的：每個人看到的總覽只留自己名單上的公司，合計、占比與「其餘」照自己的名單重算。
+ * 快照是用「所有使用者名單的聯集」算的：每個人看到的總覽只留自己名單上的公司，合計、占比與「其他成分股」照自己的名單重算。
  * 名單上有、但建快照時還沒追蹤的公司（剛加入、更早的快照）這一天沒有資料，列在 notTracked。
  */
 export function viewForMembers(snap: Snapshot, members: Pick<WatchMember, "key" | "tickers">[]): Snapshot & { notTracked: string[] } {

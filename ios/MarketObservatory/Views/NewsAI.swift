@@ -170,10 +170,12 @@ struct DigestRow: View {
         Button(action: toggle) {
             HStack(alignment: .top, spacing: 10) {
                 Capsule().fill(Color.newsTone(digest.tone)).frame(width: 3).frame(maxHeight: .infinity)
+                    .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        Text(digest.symbol).font(.headline)
+                        Text(digest.symbol).font(.headline).lineLimit(1).fixedSize(horizontal: true, vertical: false)
                         if let c = digest.company, !c.isEmpty { Text(c).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+                        ToneTag(tone: digest.tone)
                         Spacer(minLength: 4)
                     }
                     Text(digest.summary)
@@ -187,5 +189,6 @@ struct DigestRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("news-digest-\(digest.symbol)")
     }
 }

@@ -12,8 +12,8 @@
 - `overview-events`（B7、B8）：未來三週事件只列名單公司財報與總經事件（FOMC、CPI、非農），由近到遠；「完整日曆 →」到新聞的日曆。
 - `overview-digest-tone`（B12）：市場重點標題列有「利多／利空／中性」文字，VoiceOver 會讀到，裝飾色條不朗讀。一般與最大字級標籤均可見。
 - `overview-quality`：即使 quality.notes 為空，missing 或 pendingChecks 仍顯示「缺少」「待核對」；missing 非空時頁首另有橘色提示。下月展望的 up 紅色、down 綠色，摘要統一寫「上漲機率」。
-- `overview-refresh`（B10）：App 下拉重新整理保留完整亮度與工具列；只有切換日期時內容變暗。
-- `overview-foreground`（B11）：看最新日期時，距上次成功載入超過 10 分鐘，回前景重抓；看歷史日期時不自動切回最新。
+- `overview-refresh`（B10）：App 下拉重新整理保留完整亮度與工具列；只有使用者從交易日清單切換日期時內容變暗、工具列改成轉圈。推播導向與回前景重新整理也保留完整亮度及日期／名單按鈕。
+- `overview-foreground`（B11）：看最新日期時，距上次成功載入超過 10 分鐘，回前景重抓，畫面不變暗、工具列不被轉圈取代；看歷史日期時不自動切回最新。
 - `overview-stale`：看最新（沒有 `?date=`）且 `snapshot.tradeDate` < API `expectedClose` 時，網頁與 App 頂端出現「最新快照是 …，但 … 應該已收盤」橘色警告。`expectedClose` 是抓價排程（週一到週五 UTC 21:40）加 30 分緩衝跑完後才換成當天，收盤後到 UTC 22:10 之間不警告；資料來源頁的「落後」標記用同一個日期。
 
 ## How to get to it (user POV)

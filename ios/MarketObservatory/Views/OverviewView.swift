@@ -60,7 +60,7 @@ struct OverviewView: View {
                         pick: { picked in
                             date = picked == o.dates.first?.tradeDate ? nil : picked
                             showDates = false
-                            reload()
+                            reload(reason: .dateSelection)
                         }
                     )
                 }
@@ -84,14 +84,14 @@ struct OverviewView: View {
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active, date == nil, let loadedAt,
                   Date().timeIntervalSince(loadedAt) > refreshInterval else { return }
-            reload()
+            reload(reason: .foreground)
         }
         .onChange(of: session.watchlistRevision) { Task { await load() } }
         .onChange(of: session.overviewDate) { _, new in
             guard let new else { return }
             date = new
             session.overviewDate = nil
-            reload()
+            reload(reason: .deepLink)
         }
     }
 
@@ -112,12 +112,12 @@ struct OverviewView: View {
         return dts.isAccessibilitySize ? Fmt.dateWithWeekday(t) : "S&P 500 \(Fmt.dateWithWeekday(t))"
     }
 
-    /// 換日期：取消還在跑的請求，免得舊的回應蓋掉新的。
-    private func reload() {
+    /// Cancel the previous request while keeping rendering specific to the reload reason.
+    private func reload(reason: OverviewReloadReason) {
         loadTask?.cancel()
         loadID += 1
         let id = loadID
-        switchingDate = true
+        switchingDate = reason.dimsExistingContent
         loadTask = Task { await load(requestID: id) }
     }
 

@@ -23,14 +23,21 @@ rm -rf "$OUT/$NAME.xcresult"
 #   MO_EVENT_DATE = first /api/v1/news event on or after MO_TODAY (the API's today); test05 taps it, test09's push carries it
 # The same value goes into the push payloads ($RUN/daily.json, events.json) and into the test's assertions.
 CJ="$RUN/user.cj"
-( umask 077; jq -n --arg e "$EMAIL" --rawfile p "$PWFILE" '{email:$e,password:$p}' >"$RUN/.signin.json" )
+# Strip trailing newlines like "$(cat "$PWFILE")" below does, so both reads send the same password.
+( umask 077; jq -n --arg e "$EMAIL" --rawfile p "$PWFILE" '{email:$e,password:($p|sub("\n+$";""))}' >"$RUN/.signin.json" )
 curl -sf -o /dev/null -c "$CJ" -H "Origin: $BASE" -H 'content-type: application/json' \
   -X POST "$BASE/api/auth/sign-in/email" --data @"$RUN/.signin.json" || { rm -f "$RUN/.signin.json"; die "$EMAIL 在 $BASE 登入失敗（帳號要先註冊）"; }
 rm -f "$RUN/.signin.json"
-PUSH_DATE=$(curl -sf -b "$CJ" "$BASE/api/v1/overview" | jq -r '.dates[1].tradeDate')
-NEWS=$(curl -sf -b "$CJ" "$BASE/api/v1/news")
+OVERVIEW=$(curl -sf -b "$CJ" "$BASE/api/v1/overview") || die "讀 $BASE/api/v1/overview 失敗"
+NEWS=$(curl -sf -b "$CJ" "$BASE/api/v1/news") || die "讀 $BASE/api/v1/news 失敗"
+PUSH_DATE=$(jq -r '.dates[1].tradeDate' <<<"$OVERVIEW")
 TODAY=$(jq -r '.today' <<<"$NEWS")
 EVENT_DATE=$(jq -r '[.events[].date | select(. >= "'"$TODAY"'")] | first' <<<"$NEWS")
+# jq prints "null" when the data is missing (e.g. web-up.sh only warned about a failed backfill); stop here instead of crashing test05.
+is_date() { [[ "$1" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; }
+is_date "$PUSH_DATE" || die "overview 沒有第二新的交易日（得到 ${PUSH_DATE}），本機站資料可能沒回填完整"
+is_date "$TODAY" || die "news 沒有 today（得到 ${TODAY}）"
+is_date "$EVENT_DATE" || die "news 沒有 ${TODAY} 以後的事件（得到 ${EVENT_DATE}），本機站資料可能沒回填完整"
 md() { echo "$((10#${1:5:2}))/$((10#${1:8:2}))"; }
 jq -n --arg d "$PUSH_DATE" --arg md "$(md "$PUSH_DATE")" \
   '{aps:{alert:{title:"S&P 500 \($md) 收盤",body:"驗證用推播（ios-test.sh 產生）"},sound:"default","thread-id":"daily"},kind:"daily",screen:"overview",date:$d}' >"$RUN/daily.json"

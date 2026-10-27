@@ -72,8 +72,9 @@ await page.goto("http://localhost:5181/login");
 await page.waitForFunction(() => { const a = [...document.querySelectorAll("a,button")].find(e => e.textContent.includes("還沒有帳號")); return a && Object.keys(a).some(k => k.startsWith("__react")); }, undefined, { timeout: 15000 });
 await page.click("text=還沒有帳號？建立帳號", { label: "switch to sign up" });
 await page.waitForSelector("loc=role:button[name='建立帳號']", { timeout: 5000 });
-await page.fill("input[type=email]", "verify-<run-id>@example.test");
-await page.fill("input[type=password]", "verify-<run-id>-pw");
+await page.evaluate(() => document.querySelector("input[type=email]").focus()); await page.keyboard.type("verify-<run-id>@example.test");
+await page.evaluate(() => document.querySelector("input[type=password]").focus()); await page.keyboard.type("verify-<run-id>-pw");
+await page.evaluate(() => document.querySelector("com-1password-uso")?.remove());
 await page.click("loc=role:button[name='建立帳號']", { label: "submit sign up" });
 await page.waitForSelector("text=S&P 500 收盤", { timeout: 20000 });
 await page.screenshot({ path: "<RUN>/evidence/web/01-overview.png" });
@@ -94,7 +95,8 @@ EOF
   ```
 
 - 等待用 `waitForSelector`／`waitForFunction` 等畫面上的結果，不要用固定秒數。
-- 對帳：`await page.fetch("/api/v1/<端點>")` 用同一個登入 cookie 讀 API，跟畫面比。
+- 對帳：`await page.fetch("/api/v1/<端點>")` 用同一個登入 cookie 讀 API，跟畫面比。回傳 `{ status, body }`，沒有 `.json()`，要 `JSON.parse(res.body)`。
+- 輸入用 `focus()`＋`keyboard.type`，不用 `page.fill`（在這個 app 的欄位上會失敗）；1Password 的 `com-1password-uso` 浮層會擋住點擊，送出前先移除。
 - 收尾：最後一輪 `await task.finish({ keep: [] })`。
 
 ### iOS：XCUITest（walkthrough＋互動測試）

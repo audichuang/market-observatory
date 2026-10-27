@@ -4,23 +4,34 @@ struct OverviewView: View {
     @Environment(SessionStore.self) private var session
     @Environment(\.dynamicTypeSize) private var dts
     @Environment(\.openURL) private var openURL
+    @Environment(\.scenePhase) private var scenePhase
     @ScaledMetric(relativeTo: .subheadline) private var dateWidth: CGFloat = 82
     @State private var state: LoadState<Overview> = .idle
     @State private var date: String?
     @State private var loadTask: Task<Void, Never>?
     @State private var loadID = 0
+    @State private var loadedAt: Date?
+    @State private var switchingDate = false
+    @State private var path: [Destination] = []
+
+    private enum Destination: Hashable { case outlook }
     @State private var showDates = false
     @State private var expandedDigests: Set<String> = []
     @State private var showWatchlist = false
     @AppStorage("overview.showIndicators") private var showIndicators = false
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             Loadable(state: state, retry: load) { o in
                 content(o)
             }
             .opacity(isSwitching ? 0.5 : 1)
             .navigationTitle(title)
+            .navigationDestination(for: Destination.self) { destination in
+                switch destination {
+                case .outlook: OutlookView()
+                }
+            }
             .toolbar {
                 if let o = state.value, !o.dates.isEmpty {
                     if isSwitching {
@@ -65,6 +76,16 @@ struct OverviewView: View {
                 await load()
             }
         }
+        .onChange(of: session.deepLinkRevision) { _, _ in
+            showDates = false
+            showWatchlist = false
+            path.removeAll()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active, date == nil, let loadedAt,
+                  Date().timeIntervalSince(loadedAt) > refreshInterval else { return }
+            reload()
+        }
         .onChange(of: session.watchlistRevision) { Task { await load() } }
         .onChange(of: session.overviewDate) { _, new in
             guard let new else { return }
@@ -74,9 +95,15 @@ struct OverviewView: View {
         }
     }
 
-    private var isSwitching: Bool {
-        if case .loading(.some) = state { return true }
-        return false
+    private var isSwitching: Bool { switchingDate && state.value != nil }
+
+    private var refreshInterval: TimeInterval {
+        #if DEBUG
+        // Only the verification process overrides freshness, without a ten-minute wait.
+        if let value = UserDefaults.standard.string(forKey: "verifyOverviewRefreshInterval"),
+           let seconds = Double(value) { return seconds }
+        #endif
+        return 10 * 60
     }
 
     private var title: String {
@@ -88,12 +115,19 @@ struct OverviewView: View {
     /// 換日期：取消還在跑的請求，免得舊的回應蓋掉新的。
     private func reload() {
         loadTask?.cancel()
-        loadTask = Task { await load() }
+        loadID += 1
+        let id = loadID
+        switchingDate = true
+        loadTask = Task { await load(requestID: id) }
     }
 
     private func load() async {
         loadID += 1
-        let id = loadID
+        await load(requestID: loadID)
+    }
+
+    private func load(requestID id: Int) async {
+        defer { if id == loadID { switchingDate = false } }
         let last = state.value
         state = .loading(last)
         do {
@@ -101,6 +135,7 @@ struct OverviewView: View {
             guard id == loadID, !Task.isCancelled else { return }
             if date != nil, date == o.dates.first?.tradeDate { date = nil }
             state = .loaded(o)
+            loadedAt = Date()
         } catch {
             guard id == loadID else { return }
             if error is CancellationError || (error as? URLError)?.code == .cancelled || Task.isCancelled {
@@ -144,7 +179,7 @@ struct OverviewView: View {
                 // 展望是「今天往後」的預測，看舊日期時不顯示，免得誤以為屬於那一天。
                 if let f = o.forecast, o.viewingLatest {
                     Section("下月展望") {
-                        NavigationLink { OutlookView() } label: {
+                        NavigationLink(value: Destination.outlook) {
                             VStack(alignment: .leading, spacing: 8) {
                                 // U-01: dd5 first; P(up) has no detected incremental skill most of the time.
                                 if let d = f.drawdown {

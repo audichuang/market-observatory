@@ -65,7 +65,7 @@ XB=$!
 # test08/test09 only wait for a banner and tap it: when one of them runs alone, push its payload every 8 s until xcodebuild exits.
 PUSHER=""
 case "$TESTS" in
-  VerifyInteractionTests/test08_PushOpenDaily) PAYLOAD="$RUN/daily.json" ;;
+  VerifyInteractionTests/test08_PushOpenDaily|VerifyInteractionTests/test13_PushDismissesWatchlist) PAYLOAD="$RUN/daily.json" ;;
   VerifyInteractionTests/test09_PushOpenEvents) PAYLOAD="$RUN/events.json" ;;
   *) PAYLOAD="" ;;
 esac

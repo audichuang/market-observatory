@@ -7,6 +7,7 @@ App 登入後註冊 APNs；每個帳號可以設定每日收盤摘要、名單�
 - `push-device-health`：同帳號同環境重新註冊保留上次失敗，換帳號或環境清除；送達成功清錯誤，BadDeviceToken／Unregistered 刪 token；每人最多保留最近 10 台。
 - `push-prefs`（F7、F8）：推播設定頁四個項目；關掉每日摘要、門檻改 ±6.0%，離開再進來仍保留，API `/api/v1/push` 的 `prefs` 是 `daily:false`、`moveThresholdPct:6`；之後改回開、±5.0%。
 - `push-banner`（G1）：前景收到推播出現橫幅，標題與內文可讀。
+- `push-dismiss-overlay`（G4）：點推播關掉總覽日期／觀察名單 sheet、返回展望前的總覽，新聞明細 sheet 也會關閉；日期以 payload 為準。
 - `push-open-daily`（G2）：背景點收盤推播 → 總覽、顯示 payload 的那天。
 - `push-open-events`（G3）：背景點事件推播 → 新聞的日曆。
 
@@ -31,6 +32,7 @@ Preconditions:
   {"aps":{"alert":{"title":"今天（美東 M/D）的事件","body":"驗證用推播（ios-test.sh 產生）"},"thread-id":"events"},"kind":"events","screen":"news","date":"YYYY-MM-DD"}
   ```
 
+- **遮擋畫面（App）。** 單獨跑 `ios-test.sh … VerifyInteractionTests/test13_PushDismissesWatchlist`：先開觀察名單 sheet，再點腳本送的 daily 推播，斷言 sheet 關閉且大標題為 payload 的第二新交易日；截圖 `G4-sheet-before-push`／`G4-sheet-dismissed`。另手動檢查日期 sheet、總覽進入的展望頁與新聞明細在推播後都已關閉。
 - **Proof。** `09-push.png`、`F8-changed.png`、`F8-reopen.png`／`.txt`、`F8-restored.txt`、`G1-foreground-banner.png`、`G2-opened-daily.png`、`G3-opened-events.png`。
 
 ## Gotchas

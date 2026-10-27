@@ -27,6 +27,7 @@ struct NewsView: View {
             applySectionRequest()
             if state.value == nil || state.value?.symbol != symbol { await load() }
         }
+        .onChange(of: session.deepLinkRevision) { _, _ in selected = nil }
         .onChange(of: session.newsCalendarDate) { _, new in
             if let d = new { openCalendar(d) }
         }

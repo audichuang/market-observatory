@@ -5,6 +5,7 @@ import { easternDate } from "../src/lib/calendar.ts";
 import { Series } from "../src/lib/analytics.ts";
 import { buildSnapshot } from "../src/lib/snapshot.ts";
 import { DEFAULT_WATCHLIST } from "../src/lib/universe.ts";
+import { marketPrompt } from "../src/lib/news-ai.ts";
 import { MARKET_KEY, dailyWork, importResults, translateWork } from "../src/server/ai-batch.ts";
 import { saveSnapshots } from "../src/server/repo.ts";
 import { migratedDb } from "./helpers/fake-cloudflare.ts";
@@ -76,4 +77,27 @@ test("每日：重點只給 AI 判定重要的；公司重點與大盤各一份�
   assert.equal((sql.prepare("SELECT model FROM news_digests WHERE symbol = 'SPX'").get() as { model: string }).model, "claude-test");
   work = await dailyWork(db, today);
   assert.deepEqual([work.digests.length, work.market], [0, null], "寫過的公司與大盤不再給");
+});
+
+test("大盤那段：提示詞裡追蹤公司（含未逐家列出的）加上其他成分股，合計等於指數漲跌點數", async () => {
+  const { db } = await migratedDb();
+  const members = DEFAULT_WATCHLIST;
+  assert.ok(members.length > 6, "要有第 7 家以上的追蹤公司才測得到");
+  const tickers = members.flatMap((m) => m.tickers);
+  // Every ticker gets a distinct non-zero move and a weight, so every contribution (and restPts) is non-null.
+  const series: Record<string, Series> = { SPX: new Series([{ date: D1, close: 7600 }, { date: D2, close: 7560 }]) };
+  tickers.forEach((t, i) => (series[t] = new Series([{ date: D1, close: 100 }, { date: D2, close: 100 - (i + 1) * 0.7 }])));
+  const weights = new Map(tickers.map((t, i) => [t, 6 - i * 0.5]));
+  const snap = buildSnapshot({ tradeDate: D2, series, checks: {}, weights: { asOf: D1, byTicker: weights }, members })!;
+  assert.ok(snap.mag7.every((r) => r.contributionPts !== null && r.contributionPts !== 0));
+  await saveSnapshots(db, [snap], "測試");
+
+  const work = await dailyWork(db, D2);
+  assert.ok(work.market && work.market.changePts !== null && work.market.restPts !== null);
+  const prompt = marketPrompt(work.market).user;
+  // Sum every signed point figure on the contribution lines (listed companies, the unlisted-tracked line, and the remainder).
+  const section = prompt.slice(prompt.indexOf("點數貢獻"), prompt.indexOf("這天的大盤與總經新聞"));
+  const parts = [...section.matchAll(/([+-]\d+\.\d) 點/g)].map((x) => Number(x[1]));
+  const sum = parts.reduce((a, x) => a + x, 0);
+  assert.ok(Math.abs(sum - work.market.changePts) < 0.05 * parts.length, `各項合計 ${sum.toFixed(2)} ≠ 指數漲跌 ${work.market.changePts}`);
 });

@@ -64,6 +64,11 @@ export interface DeviceRow {
   environment: string;
 }
 
+/** A delivered notification clears the previous failure, for scheduled and manual pushes alike. */
+export function clearDeviceErrorStatement(db: D1Database, token: string): D1PreparedStatement {
+  return db.prepare("UPDATE devices SET last_error = NULL WHERE token = ? AND last_error IS NOT NULL").bind(token);
+}
+
 export const apnsHost = (environment: string) => (environment === "sandbox" ? "https://api.sandbox.push.apple.com" : "https://api.push.apple.com");
 
 export function apnsPayload(msg: PushMessage) {
@@ -193,7 +198,7 @@ async function deliver(db: D1Database, cfg: ApnsConfig | null, budget: Budget, d
     const j = now[i];
     if (r === "ok") {
       delivered.set(j.id, (delivered.get(j.id) ?? 0) + 1);
-      stmts.push(db.prepare("UPDATE devices SET last_error = NULL WHERE token = ? AND last_error IS NOT NULL").bind(j.device.token));
+      stmts.push(clearDeviceErrorStatement(db, j.device.token));
     } else if (r === "gone") gone.push(j.device.token);
     else errors[`${j.id}@${j.device.token.slice(0, 8)}`] = r;
   });

@@ -1,14 +1,16 @@
 # 下月展望
 
-約 21 個交易日後 S&P 500 收高的機率與跌 ≥5% 的機率，對照歷史基準率；列出目前符合的條件、樣本內與滾動驗證的表現、上線後的實際紀錄，以及機構觀點（FactSet 由下而上目標價、分析師共識、投行年底目標價，只當背景）。
+兩個目標的機率，對照歷史基準率：跌幅機率（dd5，以資料日收盤為起點，未來 21 個交易日內至少有一天收盤比它低 5% 以上，放在前面）與上漲機率（約 21 個交易日後收盤高於資料日）；列出目前符合的條件、樣本內與滾動驗證的表現、上線後的實際紀錄，以及機構觀點（FactSet 由下而上目標價、分析師共識、投行年底目標價，只當背景）。
 
 ## Sub-features
 
-- `outlook-pick`（F6）：上漲機率＝API `outlook.pick.p`、基準率＝`outlook.pick.base.p`（顯示成 %）。
+- `outlook-pick`（F6）：上漲機率＝API `outlook.pick.p`、基準率＝`outlook.pick.base.p`（顯示成 %）；dd5＝`outlook.drawdown.pick.p`、平常＝`outlook.drawdown.pick.base.p`，標題與「定義：」一行用上面的 dd5 定義。P(up) 不顯著時的說法是「尚未偵測到增額預測力」（自然頻率句與「採歷史基準率」那行），不出現「與平常差不多」。
+- `outlook-validation`：兩個分開標目標的滾動驗證區塊。網頁：KPI「跌幅機率（dd5）滾動驗證 BSS」＝`outlook.drawdown.evaluation.bss`、「上漲機率滾動驗證 BSS」＝`outlook.evaluation.bss`，各自的面板「滾動驗證：跌幅機率（dd5）」「滾動驗證：上漲機率」；App：同名的兩個 Section（dd5 的不列命中率）。區間標「歷史平均預測力 95% 區間（不是今天這個數字的區間）」。
+- `outlook-intervals`：條件比例的區間（主數字下方、評估項「差異」、條件表表頭）標「這類時期的歷史比例 95% 區間」，跟 BSS 的預測力區間分名。
 - `outlook-conditions`：條件表、目前條件有標記。
-- `outlook-records`：上線後實際紀錄（forecast 工作寫入）。
+- `outlook-records`：上線後實際紀錄：上漲機率（forecast 工作寫入；每列以紀錄日收盤為起點）。
 - `outlook-views`：機構觀點區塊有內容或明確空狀態。
-- `outlook-overview-card`：總覽的「下月展望」卡片與此頁一致。
+- `outlook-overview-card`：總覽的「下月展望」卡片與此頁一致（dd5 在前）。
 
 ## How to get to it (user POV)
 
@@ -21,7 +23,7 @@ Preconditions:
 
 - 基準狀態（`web-up.sh` 跑過 `forecast` 與 `daily-reference`）、測試帳號登入。
 
-- **頁面。** `goto("/outlook")`，等 `text=下月展望`；`fetch("/api/v1/outlook")`，比 `pick.p`、`pick.base.p`。截圖 `outlook.png`（整頁：`page.screenshot` 前捲動，或分段截）。
+- **頁面。** `goto("/outlook")`，等 `text=下月展望`；`fetch("/api/v1/outlook")`，比 `pick.p`、`pick.base.p`、`drawdown.pick.p`，以及兩個 BSS 區塊各自對 `drawdown.evaluation` 與 `evaluation`（數字不能對調）。截圖 `outlook.png`（整頁：`page.screenshot` 前捲動，或分段截）。
 - **App。** walkthrough 的 `08-outlook.png`、`08b-outlook-more.png`。
 - **Proof。** `outlook.png`、`outlook.api.json`、App 兩張截圖。
 

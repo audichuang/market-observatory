@@ -40,6 +40,11 @@ struct FixtureDecodingTests {
         let d = try #require(o.drawdown)
         #expect(d.scored == true)
         #expect(d.cellGate?.passed == true)
+        // The dd5 walk-forward block reads drawdown.evaluation; it is separate from the up model's evaluation.
+        let ddEval = try #require(d.evaluation)
+        #expect(ddEval.points == 416)
+        #expect(ddEval.bssLow != nil && ddEval.bssHigh != nil)
+        #expect(ddEval.bss != o.evaluation?.bss)
         #expect(o.returnQuantiles?.cell?.n == 6892)
         let a = try #require(o.assessments)
         #expect(a.difference?.status == "fail")

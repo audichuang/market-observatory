@@ -371,7 +371,7 @@ struct OutlookView: View {
                 Section {
                     VStack(alignment: .leading, spacing: 6) {
                         if let d = o.drawdown {
-                            Text("下個月出現 ≥5% 跌幅的機率").font(.subheadline).foregroundStyle(.secondary)
+                            Text("\(p.horizon) 個交易日內至少一天比資料日收盤低 5% 以上的機率").font(.subheadline).foregroundStyle(.secondary)
                             HStack(alignment: .firstTextBaseline, spacing: 8) {
                                 Text(Fmt.plainPct(d.pick.p * 100, 0)).font(.largeTitle.weight(.bold).monospacedDigit())
                                 Text("（平常 \(Fmt.plainPct(d.pick.base.p * 100, 0))）").font(.subheadline).foregroundStyle(.secondary)
@@ -384,9 +384,10 @@ struct OutlookView: View {
                                     .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                                     .foregroundStyle(Color.orange)
                             }
+                            Text("定義：以資料日收盤為起點，未來 \(p.horizon) 個交易日內至少有一天收盤比它低 5% 以上").font(.caption).foregroundStyle(.secondary)
                             Divider().padding(.vertical, 4)
                         }
-                        Text(o.drawdown == nil ? "約 \(p.horizon) 個交易日後 S&P 500 較高的機率" : "上漲機率（約 \(p.horizon) 個交易日後較高）")
+                        Text(o.drawdown == nil ? "約 \(p.horizon) 個交易日後 S&P 500 較高的機率" : "上漲機率（約 \(p.horizon) 個交易日後收盤高於資料日）")
                             .font(.subheadline).foregroundStyle(.secondary)
                         Text(Fmt.plainPct(o.pick.p * 100)).font(.largeTitle.weight(.bold).monospacedDigit())
                         Text(intervalText(o.pick)).font(.footnote).foregroundStyle(.secondary)
@@ -455,7 +456,15 @@ struct OutlookView: View {
                         Text("重疊的 \(p.horizon) 日窗口不是獨立樣本，有效樣本以天數 ÷ \(p.horizon) 計；有效樣本少於 \(minN) 的條件不採用（灰字）。")
                     }
                 }
-                if let ev = o.evaluation { evaluationSection(ev, horizon: p.horizon) }
+                // Two targets, two labelled blocks: o.evaluation is the up model, drawdown.evaluation is dd5.
+                if let ev = o.drawdown?.evaluation {
+                    evaluationSection(ev, horizon: p.horizon, title: "滾動驗證：跌幅機率（dd5）",
+                                      target: "目標：以資料日收盤為起點，未來 \(p.horizon) 個交易日內至少有一天收盤比它低 5% 以上。", showHitRate: false)
+                }
+                if let ev = o.evaluation {
+                    evaluationSection(ev, horizon: p.horizon, title: "滾動驗證：上漲機率",
+                                      target: "目標：約 \(p.horizon) 個交易日後收盤高於資料日。", showHitRate: true)
+                }
                 forecastSection(p)
             } else {
                 Text("資料不足，還無法產生展望。").foregroundStyle(.secondary)
@@ -481,6 +490,10 @@ struct OutlookView: View {
         "inconclusive": "目前的訊號不足以把機率拉離歷史基準",
     ]
 
+    // D-04: keep the two kinds of "95% interval" apart (same wording as web/src/lib/communication.ts).
+    private static let proportionInterval = "這類時期的歷史比例 95% 區間"
+    private static let skillInterval = "歷史平均預測力 95% 區間（不是今天這個數字的區間）"
+
     private static let basisLabels = [
         "base": "歷史基準率",
         "trend": "200 日線條件",
@@ -500,11 +513,11 @@ struct OutlookView: View {
             return "收縮後 \(Fmt.plainPct(pick.p * 100, 1))（基準 \(Fmt.plainPct(pick.base.p * 100, 1))、條件 \(Fmt.plainPct(cond.p * 100, 1))、權重 \(String(format: "%.2f", w))）· 依據：\(basis)"
         }
         if let cond = pick.conditional, pick.distinct != true {
-            return "採歷史基準率（95% 區間 \(ratio(pick.base.low))～\(ratio(pick.base.high))）；「\(basis)」下為 \(Fmt.plainPct(cond.p * 100))，區間 \(ratio(cond.low))～\(ratio(cond.high)) 包含基準率，看不出差別"
+            return "尚未偵測到增額預測力，採歷史基準率（\(Self.proportionInterval) \(ratio(pick.base.low))～\(ratio(pick.base.high))）；「\(basis)」下的歷史比例為 \(Fmt.plainPct(cond.p * 100))，區間 \(ratio(cond.low))～\(ratio(cond.high)) 包含基準率"
         }
         let low = pick.conditional?.low ?? pick.base.low
         let high = pick.conditional?.high ?? pick.base.high
-        return "95% 區間 \(ratio(low))～\(ratio(high)) · 依據：\(basis)"
+        return "\(Self.proportionInterval) \(ratio(low))～\(ratio(high)) · 依據：\(basis)"
     }
 
     private func f3(_ v: Double?) -> String { Fmt.num(v, 3) }
@@ -526,7 +539,7 @@ struct OutlookView: View {
         if let d = a.difference {
             assessmentRow("差異", d.status,
                 "條件 \(Fmt.plainPct(d.condP.map { $0 * 100 }, 1)) vs 平常 \(Fmt.plainPct(d.baseP.map { $0 * 100 }, 1))",
-                d.low == nil ? "沒有可用的條件" : "95% 區間 \(ratio(d.low))～\(ratio(d.high))")
+                d.low == nil ? "沒有可用的條件" : "\(Self.proportionInterval) \(ratio(d.low))～\(ratio(d.high))")
         }
         if let s = a.sampleAdequacy {
             assessmentRow("樣本", s.status,
@@ -536,7 +549,7 @@ struct OutlookView: View {
         if let t = a.trackRecord {
             assessmentRow("紀錄", t.status,
                 "此條件 BSS 下界 \(f3(t.cellBssLow))（最小可偵測 \(f3(t.cellMde))）",
-                "整體 BSS \(f3(t.globalBss))")
+                "上漲模型整體 BSS \(f3(t.globalBss))")
         }
         if let f = a.dataFreshness {
             assessmentRow("資料新鮮度", f.status,
@@ -567,23 +580,27 @@ struct OutlookView: View {
         .accessibilityElement(children: .combine)
     }
 
-    private func evaluationSection(_ ev: OutlookPage.Outlook.Evaluation, horizon: Int) -> some View {
+    /// One walk-forward block per target. Hit-rate rows only make sense for the up model ("always guess up").
+    private func evaluationSection(_ ev: OutlookPage.Outlook.Evaluation, horizon: Int, title: String, target: String, showHitRate: Bool) -> some View {
         Section {
-            Text("\(ev.firstDate.map(Fmt.fullDate) ?? "—")～\(ev.lastDate.map(Fmt.fullDate) ?? "—")，每 \(horizon) 個交易日預測一次（共 \(ev.points) 次）")
+            Text("\(target)\(ev.firstDate.map(Fmt.fullDate) ?? "—")～\(ev.lastDate.map(Fmt.fullDate) ?? "—")，每 \(horizon) 個交易日預測一次（共 \(ev.points) 次）")
                 .font(.footnote).foregroundStyle(.secondary)
-            LabeledContent("預測方向命中率", value: Fmt.plainPct(ev.hitRate.map { $0 * 100 }))
-            LabeledContent("永遠猜上漲的命中率", value: Fmt.plainPct(ev.baseHitRate.map { $0 * 100 }))
+            if showHitRate {
+                LabeledContent("預測方向命中率", value: Fmt.plainPct(ev.hitRate.map { $0 * 100 }))
+                LabeledContent("永遠猜上漲的命中率", value: Fmt.plainPct(ev.baseHitRate.map { $0 * 100 }))
+            }
             LabeledContent("Brier（越低越好）", value: Fmt.num(ev.brier, 4))
             LabeledContent("只用基準率的 Brier", value: Fmt.num(ev.brierBase, 4))
             LabeledContent("BSS") {
                 VStack(alignment: .trailing, spacing: 1) {
                     Text(Fmt.num(ev.bss, 3)).monospacedDigit()
-                    Text("95% 區間 \(Fmt.num(ev.bssLow, 3))～\(Fmt.num(ev.bssHigh, 3))").font(.caption2).foregroundStyle(.secondary)
+                    Text("\(Self.skillInterval) \(Fmt.num(ev.bssLow, 3))～\(Fmt.num(ev.bssHigh, 3))").font(.caption2).foregroundStyle(.secondary)
+                        .multilineTextAlignment(.trailing)
                 }
             }
             if let mde = ev.mde { LabeledContent("最小可偵測 BSS", value: Fmt.num(mde, 2)) }
         } header: {
-            Text("滾動驗證（walk-forward）")
+            Text(title)
         } footer: {
             Text("BSS = 1 − Brier ÷ 基準 Brier；區間下限 > 0 才代表穩定勝過基準率")
         }
@@ -635,9 +652,9 @@ struct OutlookView: View {
                 .font(.subheadline)
             }
         } header: {
-            Text(p.liveTrack == nil ? "實際發出的預測" : "上線後實際紀錄")
+            Text(p.liveTrack == nil ? "實際發出的預測" : "上線後實際紀錄：上漲機率")
         } footer: {
-            if p.liveTrack != nil { Text("合併所有已發布的模型版本；這是和樣本內、滾動驗證分開的第三種分數。") }
+            if p.liveTrack != nil { Text("合併所有已發布的模型版本；每列以紀錄日收盤為起點。這是和樣本內、滾動驗證分開的第三種分數。") }
         }
     }
 

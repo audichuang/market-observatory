@@ -1,4 +1,5 @@
 import { Link, useRouter } from "@void/react";
+import { NO_INCREMENTAL_SKILL, dd5Definition } from "../src/lib/communication.ts";
 import type { Mag7Row } from "../src/lib/snapshot.ts";
 import { CenteredBar, CheckBadge, Delta } from "../src/ui/bits.tsx";
 import { dateWithWeekday, num, pctText, signed, taipeiTime } from "../src/ui/format.ts";
@@ -84,25 +85,26 @@ export default function Overview({ snapshot, dates, expectedClose, news, digests
           <div>
             <div className="sub">下月展望（約 21 個交易日後）</div>
             <div style={{ display: "flex", gap: "1.2rem", flexWrap: "wrap" }}>
-              <div>
-                <div className="sub">收高機率</div>
-                <div style={{ fontSize: "1.6rem", fontWeight: 700 }}>{Math.round(forecast.probability * 100)}%</div>
-                <div className="sub">平常 {Math.round(forecast.base_rate * 100)}%</div>
-              </div>
               {forecast.drawdown && (
                 <div>
-                  <div className="sub">≥5% 跌幅機率</div>
+                  <div className="sub" title={dd5Definition()}>21 日內至少一天比資料日收盤低 5% 以上</div>
                   <div style={{ fontSize: "1.6rem", fontWeight: 700 }}>{Math.round(forecast.drawdown.p * 100)}%</div>
                   <div className="sub">平常 {Math.round(forecast.drawdown.base * 100)}%</div>
                   {!forecast.drawdown.scored && <div className="sub"><span className="badge warn">未通過驗證</span></div>}
                 </div>
               )}
+              <div>
+                <div className="sub">收高機率</div>
+                <div style={{ fontSize: "1.6rem", fontWeight: 700 }}>{Math.round(forecast.probability * 100)}%</div>
+                <div className="sub">平常 {Math.round(forecast.base_rate * 100)}%</div>
+                <div className="sub">
+                  <span className={`badge ${forecast.call === "up" ? "ok" : forecast.call === "down" ? "bad" : "warn"}`}>
+                    {forecast.call === "up" ? "高於平常" : forecast.call === "down" ? "低於平常" : "偵測不到預測力"}
+                  </span>
+                </div>
+                {forecast.call === "inconclusive" && <div className="meta">{NO_INCREMENTAL_SKILL}</div>}
+              </div>
             </div>
-          </div>
-          <div className="sub" style={{ flex: 1 }}>
-            <span className={`badge ${forecast.call === "up" ? "ok" : forecast.call === "down" ? "bad" : "warn"}`}>
-              {forecast.call === "up" ? "高於平常" : forecast.call === "down" ? "低於平常" : "偵測不到預測力"}
-            </span>
           </div>
           <span aria-hidden>→</span>
         </Link>

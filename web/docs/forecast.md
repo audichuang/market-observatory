@@ -287,15 +287,17 @@
 - **其他略過的項目：** 庫藏股靜默期、dealer gamma、NDR、Fidelity AART、增長通膨四象限、Citi Economic Surprise Index、SKEW、融資餘額。原因不外乎沒有免費的歷史版本、期限不對，或符號隨年代翻轉。
 - **RBC（Calvasina）：** 用 5 個模型取中位數訂目標，是另一個組合預測的實例，支持「有 3 個以上 flag 之後再做 G07」[73]。
 
-**資料品質提醒（`strategists.ts:19-32`）**
+**資料品質提醒（`web/src/lib/strategists.ts`）**
 
-2026-10-27 查核過下列幾列（`research-2026-10-27/proposal.md` §2.4、`codex-review.md` ST-02），`strategists.ts` 本身還沒改。
+2026-10-27 查核過下列幾列（`research-2026-10-27/proposal.md` §2.4、`codex-review.md` ST-02），結果已寫回 `strategists.ts`：核實的列標 `verified: true`、`verifiedOn: "2026-10-27"`，頁面上顯示「已核對原文」。
 
-- **Yardeni（已核實）：** 表上寫 8400。官方原文寫 2026-09-15 下調到 7,900，8,400 移到 2027 年中（原文：https://www.yardeniquicktakes.com/proceed-with-caution/ ；[26] 是 roic.ai 的二手報導）。
-- **Wells Fargo：** 表上寫 7950，把兩個部門混在一起。WFII 2026-06-15 的區間 7,800–8,000 已用官方 PDF 核實（https://fa.wellsfargoadvisors.com/michele-kief/mediahandler/media/813828/institute_alert_061526.pdf ；[74] 是 Kitco 的二手新聞）。WF Securities（Kwon）下調到 7,700 只看到二手報導（247wallst [22]），原文沒核實。
-- **UBS GWM（已核實）：** 表上寫 7900。官方 2026-09-16 CIO daily 寫「around 8,100 by December 2026」（https://www.ubs.com/global/en/wealthmanagement/insights/chief-investment-office/house-view/daily/2026/latest-16092026.html ）。9/16 只能證明是發布或重申日，不一定是首次調整日。
-- **BofA（未核實）：** 改為 7,400 只有多個二手來源一致，原 note 與日期沒看到。
-- **UBS Global Research（有矛盾）：** 8,100 的報導沒寫部門，2026-08 Reuters factbox 仍列 7,500，暫不改。
+- **Yardeni（已核實）：** 表上改為 7,900。官方原文寫 2026-09-15 由 8,400 下調到 7,900，8,400 移到 2027 年中（原文：https://www.yardeniquicktakes.com/proceed-with-caution/ ；[26] 是 roic.ai 的二手報導）。
+- **Wells Fargo（拆成兩列）：** 原本一列 7950 把兩個部門混在一起，現在分開。
+  - **WFII（已核實）：** 2026-06-15 公布區間 7,800–8,000，已用官方 PDF 核實（https://fa.wellsfargoadvisors.com/michele-kief/mediahandler/media/813828/institute_alert_061526.pdf ；[74] 是 Kitco 的二手新聞）。表上 target 放區間中點 7,900，標成中點，不是點估計。
+  - **WFS（未核實）：** 表上仍是 Reuters 2026-08 factbox 的 7,950。Kwon 9 月下調到 7,700 只看到二手報導（247wallst [22]），原文沒核實，暫不改。
+- **UBS GWM（已核實）：** 表上改為 8,100。官方 2026-09-16 CIO daily 寫「around 8,100 by December 2026」（https://www.ubs.com/global/en/wealthmanagement/insights/chief-investment-office/house-view/daily/2026/latest-16092026.html ）。9/16 只能證明是發布或重申日，不一定是首次調整日。
+- **BofA（未核實）：** 改為 7,400 只有多個二手來源一致，原 note 與日期沒看到，表上維持媒體報導的數字。
+- **UBS Global Research（未核實，有矛盾）：** 8,100 的報導沒寫部門，2026-08 Reuters factbox 仍列 7,500，表上維持 7,500。
 - 其他列（GS、Citi、JPM、DB、HSBC、Barclays、Evercore）這輪沒有覆核，仍請維護者對照原始報告。
 
 **沒驗證過的東西**

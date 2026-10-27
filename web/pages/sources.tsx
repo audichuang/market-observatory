@@ -41,7 +41,7 @@ const SCHEDULE = [
 const DATA_NOTES = [
   "Yahoo chart 與 Nasdaq（api.nasdaq.com）是網站自用的非官方端點，沒有公開 API 或服務保證，格式或可用性可能無預警改變；收盤價因此另用第二來源交叉核對。",
   "S&P 500（^GSPC）是價格指數，各標的收盤是拆股調整後、不含股息的價格（不是 Adj Close）；漲跌與報酬都沒算股息，跟含息的總報酬比會偏低。",
-  "投行策略師年底目標表是人工維護的背景資訊：每月對照新聞轉述更新，未必對過券商原文，也不進方向預測模型。",
+  "投行策略師年底目標表是人工維護的背景資訊，不進方向預測模型：標「已核對原文」的列對過機構官方原文，其餘取自媒體報導。",
 ];
 
 export default function SourcesPage({ expected, freshness, mismatches, runs, weights, counts, jobs, tolerance, calendar, links }: Props) {

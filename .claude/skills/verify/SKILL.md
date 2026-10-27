@@ -98,6 +98,7 @@ EOF
 
 - 等待用 `waitForSelector`／`waitForFunction` 等畫面上的結果，不要用固定秒數。
 - 對帳：`await page.fetch("/api/v1/<端點>")` 用同一個登入 cookie 讀 API，跟畫面比。回傳 `{ status, body }`，沒有 `.json()`，要 `JSON.parse(res.body)`。
+- 窄螢幕與深色模式：`page.cdp("Emulation.setDeviceMetricsOverride", { width: 320, height: 800, deviceScaleFactor: 2, mobile: true })`、`page.cdp("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: "dark" }] })`，結束前 `Emulation.clearDeviceMetricsOverride`。要模擬送出失敗，在頁面裡把 `window.fetch` 換成會 reject 的函式；用 CDP `Network.emulateNetworkConditions` 離線會讓腳本卡住。
 - 輸入用 `focus()`＋`keyboard.type`，不用 `page.fill`（在這個 app 的欄位上會失敗）；1Password 的 `com-1password-uso` 浮層會擋住點擊，送出前先移除。
 - 收尾：最後一輪 `await task.finish({ keep: [] })`。
 

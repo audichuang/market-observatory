@@ -28,6 +28,14 @@ const route = (handler: unknown) => async (c: Context) => {
   return out instanceof Response ? out : c.json(out ?? {});
 };
 const cachedUser = { id: "deleted-user", email: "deleted@example.test", name: "deleted" };
+const cachedSession = { id: "cached-session", token: "cached-token", userId: cachedUser.id, expiresAt: new Date("2100-01-01") };
+function seedIdentity(sql: Awaited<ReturnType<typeof migratedDb>>["sql"]) {
+  sql.prepare('INSERT INTO "user" (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, 0, 0, 0)').run(cachedUser.id, cachedUser.name, cachedUser.email);
+  const insert = sql.prepare('INSERT INTO "session" (id, token, "userId", "expiresAt", "createdAt", "updatedAt") VALUES (?, ?, ?, ?, 0, 0)');
+  insert.run(cachedSession.id, cachedSession.token, cachedUser.id, cachedSession.expiresAt.getTime());
+  // Another valid login must not keep the revoked/expired login authenticated.
+  insert.run("other-session", "other-token", cachedUser.id, cachedSession.expiresAt.getTime());
+}
 const prefs = { daily: true, moves: true, moveThresholdPct: 5, events: true };
 const cases = [
   ["APNs 裝置", "POST", "/api/v1/devices", { token: "a".repeat(64), environment: "sandbox" }],
@@ -43,16 +51,17 @@ const cases = [
   ["網頁新聞 loader 初始化", "GET", "/news", undefined],
 ] as const;
 
-for (const [label, method, path, body] of cases) test(`刪除帳號後的快取身分不能寫入${label}`, async () => {
+for (const invalidation of ["刪除帳號", "撤銷 session", "session 到期"] as const)
+for (const [label, method, path, body] of cases) test(`${invalidation}後的快取身分不能寫入${label}`, async () => {
   const { db, sql } = await migratedDb();
   const upstream = new FakeUpstream();
   const restore = upstream.install();
   try {
-    sql.prepare('INSERT INTO "user" (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, 0, 0, 0)').run(cachedUser.id, cachedUser.name, cachedUser.email);
+    seedIdentity(sql);
     sql.prepare("INSERT INTO weights (as_of, ticker, name, weight_pct, fetched_at) VALUES ('2026-10-28', 'AVGO', 'Broadcom', 2, 'x')").run();
     const app = new Hono();
     // Better Auth's cookieCache can return this same authenticated identity after its row is deleted.
-    app.use("*", async (c, next) => { c.set("user" as never, cachedUser as never); c.set("session" as never, { userId: cachedUser.id } as never); await next(); });
+    app.use("*", async (c, next) => { c.set("user" as never, cachedUser as never); c.set("session" as never, cachedSession as never); await next(); });
     app.use("*", gate);
     app.delete("/api/v1/me", route(deleteAccount));
     app.post("/api/v1/devices", route(registerDevice));
@@ -67,25 +76,57 @@ for (const [label, method, path, body] of cases) test(`刪除帳號後的快取�
     app.get("/", route(webOverview));
     app.get("/news", route(webNews));
     const env = { DB: db, OWNER_EMAIL: "owner@example.test" };
-    assert.equal((await app.request("http://localhost/api/v1/me", { method: "DELETE" }, env)).status, 200);
-    assert.equal(sql.prepare('SELECT id FROM "user" WHERE id = ?').get(cachedUser.id), undefined);
+    if (invalidation === "刪除帳號") {
+      assert.equal((await app.request("http://localhost/api/v1/me", { method: "DELETE" }, env)).status, 200);
+      assert.equal(sql.prepare('SELECT id FROM "user" WHERE id = ?').get(cachedUser.id), undefined);
+      assert.equal(sql.prepare('SELECT id FROM "session" WHERE "userId" = ?').get(cachedUser.id), undefined);
+    } else {
+      if (invalidation === "撤銷 session") sql.prepare('DELETE FROM "session" WHERE id = ?').run(cachedSession.id);
+      else sql.prepare('UPDATE "session" SET "expiresAt" = ? WHERE id = ?').run(Date.now() - 1000, cachedSession.id);
+      assert.ok(sql.prepare('SELECT id FROM "user" WHERE id = ?').get(cachedUser.id));
+      assert.ok(sql.prepare('SELECT id FROM "session" WHERE id = ?').get("other-session"));
+    }
     upstream.reset();
     const response = await app.request(`http://localhost${path}`, { method, headers: body ? { "content-type": "application/json" } : undefined, body: body ? JSON.stringify(body) : undefined }, env);
+    if (!path.startsWith("/api/")) assert.ok(response.headers.get("location")?.startsWith("/login"));
     const settings = sql.prepare("SELECT key FROM settings WHERE key LIKE '%deleted-user%' ORDER BY key").all();
     const devices = sql.prepare("SELECT token FROM devices WHERE user_id = ?").all(cachedUser.id);
     assert.deepEqual({ status: response.status, settings, devices, externalRequests: upstream.count }, { status: path.startsWith("/api/") ? 401 : 302, settings: [], devices: [], externalRequests: 0 });
   } finally { restore(); sql.close(); }
 });
 
-test("已刪帳號打開公開登入頁時不再帶快取身分，避免重新導回受保護頁", async () => {
+for (const invalidation of ["刪除帳號", "撤銷 session", "session 到期"] as const)
+test(`${invalidation}後打開公開登入頁時清除快取身分，避免重新導回受保護頁`, async () => {
   const { db, sql } = await migratedDb();
   try {
+    if (invalidation !== "刪除帳號") {
+      seedIdentity(sql);
+      if (invalidation === "撤銷 session") sql.prepare('DELETE FROM "session" WHERE id = ?').run(cachedSession.id);
+      else sql.prepare('UPDATE "session" SET "expiresAt" = 0 WHERE id = ?').run(cachedSession.id);
+    }
     const app = new Hono();
-    app.use("*", async (c, next) => { c.set("user" as never, cachedUser as never); c.set("session" as never, { userId: cachedUser.id } as never); await next(); });
+    app.use("*", async (c, next) => { c.set("user" as never, cachedUser as never); c.set("session" as never, cachedSession as never); await next(); });
     app.use("*", gate);
     app.get("/login", (c) => c.json({ user: c.get("user" as never), session: c.get("session" as never), shared: c.get("shared" as never) }));
     const response = await app.request("http://localhost/login", {}, { DB: db });
     assert.equal(response.status, 200);
     assert.deepEqual(await response.json(), { user: null, session: null, shared: { userEmail: null, isOwner: false, path: "/login" } });
+  } finally { sql.close(); }
+});
+
+test("有效 session 只查主庫一次並保留登入身分", async () => {
+  const { db, sql } = await migratedDb();
+  try {
+    seedIdentity(sql);
+    let queries = 0;
+    const primary = { prepare: (query: string) => { queries++; return db.prepare(query); } };
+    const app = new Hono();
+    app.use("*", async (c, next) => { c.set("user" as never, cachedUser as never); c.set("session" as never, cachedSession as never); await next(); });
+    app.use("*", gate);
+    app.get("/probe", (c) => c.json({ user: c.get("user" as never), shared: c.get("shared" as never) }));
+    const response = await app.request("http://localhost/probe", {}, { DB: primary, OWNER_EMAIL: cachedUser.email });
+    assert.equal(response.status, 200);
+    assert.equal(queries, 1);
+    assert.deepEqual(await response.json(), { user: cachedUser, shared: { userEmail: cachedUser.email, isOwner: true, path: "/probe" } });
   } finally { sql.close(); }
 });

@@ -18,9 +18,10 @@ const PUBLIC_PREFIXES = [
 export default defineMiddleware(async (c, next) => {
   const path = c.req.path;
   let user = c.get("user");
-  // A signed cookie can outlive account deletion on another device. Check the primary DB
-  // before any handler runs, including GET loaders that initialize per-user settings.
-  if (user && !(await c.env.DB.prepare('SELECT 1 AS present FROM "user" WHERE id = ?').bind(user.id).first())) {
+  const session = c.get("session");
+  // Better Auth 1.7's cookieCache retains the session id even after revocation/account deletion.
+  // Check the primary DB (expiresAt is timestamp_ms) before handlers, including GET initializers.
+  if (user && (!session || !(await c.env.DB.prepare('SELECT 1 AS present FROM "session" WHERE id = ? AND "userId" = ? AND "expiresAt" > ?').bind(session.id, user.id, Date.now()).first()))) {
     c.set("user", null);
     c.set("session", null);
     user = null;

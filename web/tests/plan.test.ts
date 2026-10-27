@@ -19,6 +19,7 @@ test("伺服器驗證的錯誤訊息是中文（網頁表單與 App 直接顯示
     { researchBudgetTwd: 2_000_000_000 },
     { trancheTwd: 1.5 },
     { monthlyTwd: "abc" },
+    { monthlyTwd: 0 },
     { years: 4 },
     { etf: "XYZ" },
     { notes: "x".repeat(2001) },
@@ -29,4 +30,5 @@ test("伺服器驗證的錯誤訊息是中文（網頁表單與 App 直接顯示
     for (const issue of r.error!.issues) assert.match(issue.message, /[一-鿿]/, `${JSON.stringify(patch)} → ${issue.message}`);
   }
   assert.equal(PlanSchema.safeParse(DEFAULT_PLAN).success, true);
+  assert.equal(PlanSchema.safeParse({ ...DEFAULT_PLAN, monthlyTwd: 1, researchBudgetTwd: 0, trancheTwd: 0 }).success, true);
 });

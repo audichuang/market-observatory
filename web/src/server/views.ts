@@ -242,7 +242,7 @@ const twd = (label: string, max: number, maxText: string) =>
     .max(max, `${label}最多 ${maxText}`);
 
 export const PlanSchema = z.object({
-  monthlyTwd: twd("每月金額", PLAN_LIMITS.monthlyMaxTwd, "1000 萬"),
+  monthlyTwd: twd("每月金額", PLAN_LIMITS.monthlyMaxTwd, "1000 萬").min(1, "每月金額至少 1 元"),
   etf: z.string({ error: "請選擇 ETF" }).refine((t) => ETFS.some((e) => e.ticker === t), "未知的 ETF"),
   years: z.number({ error: "期間要是數字" }).int("期間要是 1、2、3 或 5 年").refine((n) => [1, 2, 3, 5].includes(n), "期間要是 1、2、3 或 5 年"),
   researchBudgetTwd: twd("加碼研究預算", PLAN_LIMITS.amountMaxTwd, "10 億"),
@@ -270,10 +270,12 @@ const PERIODS = [
 export async function etfsView(c: ViewCtx, v: Viewer) {
   const db = readDb(c.env);
   // 定投規劃每人一份，存檔後要立刻看到：讀主庫，不走快取。
-  const plan = await getViewerSetting<Plan>(c.env.DB, v, PLAN_KEY, DEFAULT_PLAN);
+  const savedPlan = await getViewerSetting<Plan>(c.env.DB, v, PLAN_KEY, DEFAULT_PLAN);
+  // Earlier versions accepted zero monthly contributions; keep the rest of that saved plan intact.
+  const plan = savedPlan.monthlyTwd === 0 ? { ...savedPlan, monthlyTwd: DEFAULT_PLAN.monthlyTwd } : savedPlan;
   const etf = ETFS.some((e) => e.ticker === c.req.query("etf")) ? (c.req.query("etf") as string) : plan.etf;
   const years = [1, 2, 3, 5].includes(Number(c.req.query("years"))) ? Number(c.req.query("years")) : plan.years;
-  const monthlyTwd = Number(c.req.query("monthly")) > 0 ? Math.round(Math.min(Number(c.req.query("monthly")), PLAN_LIMITS.monthlyMaxTwd)) : plan.monthlyTwd;
+  const monthlyTwd = Number(c.req.query("monthly")) > 0 ? Math.max(1, Math.round(Math.min(Number(c.req.query("monthly")), PLAN_LIMITS.monthlyMaxTwd))) : plan.monthlyTwd;
   const computed = await cachedPage(cacheCtx(c), db, `etfs?etf=${etf}&years=${years}&monthly=${monthlyTwd}`, async () => {
     const last = await db.prepare("SELECT MAX(date) AS d FROM prices WHERE symbol = ?").bind(INDEX_SYMBOL).first<{ d: string | null }>();
     const end = last?.d ?? new Date().toISOString().slice(0, 10);

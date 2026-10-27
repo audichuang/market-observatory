@@ -286,6 +286,7 @@ test("財報日曆沒排到時改查推估日期：股類代號（BRK-B）也查
     const ev = r.runs.find((x) => x.job === "events")!;
     assert.equal(ev.status, "ok", ev.summary);
     assert.match(ev.summary, /BRK-B 2026-11-19（估）/);
+    assert.match(ev.summary, /；總經事件 \d+ 筆（FOMC \d+、CPI \d+、非農 \d+）$/);
   } finally {
     upstream.rules = [];
   }

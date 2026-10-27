@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { easternDate } from "../src/lib/calendar.ts";
-import { digestPrompt, enrichPrompt, extractArticleText, isImportant, matchYahooArticle, newsFingerprint, parseDigest, parseEnrich, parsePoints, pointsPrompt } from "../src/lib/news-ai.ts";
+import { digestPrompt, enrichPrompt, marketPrompt, extractArticleText, isImportant, matchYahooArticle, newsFingerprint, parseDigest, parseEnrich, parsePoints, pointsPrompt } from "../src/lib/news-ai.ts";
 import type { Viewer } from "../src/server/account.ts";
 import { migratedDb } from "./helpers/fake-cloudflare.ts";
 
@@ -126,4 +126,29 @@ test("matchYahooArticle: same title ignoring case, punctuation and entities; nev
   assert.equal(matchYahooArticle("Apple Joins Nvidia", news), null);
   assert.equal(matchYahooArticle("Apple Is One of the Most Profitable Businesses", news), null);
   assert.equal(matchYahooArticle("", news), null);
+});
+
+test("大盤提示詞：逐家列前 6 家、其餘追蹤公司併一行；餘數叫「其他成分股（含近似誤差）」；允許寫沒有單一催化因素、不推測後市", () => {
+  const mover = (key: string, ret: number, pts: number) => ({ key, company: key, returnPct: ret, contributionPts: pts });
+  const p = marketPrompt({
+    date: "2026-10-23",
+    close: 7560,
+    changePts: -40,
+    returnPct: -0.53,
+    vix: 18.2,
+    vixChange: 1.1,
+    spreadPct: -0.3,
+    movers: [mover("TSLA", -1, -0.8), mover("NVDA", -3, -12), mover("AAPL", -2, -9), mover("MSFT", -1.5, -6), mover("AMZN", -1.2, -4), mover("GOOGL", -1, -3), mover("META", 0.5, 1.2), mover("AVGO", -0.4, -0.6)],
+    restPts: -5.8,
+    news: ["聯準會按兵不動"],
+  }).user;
+  assert.match(p, /- NVDA（NVDA）-3\.00%，貢獻 -12\.0 點/);
+  assert.match(p, /- 未列出的追蹤公司（2 家）合計，貢獻 -1\.4 點/, "最小的兩家（TSLA、AVGO）併成一行");
+  assert.doesNotMatch(p, /TSLA|AVGO/);
+  assert.match(p, /其他成分股（含近似誤差）合計 -5\.8 點/);
+  assert.match(p, /沒有可清楚辨識的單一催化因素/);
+  assert.doesNotMatch(p, /多數股票較弱|其餘成分股/);
+  const d = digestPrompt({ key: "NVDA", company: "NVIDIA", date: "2026-10-23", returnPct: -0.59, contributionPts: -3.51, news: [] }).user;
+  assert.doesNotMatch(d, /可能怎麼影響股價/);
+  assert.match(d, /沒有可清楚辨識的單一催化因素/);
 });

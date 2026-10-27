@@ -1,5 +1,6 @@
 // 預測模型回測：在本機用 Cboe 日線跑 forecast.ts 的 walk-forward，所有模型邏輯都來自 src/lib，這裡只負責取資料與排版。
-//   node scripts/backtest.ts [--variant base,...] [--target up] [--since YYYY-MM-DD] [--prod-window] [--as-of YYYY-MM-DD] [--offline] [--json] [--null]
+//   node scripts/backtest.ts [--variant base,...] [--target up] [--since YYYY-MM-DD] [--prod-window] [--as-of YYYY-MM-DD] [--offline] [--json] [--null] [--null-n N]
+// --null-n: number of L08 null draws (default 20 = round-1 registered value; seeds 20261026+j, j=1..N); also prints permutation p = (1 + #{null >= observed})/(N+1).
 // --prod-window：起點 = as-of 往前 3660 天，與正式站（jobs.ts backfill）目前保存的歷史一致。
 // 事前登記已合併，可跑全歷史（docs/forecast.md）。第一個變體是參考；SENSITIVITY 內的變體只印在「敏感度（不用於決策）」。
 import { createHash } from "node:crypto";
@@ -7,8 +8,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { Series } from "../src/lib/analytics.ts";
 import { addDays } from "../src/lib/calendar.ts";
-import { EVAL_SEED, DEFAULT_MODEL, SEASON_MODEL, VRP_MODEL, HORIZON, MIN_EFFECTIVE_N, MIN_EPISODES, VIX_STRESS, buildObservations, buildOutlook, evaluateRows, type ModelConfig, type WalkRow } from "../src/lib/forecast.ts";
-import { EVAL_DEFAULTS, PHASES, bootstrapCI, brierOf, bssOf, intersectRegimes, mcStdErr, nullPairedBss, pairedBrierDiffMcStdErr, pairedBrierDiffPhase, pairedMcStdErr, pairedPhaseAveraged, phaseAverageFromCells, phaseCells, phaseGrid, pointInTimeCalls } from "../src/lib/forecast-eval.ts";
+import { EVAL_SEED, DEFAULT_MODEL, SEASON_MODEL, VRP_MODEL, HORIZON, MIN_EFFECTIVE_N, MIN_EPISODES, VIX_STRESS, buildObservations, evaluateRows, targetOutlookOf, type ModelConfig, type WalkRow } from "../src/lib/forecast.ts";
+import { EVAL_DEFAULTS, PHASES, bootstrapCI, brierOf, bssOf, intersectRegimes, mcStdErr, nullPairedBss, pairedBrierDiffMcStdErr, pairedBrierDiffPhase, pairedMcStdErr, pairedPhaseAveraged, permutationP, phaseAverageFromCells, phaseCells, phaseGrid, pointInTimeCalls } from "../src/lib/forecast-eval.ts";
 import { CBOE_URLS, parseCboeCsv } from "../src/lib/sources/cboe.ts";
 
 // 變體登錄：base／shrink40 = 現行 DEFAULT_MODEL（G01 k=40 + G03 + G08）；hard = G01 之前的硬切換；shrink20／shrink80 只做敏感度；
@@ -49,11 +50,14 @@ const { values: args } = parseArgs({
     offline: { type: "boolean", default: false },
     json: { type: "boolean", default: false },
     null: { type: "boolean", default: false },
+    "null-n": { type: "string", default: "20" },
   },
 });
 
 const target = args.target as (typeof TARGETS)[number];
 if (!TARGETS.includes(target)) throw new Error(`目標 ${args.target} 尚未支援（可用：${TARGETS.join("、")}）`);
+const nullN = Number(args["null-n"]);
+if (!Number.isInteger(nullN) || nullN < 1) throw new Error(`--null-n 要是正整數（收到 ${args["null-n"]}）`);
 const names = args.variant!.split(",");
 for (const n of names) if (!VARIANTS[n]) throw new Error(`沒有變體 ${n}（可用：${Object.keys(VARIANTS).join("、")}）`);
 
@@ -133,8 +137,10 @@ for (const name of names) {
   const pairedMc = paired && pairedMcStdErr(refObsRaw, rawObs, refCfg, cfg, { ...boot, label: target });
   const entry: Record<string, unknown> = { variant: name, version: cfg.version, historyStart, rows: rows.length, first: ev.firstDate, last: ev.lastDate, evaluation: ev, stationary: st, brier: brierOf(rows), hitRate: ev.hitRate, calls, phase: { mean: phase.mean, min: phase.min, max: phase.max, ci: phase.ci, byPhase: phase.bssByPhase, cycles: phase.cycles }, mc, pairedMc, cells: cellsSummary, paired: paired && { mean: paired.mean, ci: paired.ci, min: paired.min, max: paired.max, cycles: paired.cycles } };
   if (args.null && paired) {
-    const nul = nullPairedBss(refObsRaw, rawObs, refCfg, cfg, { label: target });
+    const nul = nullPairedBss(refObsRaw, rawObs, refCfg, cfg, { N: nullN, label: target });
     entry.nullThreshold = nul;
+    // Observed statistic = paired.mean: same intersectRegimes + phaseGrid(r, 504) + phaseAverageFromCells(..., cellsB).mean as each null draw.
+    entry.nullPermutation = permutationP(nul.values, paired.mean);
   }
   const pairedDiff = name === refName ? null : pairedBrierDiffPhase(refObsRaw, rawObs, refCfg, cfg, { ...boot, label: target });
   const pairedDiffMc = pairedDiff && pairedBrierDiffMcStdErr(refObsRaw, rawObs, refCfg, cfg, { ...boot, label: target });
@@ -149,15 +155,15 @@ for (const name of names) {
   if (target === "up") lines.push(`方向（point-in-time）up ${calls.up} / down ${calls.down} / inconclusive ${calls.inconclusive}`);
   if (target === "dd5") {
     // G09 採用判定的輸入（機械判定）：dd5 walk-forward 全域 bssLow > 0 且今天所用 cell nEff ≥ 30、段數 ≥ 8。
-    const o = buildOutlook(spx, vix, cfg);
-    if (!o) lines.push("G09 判定輸入：buildOutlook 算不出來（資料不足）");
+    // Evaluate dd5 only (targetOutlookOf), not buildOutlook, so a dd5 trial never computes the candidate's P(up).
+    const d = targetOutlookOf(buildObservations(spx, vix, cfg), cfg, "dd5");
+    if (!d) lines.push("G09 判定輸入：dd5 算不出來（資料不足）");
     else {
-      const d = o.drawdown;
       const used = d.pick.conditional ?? d.pick.base;
-      lines.push(`G09 判定輸入（as-of ${o.asOf}，正式版 walkForward）：全域 bssLow ${fmt(d.evaluation.bssLow)}（BSS ${fmt(d.evaluation.bss)}，列數 ${d.evaluation.points}）；格點相位 0 的 bssLow ${fmt(ev.bssLow)}`);
+      lines.push(`G09 判定輸入（as-of ${d.asOf}，正式版 walkForward）：全域 bssLow ${fmt(d.evaluation.bssLow)}（BSS ${fmt(d.evaluation.bss)}，列數 ${d.evaluation.points}）；格點相位 0 的 bssLow ${fmt(ev.bssLow)}`);
       lines.push(`  今天所用 cell ${d.pick.cell}：nEff ${fmt(used.nEff, 1)}、段數 ${used.episodes}（門檻 ${MIN_EFFECTIVE_N}／${MIN_EPISODES}）；P(dd5) ${fmt(d.pick.p, 4)}（基準 ${fmt(d.pick.base.p, 4)}，條件 ${fmt(d.pick.conditional?.p, 4)}）`);
       lines.push(`  cellGate 列數 ${d.cellGate.rows} 段數 ${d.cellGate.runs} bssLow ${fmt(d.cellGate.bssLow)}（G03，僅參考）；scored = ${d.scored}`);
-      const q = o.returnQuantiles;
+      const q = d.returnQuantiles;
       if (q.cell) lines.push(`  21 日報酬分位數 cell：p10 ${fmt(q.cell.p10, 4)} p50 ${fmt(q.cell.p50, 4)} p90 ${fmt(q.cell.p90, 4)}（n ${q.cell.n}）`);
       if (q.all) lines.push(`  21 日報酬分位數 全部：p10 ${fmt(q.all.p10, 4)} p50 ${fmt(q.all.p50, 4)} p90 ${fmt(q.all.p90, 4)}（n ${q.all.n}）`);
     }
@@ -171,8 +177,10 @@ for (const name of names) {
   if (pairedMc) lines.push(`配對下界 MC 標準誤（決策用，種子 1..5 的 sd）${fmt(pairedMc.se, 4)}（${pairedMc.values.map((v) => fmt(v)).join(", ")}）；|下界| < 2×SE 視為不確定`);
   if (entry.nullThreshold) {
     const nt = entry.nullThreshold as { values: number[]; threshold: number };
+    const np = entry.nullPermutation as { p: number; exceed: number; n: number };
     lines.push(`L08 虛無值（${nt.values.length} 組，種子 ${EVAL_SEED}+j）${nt.values.map((v) => fmt(v, 4)).join(", ")}`);
-    lines.push(`L08 虛無門檻（20 組最大值）${fmt(nt.threshold)}`);
+    lines.push(`L08 虛無門檻（${nt.values.length} 組最大值）${fmt(nt.threshold)}`);
+    lines.push(`L08 置換 p = (1 + ${np.exceed}) / (${np.n} + 1) = ${fmt(np.p, 4)}（虛無值 ≥ 觀測值 ${fmt(paired!.mean, 4)} 的組數 ${np.exceed}，同值算入）`);
   }
 }
 if (args.null && names.length < 2) mainLines.push("", "--null 需要至少兩個變體（參考 + 候選）；略過");

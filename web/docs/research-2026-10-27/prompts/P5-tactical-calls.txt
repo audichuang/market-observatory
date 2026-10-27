@@ -1,0 +1,39 @@
+CONTEXT — read before researching.
+
+I run a personal US-equity dashboard. Its forecasting component estimates, for the S&P 500 PRICE index (USD, no dividends):
+  (a) P(up): probability the close 21 trading days from now is above today's close;
+  (b) P(dd5): probability that any close in the next 21 trading days is ≥5% below today's close.
+
+Current model (deliberately minimal):
+- Base rates use 1990-01-02 onward, expanding window (P(up) base ≈ 64%, P(dd5) base ≈ 16.6%). The output falls back to the base rate when no condition qualifies; otherwise it is the shrunk conditional probability described below.
+- Only two binary conditions: close above its 200-day SMA; VIX ≥ 30.
+- Conditional probability is shrunk toward the base rate: p = (40·p_base + n·p_cond)/(40 + n), n = effective sample = days/21; a condition needs nEff ≥ 30 and ≥ 8 separate episodes (episodes ≥21 trading days apart).
+- Validation: non-overlapping 21-day walk-forward (~416 rows since 1992), Brier skill score vs. base rate, averaged over 21 start phases, stationary block bootstrap CIs, and a data-snooping null threshold from 20 block-permuted label series.
+- Result so far: P(up) shows NO detectable skill (BSS ≈ 0.001 [−0.007, 0.009]). P(dd5) DOES: BSS ≈ 0.049 [0.016, 0.083].
+
+Already tested and REJECTED as inputs for 21-day direction (do not re-propose unless you have new out-of-sample evidence): analyst target-price implied upside; strategist year-end targets; breadth (RSP/SPY etc.); VIX term structure; variance risk premium (VIX²/12 − 21d realized variance) replacing VIX≥30; Nov–Apr seasonality; rate shocks / real yields; credit spreads (BAA10Y); multi-speed trend/CTA score; CFTC positioning; proprietary or DIY sentiment composites (BofA SSI, Bull&Bear, FMS, GS SI, CNN Fear&Greed, AAII, NAAIM); small-n event studies (first hike, midterms); term spread / default spread (monthly OOS negative in Goyal-Welch); valuation/ERP/CAPE timing; HMM/ML fitted weights; indicator voting.
+
+Already researched (do not summarize again): how GS/MS/BofA/Citi/JPM/Barclays/WF/Evercore/UBS/Yardeni build year-end targets; Vanguard VCMM, GMO, Research Affiliates, AQR, NDR, Fidelity AART, Hussman; Good Judgment / superforecasting, SPF, NY Fed probit, 538; trend CTAs, vol targeting, Basel traffic light, deflated Sharpe/PBO.
+
+RULES FOR YOUR ANSWER
+1. Every number needs a date and a primary-source URL. If you could not open the primary source (paywall, 403), mark it 未核實 and say what you saw instead.
+2. Grade every predictive claim with exactly one level: none / bank_claim (the institution's own claim, no OOS test) / anecdotal / academic_is (academic, in-sample only) / academic_oos / independently_tested. State whether the result was positive, null or negative.
+3. Prefer evidence at a 1-month horizon on a broad US index. Say explicitly when evidence is for another horizon, asset, or cross-sectional stock selection.
+4. Negative and null results are as valuable to me as positive ones. Do not pad.
+5. Write the answer in Traditional Chinese (繁體中文); keep paper titles, tickers, series IDs, and technical terms in English.
+
+TASK: Nobody has audited sell-side TACTICAL (1–3 month) S&P 500 calls against outcomes. Build a dated catalog and score it.
+
+Scope (2018–2026, as many as you can document with primary or reputable secondary sources):
+- Morgan Stanley Mike Wilson tactical calls (incl. 2022–23 bear calls, 2024–26 corrections calls).
+- BofA Michael Hartnett: Bull & Bear sell/buy signals and "sell the rip / buy the dip" calls; FMS cash rule signals.
+- Goldman Sachs: Sentiment Indicator extremes, Risk Appetite Indicator reversals, tactical overweight/underweight changes (Kostin, Snider, Mueller-Glissmann, Oppenheimer).
+- JPMorgan (Kolanovic, Lakos-Bujas) tactical calls; Fundstrat (Tom Lee) dip-buy calls; Citi Levkovich index extremes.
+
+For each call: date published (and time if it matters, e.g. before/after the close), who, exact wording, direction, horizon if stated, source URL. Do NOT look up index prices or compute outcomes — I will score every call locally against my own official Cboe SPX daily series. Accurate dates and verbatim wording matter far more than volume.
+
+Then:
+1. Any published third-party audits (CXO Advisory guru grades, academic papers on strategist tactical calls, Bloomberg/FT retrospectives). Grade each.
+2. Survivorship/selection caveats: calls that get press are not a random sample — say how you mitigated this (e.g. covering every Bull & Bear signal BofA itself lists, not only famous ones).
+
+OUTPUT: catalog table (日期 | 來源 | 原文 | 方向 | 期限 | 出處 URL), then the third-party audits with evidence grades.

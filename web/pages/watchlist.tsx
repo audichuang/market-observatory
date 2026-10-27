@@ -1,5 +1,6 @@
 import { Link, action, useRouter } from "@void/react";
 import { useState } from "react";
+import { REST_LABEL } from "../src/lib/snapshot.ts";
 import { num } from "../src/ui/format.ts";
 import type { Props } from "./watchlist.server";
 
@@ -49,7 +50,7 @@ export default function WatchlistPage({ members, candidates, asOf, totalWeight, 
         <div>
           <h1>觀察名單</h1>
           <p className="sub">
-            名單裡的公司會在總覽拆開看對 S&amp;P 500 的貢獻點數、在走勢頁一起比較；「其餘成分股」＝指數減掉名單。可加入任何 S&amp;P 500 成分股，最多 {max} 家。
+            名單裡的公司會在總覽拆開看對 S&amp;P 500 的貢獻點數、在走勢頁一起比較；「{REST_LABEL}」＝指數漲跌減掉名單合計。可加入任何 S&amp;P 500 成分股，最多 {max} 家。
           </p>
         </div>
       </div>
@@ -110,7 +111,7 @@ export default function WatchlistPage({ members, candidates, asOf, totalWeight, 
           </h2>
         </div>
         {members.length === 0 ? (
-          <p className="sub">名單是空的；總覽的「其餘成分股」就是整個指數。</p>
+          <p className="sub">名單是空的；總覽的「{REST_LABEL}」就是整個指數。</p>
         ) : (
           <ul className="list watch-list">
             {members.map((m) => (

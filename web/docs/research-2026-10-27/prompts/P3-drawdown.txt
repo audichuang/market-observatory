@@ -1,0 +1,35 @@
+CONTEXT — read before researching.
+
+I run a personal US-equity dashboard. Its forecasting component estimates, for the S&P 500 PRICE index (USD, no dividends):
+  (a) P(up): probability the close 21 trading days from now is above today's close;
+  (b) P(dd5): probability that any close in the next 21 trading days is ≥5% below today's close.
+
+Current model (deliberately minimal):
+- Base rates use 1990-01-02 onward, expanding window (P(up) base ≈ 64%, P(dd5) base ≈ 16.6%). The output falls back to the base rate when no condition qualifies; otherwise it is the shrunk conditional probability described below.
+- Only two binary conditions: close above its 200-day SMA; VIX ≥ 30.
+- Conditional probability is shrunk toward the base rate: p = (40·p_base + n·p_cond)/(40 + n), n = effective sample = days/21; a condition needs nEff ≥ 30 and ≥ 8 separate episodes (episodes ≥21 trading days apart).
+- Validation: non-overlapping 21-day walk-forward (~416 rows since 1992), Brier skill score vs. base rate, averaged over 21 start phases, stationary block bootstrap CIs, and a data-snooping null threshold from 20 block-permuted label series.
+- Result so far: P(up) shows NO detectable skill (BSS ≈ 0.001 [−0.007, 0.009]). P(dd5) DOES: BSS ≈ 0.049 [0.016, 0.083].
+
+Already tested and REJECTED as inputs for 21-day direction (do not re-propose unless you have new out-of-sample evidence): analyst target-price implied upside; strategist year-end targets; breadth (RSP/SPY etc.); VIX term structure; variance risk premium (VIX²/12 − 21d realized variance) replacing VIX≥30; Nov–Apr seasonality; rate shocks / real yields; credit spreads (BAA10Y); multi-speed trend/CTA score; CFTC positioning; proprietary or DIY sentiment composites (BofA SSI, Bull&Bear, FMS, GS SI, CNN Fear&Greed, AAII, NAAIM); small-n event studies (first hike, midterms); term spread / default spread (monthly OOS negative in Goyal-Welch); valuation/ERP/CAPE timing; HMM/ML fitted weights; indicator voting.
+
+Already researched (do not summarize again): how GS/MS/BofA/Citi/JPM/Barclays/WF/Evercore/UBS/Yardeni build year-end targets; Vanguard VCMM, GMO, Research Affiliates, AQR, NDR, Fidelity AART, Hussman; Good Judgment / superforecasting, SPF, NY Fed probit, 538; trend CTAs, vol targeting, Basel traffic light, deflated Sharpe/PBO.
+
+RULES FOR YOUR ANSWER
+1. Every number needs a date and a primary-source URL. If you could not open the primary source (paywall, 403), mark it 未核實 and say what you saw instead.
+2. Grade every predictive claim with exactly one level: none / bank_claim (the institution's own claim, no OOS test) / anecdotal / academic_is (academic, in-sample only) / academic_oos / independently_tested. State whether the result was positive, null or negative.
+3. Prefer evidence at a 1-month horizon on a broad US index. Say explicitly when evidence is for another horizon, asset, or cross-sectional stock selection.
+4. Negative and null results are as valuable to me as positive ones. Do not pad.
+5. Write the answer in Traditional Chinese (繁體中文); keep paper titles, tickers, series IDs, and technical terms in English.
+
+TASK: My only forecast with detectable skill is P(dd5): probability that the S&P 500 closes ≥5% below today's close at least once in the next 21 trading days (base rate ≈16.6% since 1990; conditioning on 200d SMA and VIX≥30 with shrinkage gives BSS ≈ 0.049). I want to understand this target better and improve it honestly.
+
+Questions:
+1. What predicts short-horizon (1-month) drawdown or crash probability out of sample? Cover: realized volatility (HAR-RV, Corsi), VIX level and changes, VVIX (vol-of-vol), SKEW index, implied vs realized gap, Greenwood-Shleifer-You run-up variables, credit spreads, the drawdown state itself (being already in a drawdown), volatility clustering after a first large down day. For each: horizon, sample, OOS?, effect size.
+2. Is there a closed-form or simulation baseline I should beat? E.g. P(min over 21 days ≤ −5%) under a driftless GBM with σ = VIX/100 (reflection principle) or σ = HAR-RV forecast. How well calibrated is such a baseline historically on the S&P 500? Has anyone published that comparison?
+3. How do bank risk desks and risk-model vendors (MSCI Barra, Axioma, Bloomberg PORT, RiskMetrics) forecast 1-month tail loss for an index? What horizon scaling, what volatility model, how they backtest it (Kupiec / Christoffersen / Basel traffic light). Which parts are publicly documented?
+4. Other drawdown thresholds and horizons: base rates since 1950 or 1990 for 3%, 5%, 10% within 21 and 63 trading days; which threshold gives the best signal-to-noise for a monthly dollar-cost-averaging investor?
+5. Scoring: besides Brier, what is recommended for rare-event binary forecasts at n≈400 overlapping-cluster rows (log score, reliability diagrams with few bins, Murphy decomposition, ROC/AUC)? How to report calibration with so few events?
+6. Communication: how do good sources (e.g. Man Group, AQR, Fed financial stability reports, Minneapolis Fed market-based probabilities) present tail probabilities to non-experts?
+
+OUTPUT: a table of predictors (預測變數 | 定義 | 免費資料源與起始年 | 期限 | 證據等級 | 效果大小 | 備註), the baseline analysis, then short answers to 3–6.

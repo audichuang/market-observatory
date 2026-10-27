@@ -179,7 +179,7 @@ struct NewsView: View {
             .listRowInsets(EdgeInsets(top: 8, leading: 8, bottom: 4, trailing: 8))
             .listRowSeparator(.hidden)
             HStack(spacing: 14) {
-                legend(Color.up, "總經（FOMC）")
+                legend(Color.up, "總經（FOMC、CPI、非農）")
                 legend(Color.accentColor, "名單公司財報")
             }
             .font(.caption)

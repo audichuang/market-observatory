@@ -3,6 +3,8 @@
 // 並判斷「這則真正在講誰」（focus），沒在講名單公司也不是大盤總經的就當雜訊收起來。
 // 呼叫由本機排程的 agent 執行（scripts/ai-batch.ts 撈待辦、產生提示詞，結果經 /api/admin/ai 寫回，見 src/server/ai-batch.ts）。
 
+import { REST_LABEL } from "./snapshot.ts";
+
 export const NEWS_CATEGORIES = ["財報", "分析師", "產品與業務", "法規與訴訟", "總經與市場", "投資觀點"] as const;
 export type NewsTone = "positive" | "negative" | "neutral";
 
@@ -136,8 +138,8 @@ export function digestPrompt(d: DigestInput): Prompt {
   return {
     system: `你是台灣的財經編輯，替看不懂英文的散戶整理個股重點。${STYLE}`,
     user: `${d.company}（${d.key}）${d.date}（美東日期）的新聞如下，${move}。
-用 1～2 句、合計不超過 70 個字，說明這天跟這家公司有關、真正重要的事，以及可能怎麼影響股價。
-只根據下面的新聞，不要編造數字或原因；如果新聞看不出股價為什麼漲跌，就不要硬解釋漲跌。不要用「根據新聞」「綜合以上」這種開頭。
+用 1～2 句、合計不超過 70 個字，說明這天跟這家公司有關、實際發生了什麼，以及新聞裡有沒有具名人士對股價的說法。
+只根據下面的新聞，不要編造數字或原因，也不要自己推測之後的走勢；如果新聞看不出股價為什麼漲跌，就直接寫「沒有可清楚辨識的單一催化因素」，不要硬解釋漲跌。不要用「根據新聞」「綜合以上」這種開頭。
 tone 是整體對股價偏 positive、negative 或 neutral。
 
 ${lines.join("\n")}`,
@@ -153,9 +155,9 @@ export interface MarketInput {
   vixChange: number | null;
   /** 等權重減市值加權（百分點） */
   spreadPct: number | null;
-  /** 追蹤名單裡貢獻絕對值最大的幾家 */
+  /** 追蹤名單裡的每一家（提示詞只逐家列貢獻絕對值最大的幾家，其餘併成一行，各項加總才等於指數漲跌） */
   movers: { key: string; company: string; returnPct: number | null; contributionPts: number | null }[];
-  /** 名單以外其餘成分股的合計貢獻 */
+  /** 指數漲跌減掉全部追蹤公司貢獻後的餘數：其他成分股，加上權重與價格口徑的近似誤差 */
   restPts: number | null;
   /** 這天大盤、總經的新聞標題（繁中優先） */
   news: string[];
@@ -163,21 +165,32 @@ export interface MarketInput {
 
 const signedNum = (n: number | null, digits: number, unit = "") => (n === null ? "無資料" : `${n >= 0 ? "+" : ""}${n.toFixed(digits)}${unit}`);
 
+/** How many tracked companies the market prompt lists one by one; the rest are folded into one line. */
+const MARKET_MOVERS_LISTED = 6;
+
 /** 總覽最上面那段「今天為什麼漲跌」：只講整體，個股原因另有每家的重點。 */
 export function marketPrompt(m: MarketInput): Prompt {
-  const movers = m.movers.map((x) => `- ${x.company}（${x.key}）${signedNum(x.returnPct, 2, "%")}，貢獻 ${signedNum(x.contributionPts, 1, " 點")}`);
+  const sorted = [...m.movers].sort((a, b) => Math.abs(b.contributionPts ?? 0) - Math.abs(a.contributionPts ?? 0));
+  const listed = sorted.slice(0, MARKET_MOVERS_LISTED);
+  const unlisted = sorted.slice(MARKET_MOVERS_LISTED);
+  const movers = listed.map((x) => `- ${x.company}（${x.key}）${signedNum(x.returnPct, 2, "%")}，貢獻 ${signedNum(x.contributionPts, 1, " 點")}`);
+  if (unlisted.length) {
+    // restPts excludes every tracked company, so the unlisted ones need their own line for the parts to add up.
+    const pts = unlisted.every((x) => x.contributionPts !== null) ? unlisted.reduce((a, x) => a + (x.contributionPts as number), 0) : null;
+    movers.push(`- 未列出的追蹤公司（${unlisted.length} 家）合計，貢獻 ${signedNum(pts, 1, " 點")}`);
+  }
   return {
     system: `你是台灣的財經編輯，替看不懂英文的散戶寫每日美股收盤重點。${STYLE}`,
     user: `S&P 500 ${m.date}（美東日期）收 ${m.close.toFixed(2)}，${signedNum(m.changePts, 2, " 點")}（${signedNum(m.returnPct, 2, "%")}）。
-VIX ${m.vix === null ? "無資料" : m.vix.toFixed(2)}（${signedNum(m.vixChange, 2)}）；等權重減市值加權 ${signedNum(m.spreadPct, 2, " 個百分點")}（負值代表大型權值股撐盤、多數股票較弱）。
-大型權值股的點數貢獻：
+VIX ${m.vix === null ? "無資料" : m.vix.toFixed(2)}（${signedNum(m.vixChange, 2)}）；等權重減市值加權 ${signedNum(m.spreadPct, 2, " 個百分點")}（負值代表等權重指數落後市值加權指數，也就是較小的成分股平均表現不如大型權值股；不代表多數股票下跌或較弱）。
+追蹤公司的點數貢獻：
 ${movers.join("\n") || "（無資料）"}
-其餘成分股合計 ${signedNum(m.restPts, 1, " 點")}。
+${REST_LABEL}合計 ${signedNum(m.restPts, 1, " 點")}。${m.restPts === null ? "" : "\n以上各項加總約等於指數漲跌點數。"}
 這天的大盤與總經新聞：
 ${m.news.map((t, i) => `${i + 1}. ${t}`).join("\n") || "（沒有）"}
 
-用 2～3 句、合計不超過 100 個字，說明這天指數為什麼這樣走：是少數權值股帶動還是普遍漲跌、主要是誰、有沒有總經或消息面的原因。
-只根據上面的數字與新聞，不要編造原因；新聞看不出原因就只描述漲跌結構。不要用「根據資料」「綜合以上」這種開頭，不要逐檔列數字。
+用 2～3 句、合計不超過 100 個字，說明這天指數怎麼走：漲跌集中在少數權值股還是普遍漲跌、主要是誰、有沒有總經或消息面的原因。
+只根據上面的數字與新聞，不要編造原因，也不要推測之後的走勢。新聞說明不了這天的漲跌時，直接寫「沒有可清楚辨識的單一催化因素」，再描述漲跌結構；不要因為漲跌幅大就硬找原因。不要用「根據資料」「綜合以上」這種開頭，不要逐檔列數字。
 tone 是這天整體偏 positive、negative 或 neutral。`,
   };
 }

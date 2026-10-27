@@ -116,9 +116,10 @@ export async function dailyWork(db: Db, today: string) {
       vix: s.vix.close,
       vixChange: s.vix.change,
       spreadPct: s.breadth.spreadPct,
+      // All tracked companies: restPts is the remainder after every one of them, so the parts must cover the same set.
+      // marketPrompt lists the largest few and folds the others into one line.
       movers: [...s.mag7]
         .sort((a, b) => Math.abs(b.contributionPts ?? 0) - Math.abs(a.contributionPts ?? 0))
-        .slice(0, 6)
         .map((r) => ({ key: r.key, company: r.company, returnPct: r.returnPct, contributionPts: r.contributionPts })),
       restPts: s.rest.contributionPts,
       news: macro.map((n) => n.title_zh ?? n.title),

@@ -19,6 +19,22 @@ struct FixtureDecodingTests {
     @Test func historyForSymbol() throws { _ = try decodeFixture("history_symbol_NVDA_months_3", as: History.self) }
     @Test func news() throws { _ = try decodeFixture("news", as: NewsPage.self) }
     @Test func outlook() throws { _ = try decodeFixture("outlook", as: OutlookPage.self) }
+    // 策略師表 2026-10 加的欄位：舊回應沒有時為 nil，新回應解得開。
+    @Test func strategistMetadata() throws {
+        let old = try decodeFixture("outlook", as: OutlookPage.self)
+        let first = try #require(old.strategists?.list.first)
+        #expect(first.inMedian == nil && first.stale == nil && first.targetIsMidpoint == nil)
+        #expect(old.strategists?.medianRule == nil)
+        let json = """
+        {"list":[{"firm":"Wells Fargo Investment Institute","institution":"Wells Fargo","department":"wealth_management","target":7900,"targetLow":7800,"targetHigh":8000,"targetIsMidpoint":true,"horizon":"2026 年底","horizonType":"year_end","asOf":"2026-06-15","sourceUrl":"https://example.com","verified":true,"verifiedOn":"2026-10-27","inMedian":false,"stale":true}],
+         "median":7950,"medianCount":11,"medianRule":"一家一票","staleAfterDays":45,"checked":"2026-10-25"}
+        """
+        let s = try API.decoder.decode(OutlookPage.Strategists.self, from: Data(json.utf8))
+        let t = try #require(s.list.first)
+        #expect(t.target == 7900 && t.targetLow == 7800 && t.targetHigh == 8000 && t.targetIsMidpoint == true)
+        #expect(t.inMedian == false && t.stale == true && t.verified == true)
+        #expect(s.medianCount == 11 && s.staleAfterDays == 45)
+    }
     // 舊版（沒有 L01 欄位）的 fixture 要照樣解得開，新欄位全是 optional。
     @Test func oldOutlookHasNoNewFields() throws {
         let p = try decodeFixture("outlook", as: OutlookPage.self)
@@ -40,6 +56,11 @@ struct FixtureDecodingTests {
         let d = try #require(o.drawdown)
         #expect(d.scored == true)
         #expect(d.cellGate?.passed == true)
+        // The dd5 walk-forward block reads drawdown.evaluation; it is separate from the up model's evaluation.
+        let ddEval = try #require(d.evaluation)
+        #expect(ddEval.points == 416)
+        #expect(ddEval.bssLow != nil && ddEval.bssHigh != nil)
+        #expect(ddEval.bss != o.evaluation?.bss)
         #expect(o.returnQuantiles?.cell?.n == 6892)
         let a = try #require(o.assessments)
         #expect(a.difference?.status == "fail")

@@ -379,6 +379,21 @@ final class VerifyInteractionTests: XCTestCase {
     }
 
     // Z2、Z3：刪除帳號，先取消再確認。只對一次性帳號跑。
+    /// H1–H3：展望頁從上捲到底，逐段截圖；確認 dd5 與上漲兩個驗證區塊分開標目標。
+    func test12_Outlook() throws {
+        let app = try signedIn()
+        tab(app, "更多"); open(app, "下月展望")
+        XCTAssertTrue(waitLabel(app, contains: "定義：以資料日收盤為起點"), "找不到 dd5 定義")
+        var all = ""
+        for i in 0 ..< 12 {
+            snap(String(format: "H1-outlook-%02d", i)); all += texts(app) + "\n"
+            app.swipeUp(velocity: .slow); sleep(1)
+        }
+        note("H1-outlook", all)
+        XCTAssertTrue(all.contains("滾動驗證：跌幅機率（dd5）"), "沒有 dd5 驗證區塊")
+        XCTAssertTrue(all.contains("滾動驗證：上漲機率"), "沒有上漲驗證區塊")
+    }
+
     func test11_DeleteAccount() throws {
         let app = try signedIn()
         tab(app, "更多"); open(app, "帳號")

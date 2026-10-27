@@ -314,3 +314,15 @@ export function nullPairedBss(
   }
   return { values, threshold: Math.max(...values) };
 }
+
+/**
+ * Permutation p-value against the L08 null draws: p = (1 + #{null >= observed}) / (N + 1).
+ * Ties count against the candidate (>=). With N = 199: p <= 0.025 iff exceed <= 4; p <= 0.045 iff exceed <= 8.
+ * A NaN observed value or null draw would silently compare false and shrink p, so p is NaN then
+ * (registered rule: a statistic that cannot be computed is a rejection).
+ */
+export function permutationP(values: number[], observed: number): { p: number; exceed: number; n: number } {
+  if (Number.isNaN(observed) || values.some(Number.isNaN)) return { p: NaN, exceed: NaN, n: values.length };
+  const exceed = values.filter((v) => v >= observed).length;
+  return { p: (1 + exceed) / (values.length + 1), exceed, n: values.length };
+}

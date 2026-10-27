@@ -82,7 +82,7 @@ export async function overviewView(c: ViewCtx, v: Viewer) {
   // 新聞的 AI 欄位會在使用者點開時才補上、全站共用：不放進頁面快取（快取只在資料版本變時更新），每次讀最新的。
   const newsRows = await c.env.DB.prepare(`SELECT ${NEWS_COLS} FROM news WHERE symbols != 'SPY' ORDER BY published_at DESC, fetched_at DESC LIMIT 120`).all<NewsRow>();
   const snapshot = shared.snapshot ? { ...shared.snapshot, data: viewForMembers(shared.snapshot.data, members) } : null;
-  // 「其餘」幾檔：用快照所依據那天的 SPY 持股實算。持股檔偶爾夾帶非股票列（例如 2602335D、權重近 0），含數字的代號不算。
+  // 「其他成分股」幾檔：用快照所依據那天的 SPY 持股實算。持股檔偶爾夾帶非股票列（例如 2602335D、權重近 0），含數字的代號不算。
   // 持股檔與這一天相差超過 7 天（看舊日期、權重是從後來的持股推回去的）就不寫檔數，當時的名單不一定一樣。
   const s = snapshot?.data;
   const tickers = s ? s.mag7.flatMap((m) => m.tickers) : [];

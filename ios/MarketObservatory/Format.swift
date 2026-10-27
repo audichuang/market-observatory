@@ -1,5 +1,15 @@
 import SwiftUI
 
+/// Label for the residual (index move minus the watchlist's contributions): the other constituents
+/// plus weight/price approximation error. Same wording as the web (REST_LABEL in web/src/lib/snapshot.ts).
+enum RestLabel {
+    static let full = "其他成分股（含近似誤差）"
+    /// For tight spots (chart legends, row titles); pair it with `full` in nearby copy.
+    static let short = "其他成分股"
+    /// Explanatory sentence; must match REST_NOTE in web/src/lib/snapshot.ts.
+    static let note = "\(full)＝指數漲跌減掉名單合計（權重與價格口徑不同造成的誤差也算在這裡）。"
+}
+
 // 數字格式與漲跌顏色，跟網頁一致（src/ui/format.ts、styles.css）：台股習慣紅漲綠跌。
 enum Fmt {
     static func num(_ v: Double?, _ digits: Int = 2) -> String {
@@ -105,6 +115,24 @@ enum Fmt {
         f.timeZone = TimeZone(identifier: "UTC")
         f.dateFormat = "yyyy-MM-dd HH:mm:ss"
         return f.date(from: s)
+    }
+}
+
+/// Shared forecast copy; wording must match web/src/lib/communication.ts (dd5Definition, dd5ShortLabel, upTargetLabel).
+enum Copy {
+    /// The overview payload carries no horizon; this mirrors the server's HORIZON (web/src/lib/forecast.ts).
+    static let overviewHorizon = 21
+
+    static func dd5Definition(horizon: Int) -> String {
+        "以資料日收盤為起點，未來 \(horizon) 個交易日內至少有一天收盤比它低 5% 以上"
+    }
+
+    static func dd5ShortLabel(horizon: Int) -> String {
+        "\(horizon) 個交易日內至少一天比資料日收盤低 5% 以上的機率"
+    }
+
+    static func upTargetLabel(horizon: Int) -> String {
+        "約 \(horizon) 個交易日後收盤高於資料日"
     }
 }
 

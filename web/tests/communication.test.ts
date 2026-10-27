@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { LIVE_MIN_N, frequencySentences, liveTrackOf, naturalFrequency, outOfCent, outOfTen } from "../src/lib/communication.ts";
+import { LIVE_MIN_N, NO_INCREMENTAL_SKILL, PROPORTION_INTERVAL, SKILL_INTERVAL, dd5Definition, dd5ShortLabel, frequencySentences, upTargetLabel, liveTrackOf, naturalFrequency, outOfCent, outOfTen } from "../src/lib/communication.ts";
 import { DEFAULT_MODEL, assessmentsOf, reasonsOf, buildOutlook, type Assessments, type CellGate } from "../src/lib/forecast.ts";
 import { Series } from "../src/lib/analytics.ts";
 
@@ -13,7 +13,7 @@ test("自然頻率：每 100 次、用收縮後 pick.p、不顯著時只講平�
   // 正式站實際數字：up p 0.6517 / base 0.6395，不顯著
   assert.equal(
     naturalFrequency({ p: 0.6517, base: rate(0.6395, 24), conditional: rate(0.66, 14) }, "up", false),
-    "與平常差不多：過去大約每 100 次有 64 次 21 個交易日後收高",
+    "尚未偵測到增額預測力；平常是每 100 次有 64 次 21 個交易日後收高",
   );
   // 顯著：兩個數字都顯示，附段數
   assert.equal(
@@ -23,12 +23,21 @@ test("自然頻率：每 100 次、用收縮後 pick.p、不顯著時只講平�
   // drawdown 已計分：12 vs 17
   assert.equal(
     naturalFrequency({ p: 0.1192, base: rate(0.1659, 24), conditional: rate(0.1, 11) }, "dd5", true),
-    "過去像今天這樣的時期，大約每 100 次有 12 次 21 個交易日內出現 ≥5% 回撤（平常是每 100 次有 17 次），依據 11 段獨立時期",
+    "過去像今天這樣的時期，大約每 100 次有 12 次 21 個交易日內至少有一天收盤比起點低 5% 以上（平常是每 100 次有 17 次），依據 11 段獨立時期",
   );
   assert.equal(
     naturalFrequency({ p: 0.1192, base: rate(0.1659, 24), conditional: null }, "dd5", false),
-    "與平常差不多：過去大約每 100 次有 17 次 21 個交易日內出現 ≥5% 回撤",
+    "尚未偵測到條件與平常的差別；平常是每 100 次有 17 次 21 個交易日內至少有一天收盤比起點低 5% 以上",
   );
+  // 不 distinct 但有 G01 收縮（p ≠ base）：主數字是收縮後的 p，句子不能宣稱頁面「採」平常的比例
+  for (const [pick, kind] of [
+    [{ p: 0.6517, base: rate(0.6395, 24), conditional: rate(0.66, 14) }, "up"],
+    [{ p: 0.31, base: rate(0.26, 24), conditional: rate(0.4, 6) }, "dd5"],
+  ] as const) {
+    const s = naturalFrequency(pick, kind, false);
+    assert.ok(!/採/.test(s), s);
+    assert.ok(s.includes(`平常是每 100 次有 ${outOfCent(pick.base.p)} 次`), s);
+  }
   // basis 為 base（沒有條件）：不印段數
   assert.ok(!/段/.test(naturalFrequency({ p: 0.7, base: rate(0.7, 24), conditional: null }, "up", true)));
 });
@@ -142,12 +151,31 @@ test("drawdown 自然頻率看 distinct、不看 scored", () => {
   // distinct 且未計分：兩個數字都顯示（15 vs 26）
   assert.equal(
     frequencySentences({ pick: up, drawdown: { pick: dd(true), scored: false } }).dd5,
-    "過去像今天這樣的時期，大約每 100 次有 15 次 21 個交易日內出現 ≥5% 回撤（平常是每 100 次有 26 次），依據 10 段獨立時期",
+    "過去像今天這樣的時期，大約每 100 次有 15 次 21 個交易日內至少有一天收盤比起點低 5% 以上（平常是每 100 次有 26 次），依據 10 段獨立時期",
   );
   // 不 distinct 但已計分：只講平常
   assert.equal(
     frequencySentences({ pick: up, drawdown: { pick: dd(false), scored: true } }).dd5,
-    "與平常差不多：過去大約每 100 次有 26 次 21 個交易日內出現 ≥5% 回撤",
+    "尚未偵測到條件與平常的差別；平常是每 100 次有 26 次 21 個交易日內至少有一天收盤比起點低 5% 以上",
   );
-  assert.match(frequencySentences({ pick: up, drawdown: { pick: dd(false), scored: false } }).up, /^與平常差不多/);
+  assert.match(frequencySentences({ pick: up, drawdown: { pick: dd(false), scored: false } }).up, /^尚未偵測到增額預測力/);
+});
+
+test("dd5 定義：以資料日收盤為起點、21 個交易日內至少一天低 5% 以上；不寫「今天」", () => {
+  assert.equal(dd5Definition(), "以資料日收盤為起點，未來 21 個交易日內至少有一天收盤比它低 5% 以上");
+  assert.equal(dd5ShortLabel(), "21 個交易日內至少一天比資料日收盤低 5% 以上的機率");
+  for (const s of [dd5Definition(), dd5ShortLabel()]) assert.ok(!s.includes("今天"));
+  assert.equal(dd5Definition(21), "以資料日收盤為起點，未來 21 個交易日內至少有一天收盤比它低 5% 以上");
+  assert.equal(dd5ShortLabel(21), "21 個交易日內至少一天比資料日收盤低 5% 以上的機率");
+  assert.equal(upTargetLabel(21), "約 21 個交易日後收盤高於資料日");
+});
+
+test("U-01 與 D-04 文案：不說與平常差不多；兩種區間分名", () => {
+  const base = rate(0.64, 24);
+  const sentences = [naturalFrequency({ p: 0.65, base, conditional: rate(0.66, 14) }, "up", false), naturalFrequency({ p: 0.17, base, conditional: null }, "dd5", false)];
+  for (const s of sentences) assert.ok(!/差不多|接近平常/.test(s), s);
+  assert.ok(sentences[0].startsWith(NO_INCREMENTAL_SKILL));
+  assert.notEqual(PROPORTION_INTERVAL, SKILL_INTERVAL);
+  assert.match(PROPORTION_INTERVAL, /歷史比例/);
+  assert.match(SKILL_INTERVAL, /預測力.*不是今天/);
 });

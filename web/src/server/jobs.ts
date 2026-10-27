@@ -15,7 +15,7 @@ import { rotationPicks } from "../lib/consensus.ts";
 import { easternDate } from "../lib/calendar.ts";
 import { EQUAL_WEIGHT_SYMBOL, FX_SYMBOL, INDEX_SYMBOL, VIX_SYMBOL, type WatchMember, nasdaqCheckSymbols, watchTickers, yahooSymbols } from "../lib/universe.ts";
 import { MAX_TRACKED, addToWatchlist, removeFromWatchlist } from "../lib/watchlist.ts";
-import { WATCHLIST_KEY, latestHoldings, loadTrackedMembers, loadWatchlist, updateWatchlist } from "./watchlist.ts";
+import { USER_WATCHLIST_PREFIX, WATCHLIST_KEY, latestHoldings, loadTrackedMembers, loadWatchlist, updateWatchlist } from "./watchlist.ts";
 import { type BarBatch, applyCrossChecks, compareCloses, finishRun, insertMissingBars, insertWeights, loadPrices, getSetting, loadWeightAnchors, nowIso, putSetting, saveSnapshots, startRun, upsertBars, weightsNear } from "./repo.ts";
 
 export type JobName = "prices" | "crosscheck" | "weights" | "news" | "events" | "analysts" | "factset" | "forecast" | "snapshots" | "notify-close" | "notify-events" | "backfill-prices" | "backfill-checks" | "backfill-index-history";
@@ -776,6 +776,9 @@ export const WATCHLIST_REBUILD_SESSIONS = 45;
 
 export type WatchChange = { ok: true; summary: string } | { ok: false; error: string };
 
+/** Per-user daily cap on adding companies nobody tracks yet (each one fetches ten years of bars and rebuilds snapshots). */
+export const MAX_NEW_TRACKED_PER_DAY = 5;
+
 /**
  * 把一家公司加進某個使用者的名單（listKey，預設是擁有者的）。
  * 全站沒人追蹤過的公司先抓十年日線（新代號在資料庫裡一筆都沒有，沒有價格就算不出權重與貢獻），
@@ -792,6 +795,14 @@ export async function addWatchSymbol(db: D1Database, input: string, budget = new
   const trackedTickers = new Set(watchTickers(tracked));
   const isNew = member.tickers.some((t) => !trackedTickers.has(t));
   if (isNew && tracked.length >= MAX_TRACKED) return { ok: false, error: `全站追蹤的公司已達 ${MAX_TRACKED} 家上限，目前只能加入其他人已在追蹤的公司` };
+  // The owner list (WATCHLIST_KEY) is exempt: the cap guards against registered users using this path to hammer upstream sources.
+  // Counted before fetching, so a failed fetch still uses a slot (the upstream requests were made either way).
+  if (isNew && listKey !== WATCHLIST_KEY) {
+    const quotaKey = `watch-new:${listKey.slice(USER_WATCHLIST_PREFIX.length)}:${easternDate()}`;
+    const used = await getSetting<number>(db, quotaKey, 0);
+    if (used >= MAX_NEW_TRACKED_PER_DAY) return { ok: false, error: `今天新增的新公司已達上限（每天 ${MAX_NEW_TRACKED_PER_DAY} 家沒有其他人追蹤的公司），明天再試，或先加入其他人已在追蹤的公司` };
+    await putSetting(db, quotaKey, used + 1);
+  }
   let summary = `已加入 ${member.company}（${member.tickers.join("＋")}）`;
   if (isNew) {
     const expected = latestExpectedClose();

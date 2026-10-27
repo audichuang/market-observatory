@@ -7,6 +7,7 @@
 - `watchlist-list`（D1）：顯示家數「N/30 家」、合計權重＝API `totalWeight`，每家權重＝API。
 - `watchlist-add`（D2、D3）：用輸入框或權重最大的候選按鈕加入；有進度提示「加入 X 中…」，完成「已加入 X」；總覽同步出現。
 - `watchlist-add-invalid`（D4）：輸入不存在的代號（`ZZZZ`）：網頁顯示中文錯誤，App 搜尋顯示系統字串「沒有「ZZZZ」的結果」。
+- `watchlist-new-daily-cap`：非站長帳號每天（美東日期）最多加入 5 家全站沒人追蹤的公司，第 6 家顯示「今天新增的新公司已達上限…」、名單不變；別人已在追蹤的公司不受限，站長名單不受限。只有單元測試（`tests/leak-guards.test.ts`）覆蓋，實際操作要 6 家新公司、會打真實上游。
 - `watchlist-no-duplicate`（D5）：已在名單的公司不出現在候選。
 - `watchlist-remove`（D6–D8）：移除；App 的整列左滑只露出「移除」、不會直接刪，按了跳確認「從名單移除 Broadcom？」（「取消」「移除」），取消時保留。
 - `watchlist-symbol-link`（D9）：點公司 → 走勢頁該標的。

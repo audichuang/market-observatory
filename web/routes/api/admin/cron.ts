@@ -11,6 +11,6 @@ export const POST = defineHandler(async (c) => {
   if (!user?.isOwner) return c.json({ error: "只有站長能執行" }, 403);
   const name = c.req.query("name") as ScheduleName;
   if (!Object.hasOwn(SCHEDULES, name)) return c.json({ error: `未知的排程：${name}；可用 ${Object.keys(SCHEDULES).join(", ")}` }, 400);
-  const runs = await runJobs(c.env.DB, `manual-cron ${user.email}`, SCHEDULES[name], undefined, { push: apnsConfig(c.env) });
+  const runs = await runJobs(c.env.DB, "manual-cron", SCHEDULES[name], undefined, { push: apnsConfig(c.env) });
   return c.json({ name, runs });
 });

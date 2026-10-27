@@ -13,7 +13,7 @@ export const POST = defineHandler(async (c) => {
   if (!JOB_NAMES.includes(job)) return c.json({ error: `未知的工作：${job}` }, 400);
   const int = (v: string | undefined) => (v !== undefined && /^\d+$/.test(v) ? Number(v) : undefined);
   const upTo = c.req.query("upTo");
-  const result = await runJob(c.env.DB, job, `manual ${user.email}`, {
+  const result = await runJob(c.env.DB, job, "manual", {
     part: int(c.req.query("part")),
     sessions: int(c.req.query("sessions")),
     upTo: upTo && /^\d{4}-\d{2}-\d{2}$/.test(upTo) ? upTo : undefined,

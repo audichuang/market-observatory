@@ -4,7 +4,7 @@
 
 ## Sub-features
 
-- `sources-page`：各區塊（手動執行、排程、SPY 持股檔、各標的最新資料、執行紀錄）有內容；「近 60 天來源不一致」只在有不一致時才出現，沒出現不算 fail。
+- `sources-page`：各區塊（手動執行、排程、SPY 持股檔、資料性質、各標的最新資料、執行紀錄）有內容；「資料性質」列三條註記（Yahoo／Nasdaq 是非官方端點、價格不含股息、策略師目標表人工維護）；「近 60 天來源不一致」只在有不一致時才出現，沒出現不算 fail。
 - `sources-manual-run`：站長按某個工作的按鈕 → 執行紀錄多一筆、狀態 ok。
 - `sources-non-owner`：測試帳號看不到「手動執行」區塊，`POST /api/admin/run?job=weights` 回 403 `{"error":"只有站長能執行"}`。
 
@@ -19,7 +19,7 @@ Preconditions:
 - 基準狀態。站長在 ego-browser 登入要用 `$RUN/owner.pw` 的密碼：在腳本裡用 `fs.readFile` 讀檔填進欄位，不要印出來。
 
 - **站長頁面。** 站長登入後 `goto("/sources")`，等 `text=資料來源與品質`；截圖 `sources.png`。執行紀錄最上面幾筆是 `web-up.sh` 跑的回補與排程。
-- **手動執行。** 按鈕是工作的中文名稱（「抓收盤價」「SPY 持股權重」…；兩個推播工作是「發送收盤推播」「發送今日事件推播」）：點 `button:text-is("SPY 持股權重")`，按鈕變「執行中…」，結束後上方出現「SPY 持股權重：成功 …」、執行紀錄多一筆。截圖 `sources-manual-run.png`。
+- **手動執行。** 按鈕是工作的中文名稱（「抓收盤價」「SPY 持股權重」「財報與總經日程」…；兩個推播工作是「發送收盤推播」「發送今日事件推播」）：點 `button:text-is("SPY 持股權重")`，按鈕變「執行中…」，結束後上方出現「SPY 持股權重：成功 …」、執行紀錄多一筆。截圖 `sources-manual-run.png`。
 - **非站長。** 測試帳號 `goto("/sources")`：沒有 `h2:text-is("手動執行")`，截圖 `sources-non-owner.png`；`page.fetch("/api/admin/run?job=weights", { method: "POST" })` 回 403、`{"error":"只有站長能執行"}`。
 - **Proof。** `sources.png`、`sources-manual-run.png`、`sources-non-owner.png`、403 的回應。
 

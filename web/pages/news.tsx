@@ -18,7 +18,7 @@ export default function NewsPage({ symbol, keys, today, news, digests, events }:
       <div className="page-head">
         <div>
           <h1>新聞與事件日曆</h1>
-          <p className="sub">新聞每 4 小時從 Nasdaq 抓一次（觀察名單與 SPY），標題與重點在你打開時由 AI 翻成中文、全站共用；財報日期每天更新，FOMC 依聯準會公布日程。</p>
+          <p className="sub">新聞每 4 小時從 Nasdaq 抓一次（觀察名單與 SPY），標題與重點在你打開時由 AI 翻成中文、全站共用；財報日期每天更新，總經事件（FOMC、CPI、非農）依聯準會與勞工統計局公布的日程。</p>
         </div>
       </div>
       <div className="grid two">

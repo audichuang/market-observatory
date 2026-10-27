@@ -146,6 +146,20 @@ struct OverviewView: View {
                     Section("下月展望") {
                         NavigationLink { OutlookView() } label: {
                             VStack(alignment: .leading, spacing: 8) {
+                                // U-01: dd5 first; P(up) has no detected incremental skill most of the time.
+                                if let d = f.drawdown {
+                                    ViewThatFits(in: .horizontal) {
+                                        HStack {
+                                            Text("21 日內至少一天比資料日收盤低 5% 以上")
+                                            Spacer()
+                                            drawdownValue(d)
+                                        }
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            Text("21 日內至少一天比資料日收盤低 5% 以上")
+                                            HStack { drawdownValue(d) }
+                                        }
+                                    }
+                                }
                                 ViewThatFits(in: .horizontal) {
                                     HStack {
                                         Text("下月上漲機率")
@@ -163,18 +177,8 @@ struct OverviewView: View {
                                         }
                                     }
                                 }
-                                if let d = f.drawdown {
-                                    ViewThatFits(in: .horizontal) {
-                                        HStack {
-                                            Text("≥5% 跌幅機率")
-                                            Spacer()
-                                            drawdownValue(d)
-                                        }
-                                        VStack(alignment: .leading, spacing: 4) {
-                                            Text("≥5% 跌幅機率")
-                                            HStack { drawdownValue(d) }
-                                        }
-                                    }
+                                if f.call == "inconclusive" {
+                                    Text("尚未偵測到增額預測力").font(.caption).foregroundStyle(.secondary)
                                 }
                             }
                         }

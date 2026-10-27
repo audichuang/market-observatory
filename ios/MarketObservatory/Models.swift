@@ -195,7 +195,7 @@ struct ForecastBrief: Decodable, Sendable {
     let call: String
     let drawdown: Drawdown?
 
-    /// 下月出現 ≥5% 跌幅的機率；scored 為 false 表示該模型沒通過驗證。
+    /// dd5：以資料日收盤為起點，未來 21 個交易日內至少有一天收盤比它低 5% 以上的機率；scored 為 false 表示該模型沒通過驗證。
     struct Drawdown: Decodable, Sendable {
         let p: Double
         let base: Double

@@ -2,8 +2,8 @@ import { Link } from "@void/react";
 import type { ReactNode } from "react";
 import { Delta } from "../src/ui/bits.tsx";
 import { dateWithWeekday, num, pctText } from "../src/ui/format.ts";
-import { LIVE_MIN_N } from "../src/lib/communication.ts";
-import type { Assessments } from "../src/lib/forecast.ts";
+import { LIVE_MIN_N, NO_INCREMENTAL_SKILL, PROPORTION_INTERVAL, SKILL_INTERVAL, dd5Definition, dd5ShortLabel } from "../src/lib/communication.ts";
+import type { Assessments, Evaluation } from "../src/lib/forecast.ts";
 import type { Props } from "./outlook.server";
 
 const pct = (v: number | null | undefined, d = 0) => (v === null || v === undefined || !Number.isFinite(v) ? "—" : `${(v * 100).toFixed(d)}%`);
@@ -29,9 +29,9 @@ const f3 = (v: number | null | undefined) => (v === null || v === undefined || !
 /** L12：四個固定評估項（與上面的 call 同一份資料，不會互相矛盾）。 */
 function AssessmentRows({ a }: { a: Assessments }) {
   const rows: [string, string, string, string][] = [
-    ["差異", a.difference.status, `條件 ${pct(a.difference.condP, 1)} vs 平常 ${pct(a.difference.baseP, 1)}`, a.difference.low === null ? "沒有可用的條件" : `95% 區間 ${pct(a.difference.low)}～${pct(a.difference.high)}`],
+    ["差異", a.difference.status, `條件 ${pct(a.difference.condP, 1)} vs 平常 ${pct(a.difference.baseP, 1)}`, a.difference.low === null ? "沒有可用的條件" : `${PROPORTION_INTERVAL} ${pct(a.difference.low)}～${pct(a.difference.high)}`],
     ["樣本", a.sampleAdequacy.status, a.sampleAdequacy.nEff === null ? "沒有可用的條件" : `有效樣本 ${Math.round(a.sampleAdequacy.nEff)}、${a.sampleAdequacy.episodes} 段`, `驗證 ${a.sampleAdequacy.rows} 列、${a.sampleAdequacy.runs} 段`],
-    ["紀錄", a.trackRecord.status, `此條件 BSS 下界 ${f3(a.trackRecord.cellBssLow)}（最小可偵測 ${f3(a.trackRecord.cellMde)}）`, `整體 BSS ${f3(a.trackRecord.globalBss)}`],
+    ["紀錄", a.trackRecord.status, `此條件 BSS 下界 ${f3(a.trackRecord.cellBssLow)}（最小可偵測 ${f3(a.trackRecord.cellMde)}）`, `上漲模型整體 BSS ${f3(a.trackRecord.globalBss)}`],
     ["資料新鮮度", a.dataFreshness.status, `SPX ${a.dataFreshness.spxDate}、VIX ${a.dataFreshness.vixDate ?? "—"}`, a.dataFreshness.staleSessions === null ? "—" : `VIX 落後 ${a.dataFreshness.staleSessions} 個交易日`],
   ];
   return (
@@ -51,6 +51,41 @@ function AssessmentRows({ a }: { a: Assessments }) {
 
 type OutlookData = NonNullable<Props["outlook"]>;
 
+const bssRange = (ev: Evaluation) => (ev.bssLow === null ? "—" : `${f3(ev.bssLow)}～${f3(ev.bssHigh)}`);
+
+/** 一個目標的整體滾動驗證 BSS（標明目標，避免把上漲模型的數字當成 dd5 的）。 */
+function BssKpi({ label, ev }: { label: string; ev: Evaluation }) {
+  return (
+    <div className="panel kpi">
+      <div className="label">{label}</div>
+      <div className="value" style={{ fontSize: "1.15rem" }}>{f3(ev.bss)}</div>
+      <div className="delta sub">{SKILL_INTERVAL} {bssRange(ev)}</div>
+    </div>
+  );
+}
+
+/** 一個目標的滾動驗證（walk-forward）面板；上漲與 dd5 各一個，數字各自來自自己的 evaluation。 */
+function WalkForwardPanel({ title, target, ev, horizon }: { title: string; target: string; ev: Evaluation; horizon: number }) {
+  return (
+    <div className="panel">
+      <h2>{title}</h2>
+      <p className="sub">
+        {target}從 {ev.firstDate ?? "—"} 到 {ev.lastDate ?? "—"}，每 {horizon} 個交易日預測一次（共 {ev.points} 次），每次只用當下已知的資料。
+      </p>
+      <table>
+        <tbody>
+          <tr><td>Brier 分數（越低越好）</td><td className="num">{ev.brier?.toFixed(4) ?? "—"}</td></tr>
+          <tr><td>只用基準率的 Brier</td><td className="num">{ev.brierBase?.toFixed(4) ?? "—"}</td></tr>
+        </tbody>
+      </table>
+      <p className="sub" style={{ marginTop: ".5rem" }}>
+        BSS {f3(ev.bss)}（{SKILL_INTERVAL} {bssRange(ev)}）· 最小可偵測 BSS {ev.mde === null ? "—" : ev.mde.toFixed(2)} · n = {ev.points} 列
+      </p>
+      <p className="meta" style={{ marginTop: ".5rem" }}>BSS = 1 − Brier ÷ 基準 Brier；區間下限 &gt; 0 才代表穩定勝過「直接用歷史基準率」。</p>
+    </div>
+  );
+}
+
 function ForecastBlock({ outlook, cells, horizon, minN, minEpisodes, trackPanel, frequency }: { outlook: OutlookData; cells: Props["cells"]; horizon: number; minN: number; minEpisodes: number; trackPanel: ReactNode; frequency: Props["frequency"] }) {
   const { pick, evaluation: ev } = outlook;
   const [cls, baseLabel, why] = CALL[outlook.call];
@@ -62,13 +97,14 @@ function ForecastBlock({ outlook, cells, horizon, minN, minEpisodes, trackPanel,
   <div className="panel outlook-hero">
     <div className="outlook-prob" style={{ display: "flex", gap: "2rem", flexWrap: "wrap" }}>
       <div>
-        <div className="label">下個月出現 ≥5% 跌幅的機率</div>
+        <div className="label">{dd5ShortLabel(horizon)}</div>
         <div className="outlook-value">{pct(outlook.drawdown.pick.p)}</div>
         <div className="sub">（平常 {pct(outlook.drawdown.pick.base.p)}）</div>
         {!outlook.drawdown.scored && <div className="sub"><span className="badge warn">未通過驗證，只供參考</span></div>}
+        <div className="meta">定義：{dd5Definition(horizon)}</div>
       </div>
       <div>
-    <div className="label">上漲機率</div>
+    <div className="label">上漲機率（約 {horizon} 個交易日後收盤高於資料日）</div>
       <div className="outlook-value">{pct(pick.p)}</div>
       <div className="sub">
         {pick.shrinkWeight > 0 && pick.conditional ? (
@@ -76,10 +112,10 @@ function ForecastBlock({ outlook, cells, horizon, minN, minEpisodes, trackPanel,
             收縮後 {pct(pick.p, 1)}（基準 {pct(pick.base.p, 1)}、條件 {pct(pick.conditional.p, 1)}、權重 {pick.shrinkWeight.toFixed(2)}）· 依據：{BASIS[pick.basis]}
           </>
         ) : pick.distinct || !pick.conditional ? (
-          <>95% 區間 {pct(pick.conditional?.low ?? pick.base.low)}～{pct(pick.conditional?.high ?? pick.base.high)} · 依據：{BASIS[pick.basis]}</>
+          <>{PROPORTION_INTERVAL} {pct(pick.conditional?.low ?? pick.base.low)}～{pct(pick.conditional?.high ?? pick.base.high)} · 依據：{BASIS[pick.basis]}</>
         ) : (
           <>
-            採歷史基準率（95% 區間 {pct(pick.base.low)}～{pct(pick.base.high)}）；「{BASIS[pick.basis]}」條件下為 {pct(pick.conditional.p)}，區間 {pct(pick.conditional.low)}～{pct(pick.conditional.high)} 包含基準率，看不出差別
+            {NO_INCREMENTAL_SKILL}，採歷史基準率（{PROPORTION_INTERVAL} {pct(pick.base.low)}～{pct(pick.base.high)}）；「{BASIS[pick.basis]}」條件下的歷史比例為 {pct(pick.conditional.p)}，區間 {pct(pick.conditional.low)}～{pct(pick.conditional.high)} 包含基準率
           </>
         )}
       </div>
@@ -129,11 +165,8 @@ function ForecastBlock({ outlook, cells, horizon, minN, minEpisodes, trackPanel,
       <div className="value" style={{ fontSize: "1.15rem" }}>{num(outlook.vix)}</div>
       <div className="delta sub">{outlook.regime.vixStress ? "≥ 30（恐慌區）" : "< 30"}</div>
     </div>
-    <div className="panel kpi">
-      <div className="label">滾動驗證 BSS（整體）</div>
-      <div className="value" style={{ fontSize: "1.15rem" }}>{ev.bss === null ? "—" : ev.bss.toFixed(3)}</div>
-      <div className="delta sub">95% 區間 {ev.bssLow === null ? "—" : `${ev.bssLow.toFixed(3)}～${ev.bssHigh!.toFixed(3)}`}</div>
-    </div>
+    <BssKpi label="跌幅機率（dd5）滾動驗證 BSS" ev={outlook.drawdown.evaluation} />
+    <BssKpi label="上漲機率滾動驗證 BSS" ev={ev} />
   </div>
 
   <div className="panel section">
@@ -142,7 +175,7 @@ function ForecastBlock({ outlook, cells, horizon, minN, minEpisodes, trackPanel,
     <div className="table-wrap">
       <table>
         <thead>
-          <tr><th>條件</th><th className="num">上漲比例</th><th className="num">95% 區間</th><th className="num">有效樣本／段數</th></tr>
+          <tr><th>條件</th><th className="num">上漲比例</th><th className="num">歷史比例 95% 區間</th><th className="num">有效樣本／段數</th></tr>
         </thead>
         <tbody>
           {cells.map((c, i) => {
@@ -163,24 +196,10 @@ function ForecastBlock({ outlook, cells, horizon, minN, minEpisodes, trackPanel,
   </div>
 
   <div className="grid two section">
-    <div className="panel">
-      <h2>滾動驗證（walk-forward）</h2>
-      <p className="sub">
-        從 {ev.firstDate ?? "—"} 到 {ev.lastDate ?? "—"}，每 {horizon} 個交易日預測一次（共 {ev.points} 次），每次只用當下已知的資料。
-      </p>
-      <table>
-        <tbody>
-          <tr><td>Brier 分數（越低越好）</td><td className="num">{ev.brier?.toFixed(4) ?? "—"}</td></tr>
-          <tr><td>只用基準率的 Brier</td><td className="num">{ev.brierBase?.toFixed(4) ?? "—"}</td></tr>
-        </tbody>
-      </table>
-      <p className="sub" style={{ marginTop: ".5rem" }}>
-        BSS {f3(ev.bss)}（95% 區間 {ev.bssLow === null ? "—" : `${f3(ev.bssLow)}～${f3(ev.bssHigh)}`}）· 最小可偵測 BSS {ev.mde === null ? "—" : ev.mde.toFixed(2)} · n = {ev.points} 列
-      </p>
-      <p className="meta" style={{ marginTop: ".5rem" }}>BSS = 1 − Brier ÷ 基準 Brier；區間下限 &gt; 0 才代表穩定勝過「直接用歷史基準率」。</p>
-    </div>
-    {trackPanel}
+    <WalkForwardPanel title="滾動驗證：跌幅機率（dd5）" target={`目標：${dd5Definition(horizon)}。`} ev={outlook.drawdown.evaluation} horizon={horizon} />
+    <WalkForwardPanel title="滾動驗證：上漲機率" target={`目標：約 ${horizon} 個交易日後收盤高於資料日。`} ev={ev} horizon={horizon} />
   </div>
+  <div className="section">{trackPanel}</div>
     </>
   );
 }
@@ -188,7 +207,7 @@ function ForecastBlock({ outlook, cells, horizon, minN, minEpisodes, trackPanel,
 export default function OutlookPage({ outlook, cells, liveTrack, frequency, recent, consensus, strategists, factset, horizon, minN, minEpisodes }: Props) {
   const trackPanel = (
     <div className="panel">
-      <h2>上線後實際紀錄 <span className="meta">（合併所有已發布的模型版本）</span></h2>
+      <h2>上線後實際紀錄：上漲機率 <span className="meta">（合併所有已發布的模型版本；每列以紀錄日收盤為起點）</span></h2>
       {liveTrack.n === 0 ? (
         <p className="sub">每天收盤後記錄一次，{horizon} 個交易日後才能對帳；目前還沒有到期的預測。</p>
       ) : liveTrack.tooFew ? (
@@ -219,7 +238,7 @@ export default function OutlookPage({ outlook, cells, liveTrack, frequency, rece
       <div className="page-head">
         <div>
           <h1>下月展望</h1>
-          {outlook && <p className="sub">以 {dateWithWeekday(outlook.asOf)} 收盤為準：約 {horizon} 個交易日後，S&amp;P 500 收盤高於今天的機率。</p>}
+          {outlook && <p className="sub">資料日 {dateWithWeekday(outlook.asOf)}。跌幅機率（dd5）：{dd5Definition(horizon)}的機率；上漲機率：約 {horizon} 個交易日後 S&amp;P 500 收盤高於資料日收盤的機率。</p>}
           <p className="sub">以美元計、不含股息的 S&amp;P 500 價格指數；台幣結果另受匯率影響</p>
         </div>
       </div>

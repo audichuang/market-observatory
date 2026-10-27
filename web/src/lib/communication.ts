@@ -73,13 +73,14 @@ export const outOfTen = (p: number): number => Math.round(Math.min(1, Math.max(0
  * L11：自然頻率句，用收縮後的 pick.p（頁面上的主數字）、每 100 次。
  * showBoth（up 與 dd5 都是該 pick.distinct）為 true 才同時列條件與平常的次數並附段數；否則只列平常，
  * 並說明「尚未偵測到」差別（不說「與平常差不多」：沒偵測到不等於證明相等，U-01）。
+ * 也不說頁面「採」平常的比例：G01 收縮下 distinct=false 時 pick.p 仍可能不等於 base（主數字是收縮後的 p）。
  * 沒有條件時（basis 為 base）不印段數。kind "up"：21 個交易日後收高；"dd5"：見 dd5Definition。
  */
 export function naturalFrequency(pick: { p: number; base: Rate; conditional: Rate | null }, kind: "up" | "dd5", showBoth: boolean, horizon = HORIZON): string {
   const what = kind === "up" ? `${horizon} 個交易日後收高` : `${horizon} 個交易日內至少有一天收盤比起點低 5% 以上`;
   if (!showBoth) {
     const lead = kind === "up" ? NO_INCREMENTAL_SKILL : "尚未偵測到條件與平常的差別";
-    return `${lead}，採平常的比例：過去大約每 100 次有 ${outOfCent(pick.base.p)} 次 ${what}`;
+    return `${lead}；平常是每 100 次有 ${outOfCent(pick.base.p)} 次 ${what}`;
   }
   const tail = pick.conditional ? `，依據 ${pick.conditional.episodes} 段獨立時期` : "";
   return `過去像今天這樣的時期，大約每 100 次有 ${outOfCent(pick.p)} 次 ${what}（平常是每 100 次有 ${outOfCent(pick.base.p)} 次）${tail}`;

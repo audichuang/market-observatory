@@ -13,7 +13,7 @@ test("自然頻率：每 100 次、用收縮後 pick.p、不顯著時只講平�
   // 正式站實際數字：up p 0.6517 / base 0.6395，不顯著
   assert.equal(
     naturalFrequency({ p: 0.6517, base: rate(0.6395, 24), conditional: rate(0.66, 14) }, "up", false),
-    "尚未偵測到增額預測力，採平常的比例：過去大約每 100 次有 64 次 21 個交易日後收高",
+    "尚未偵測到增額預測力；平常是每 100 次有 64 次 21 個交易日後收高",
   );
   // 顯著：兩個數字都顯示，附段數
   assert.equal(
@@ -27,8 +27,17 @@ test("自然頻率：每 100 次、用收縮後 pick.p、不顯著時只講平�
   );
   assert.equal(
     naturalFrequency({ p: 0.1192, base: rate(0.1659, 24), conditional: null }, "dd5", false),
-    "尚未偵測到條件與平常的差別，採平常的比例：過去大約每 100 次有 17 次 21 個交易日內至少有一天收盤比起點低 5% 以上",
+    "尚未偵測到條件與平常的差別；平常是每 100 次有 17 次 21 個交易日內至少有一天收盤比起點低 5% 以上",
   );
+  // 不 distinct 但有 G01 收縮（p ≠ base）：主數字是收縮後的 p，句子不能宣稱頁面「採」平常的比例
+  for (const [pick, kind] of [
+    [{ p: 0.6517, base: rate(0.6395, 24), conditional: rate(0.66, 14) }, "up"],
+    [{ p: 0.31, base: rate(0.26, 24), conditional: rate(0.4, 6) }, "dd5"],
+  ] as const) {
+    const s = naturalFrequency(pick, kind, false);
+    assert.ok(!/採/.test(s), s);
+    assert.ok(s.includes(`平常是每 100 次有 ${outOfCent(pick.base.p)} 次`), s);
+  }
   // basis 為 base（沒有條件）：不印段數
   assert.ok(!/段/.test(naturalFrequency({ p: 0.7, base: rate(0.7, 24), conditional: null }, "up", true)));
 });
@@ -147,7 +156,7 @@ test("drawdown 自然頻率看 distinct、不看 scored", () => {
   // 不 distinct 但已計分：只講平常
   assert.equal(
     frequencySentences({ pick: up, drawdown: { pick: dd(false), scored: true } }).dd5,
-    "尚未偵測到條件與平常的差別，採平常的比例：過去大約每 100 次有 26 次 21 個交易日內至少有一天收盤比起點低 5% 以上",
+    "尚未偵測到條件與平常的差別；平常是每 100 次有 26 次 21 個交易日內至少有一天收盤比起點低 5% 以上",
   );
   assert.match(frequencySentences({ pick: up, drawdown: { pick: dd(false), scored: false } }).up, /^尚未偵測到增額預測力/);
 });

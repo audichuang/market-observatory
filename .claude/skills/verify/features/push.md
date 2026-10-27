@@ -32,7 +32,7 @@ Preconditions:
   {"aps":{"alert":{"title":"今天（美東 M/D）的事件","body":"驗證用推播（ios-test.sh 產生）"},"thread-id":"events"},"kind":"events","screen":"news","date":"YYYY-MM-DD"}
   ```
 
-- **遮擋畫面（App）。** 單獨跑 `ios-test.sh … VerifyInteractionTests/test13_PushDismissesWatchlist`：先開觀察名單 sheet，再點腳本送的 daily 推播，斷言 sheet 關閉且大標題為 payload 的第二新交易日；截圖 `G4-sheet-before-push`／`G4-sheet-dismissed`。另手動檢查日期 sheet、總覽進入的展望頁與新聞明細在推播後都已關閉。
+- **遮擋畫面（App）。** 單獨跑 `ios-test.sh … VerifyInteractionTests/test13_PushDismissesWatchlist`：先開觀察名單 sheet，寫出 `G4-push-ready.txt` 後腳本才開始送 daily 推播，再點橫幅，等待 sheet 消失後斷言大標題為 payload 的第二新交易日；截圖 `G4-sheet-before-push`／`G4-sheet-dismissed`。另手動檢查日期 sheet、總覽進入的展望頁與新聞明細在推播後都已關閉。
 - **Proof。** `09-push.png`、`F8-changed.png`、`F8-reopen.png`／`.txt`、`F8-restored.txt`、`G1-foreground-banner.png`、`G2-opened-daily.png`、`G3-opened-events.png`。
 
 ## Gotchas

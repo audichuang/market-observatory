@@ -55,6 +55,12 @@ IFS=',' read -ra parts <<<"$TESTS"
 for p in "${parts[@]}"; do ONLY+=("-only-testing:MarketObservatoryUITests/$p"); done
 LOG="$RUN/ios-test-$NAME.log"
 : >"$LOG"  # 先清空：下面的迴圈要是讀到上一次的結果行，會把這次的測試誤殺
+# A fresh handshake prevents an earlier run's flag from starting notifications before the sheet opens.
+PUSH_READY=""
+if [ "$TESTS" = VerifyInteractionTests/test13_PushDismissesWatchlist ]; then
+  PUSH_READY="$OUT/G4-push-ready.txt"
+  rm -f "$PUSH_READY"
+fi
 TEST_RUNNER_MO_BASE_URL="$BASE" TEST_RUNNER_MO_EMAIL="$EMAIL" TEST_RUNNER_MO_PASSWORD="$(cat "$PWFILE")" \
 TEST_RUNNER_MO_SHOTS="$OUT" TEST_RUNNER_MO_PUSH_DATE="$PUSH_DATE" TEST_RUNNER_MO_EVENT_DATE="$EVENT_DATE" TEST_RUNNER_MO_TODAY="$TODAY" \
 xcodebuild -project MarketObservatory.xcodeproj -scheme MarketObservatory -destination "id=$UDID" \
@@ -62,7 +68,7 @@ xcodebuild -project MarketObservatory.xcodeproj -scheme MarketObservatory -desti
   "${ONLY[@]}" \
   test-without-building >"$LOG" 2>&1 &
 XB=$!
-# test08/test09 only wait for a banner and tap it: when one of them runs alone, push its payload every 8 s until xcodebuild exits.
+# test08/09 receive immediately; test13 starts only after its sheet-ready handshake.
 PUSHER=""
 case "$TESTS" in
   VerifyInteractionTests/test08_PushOpenDaily|VerifyInteractionTests/test13_PushDismissesWatchlist) PAYLOAD="$RUN/daily.json" ;;
@@ -70,7 +76,15 @@ case "$TESTS" in
   *) PAYLOAD="" ;;
 esac
 if [ -n "$PAYLOAD" ]; then
-  ( while kill -0 "$XB" 2>/dev/null; do xcrun simctl push "$UDID" com.audichuang.observatory "$PAYLOAD" >/dev/null 2>&1 || true; sleep 8; done ) &
+  (
+    if [ -n "$PUSH_READY" ]; then
+      while kill -0 "$XB" 2>/dev/null && [ ! -f "$PUSH_READY" ]; do sleep 1; done
+    fi
+    while kill -0 "$XB" 2>/dev/null; do
+      xcrun simctl push "$UDID" com.audichuang.observatory "$PAYLOAD" >/dev/null 2>&1 || true
+      sleep 8
+    done
+  ) &
   PUSHER=$!
 fi
 # 測試跑完後 xcodebuild 偶爾卡著不結束（看過卡 10 分鐘以上）：看到結果行就再給它 60 秒收尾，還不走就停掉它。

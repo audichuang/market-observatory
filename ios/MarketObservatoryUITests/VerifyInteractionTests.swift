@@ -394,13 +394,14 @@ final class VerifyInteractionTests: XCTestCase {
         let sheet = app.navigationBars["觀察名單"]
         XCTAssertTrue(sheet.waitForExistence(timeout: 10), "觀察名單 sheet 沒有打開")
         snap("G4-sheet-before-push")
+        try "sheet-open\n".write(to: shots.appendingPathComponent("G4-push-ready.txt"), atomically: true, encoding: .utf8)
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
         let banner = springboard.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS '收盤'")).firstMatch
         XCTAssertTrue(banner.waitForExistence(timeout: 60), "沒有收到 daily 推播；請單獨跑 test13")
         XCTAssertTrue(sheet.exists, "點推播前 sheet 已關閉，沒有測到遮擋情境")
         banner.tap()
         XCTAssertTrue(oldTitle.waitForExistence(timeout: 15), "點推播沒有打開 \(pushDate) 的總覽")
-        XCTAssertFalse(sheet.exists, "點推播後觀察名單 sheet 仍擋住總覽")
+        XCTAssertTrue(sheet.waitForNonExistence(timeout: 10), "點推播後觀察名單 sheet 仍擋住總覽")
         snap("G4-sheet-dismissed"); note("G4-sheet-dismissed", "date=\(pushDate)\n" + texts(app))
     }
 

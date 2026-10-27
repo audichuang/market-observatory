@@ -15,7 +15,7 @@ import { rotationPicks } from "../lib/consensus.ts";
 import { easternDate } from "../lib/calendar.ts";
 import { EQUAL_WEIGHT_SYMBOL, FX_SYMBOL, INDEX_SYMBOL, VIX_SYMBOL, type WatchMember, nasdaqCheckSymbols, watchTickers, yahooSymbols } from "../lib/universe.ts";
 import { MAX_TRACKED, addToWatchlist, removeFromWatchlist } from "../lib/watchlist.ts";
-import { USER_WATCHLIST_PREFIX, WATCHLIST_KEY, latestHoldings, loadTrackedMembers, loadWatchlist, updateWatchlist } from "./watchlist.ts";
+import { USER_WATCHLIST_PREFIX, WATCHLIST_KEY, latestHoldings, newTrackedQuotaPrefix, loadTrackedMembers, loadWatchlist, updateWatchlist } from "./watchlist.ts";
 import { type BarBatch, applyCrossChecks, compareCloses, finishRun, insertMissingBars, insertWeights, loadPrices, getSetting, loadWeightAnchors, nowIso, putSetting, saveSnapshots, startRun, upsertBars, weightsNear } from "./repo.ts";
 
 export type JobName = "prices" | "crosscheck" | "weights" | "news" | "events" | "analysts" | "factset" | "forecast" | "snapshots" | "notify-close" | "notify-events" | "backfill-prices" | "backfill-checks" | "backfill-index-history";
@@ -797,11 +797,17 @@ export async function addWatchSymbol(db: D1Database, input: string, budget = new
   if (isNew && tracked.length >= MAX_TRACKED) return { ok: false, error: `全站追蹤的公司已達 ${MAX_TRACKED} 家上限，目前只能加入其他人已在追蹤的公司` };
   // The owner list (WATCHLIST_KEY) is exempt: the cap guards against registered users using this path to hammer upstream sources.
   // Counted before fetching, so a failed fetch still uses a slot (the upstream requests were made either way).
+  // One conditional upsert takes the slot: concurrent requests cannot all read the same count and pass.
+  // No returned row means the counter was already at the cap.
   if (isNew && listKey !== WATCHLIST_KEY) {
-    const quotaKey = `watch-new:${listKey.slice(USER_WATCHLIST_PREFIX.length)}:${easternDate()}`;
-    const used = await getSetting<number>(db, quotaKey, 0);
-    if (used >= MAX_NEW_TRACKED_PER_DAY) return { ok: false, error: `今天新增的新公司已達上限（每天 ${MAX_NEW_TRACKED_PER_DAY} 家沒有其他人追蹤的公司），明天再試，或先加入其他人已在追蹤的公司` };
-    await putSetting(db, quotaKey, used + 1);
+    const quotaKey = `${newTrackedQuotaPrefix(listKey.slice(USER_WATCHLIST_PREFIX.length))}${easternDate()}`;
+    const taken = await db
+      .prepare(
+        "INSERT INTO settings (key, value, updated_at) VALUES (?, '1', datetime('now')) ON CONFLICT(key) DO UPDATE SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT), updated_at = excluded.updated_at WHERE CAST(value AS INTEGER) < ? RETURNING value",
+      )
+      .bind(quotaKey, MAX_NEW_TRACKED_PER_DAY)
+      .first();
+    if (!taken) return { ok: false, error: `今天新增的新公司已達上限（每天 ${MAX_NEW_TRACKED_PER_DAY} 家沒有其他人追蹤的公司），明天再試，或先加入其他人已在追蹤的公司` };
   }
   let summary = `已加入 ${member.company}（${member.tickers.join("＋")}）`;
   if (isNew) {

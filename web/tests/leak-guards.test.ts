@@ -53,3 +53,48 @@ test("一般使用者每天最多加入 5 家全站新公司；第 6 家不打�
   const tracked = await addWatchSymbol(db, FILLERS[10], undefined, user);
   assert.ok(tracked.ok, JSON.stringify(tracked));
 });
+
+test("已用 4 家時並發加入兩家全站新公司：只有一家成功、只有一家打上游", async () => {
+  const { db, sql } = await seededDb();
+  const { addWatchSymbol } = await import("../src/server/jobs.ts");
+  const user = "watchlist:u2";
+  let perAdd = 0;
+  for (const s of FILLERS.slice(20, 24)) {
+    upstream.reset();
+    const r = await addWatchSymbol(db, s, undefined, user);
+    assert.ok(r.ok, JSON.stringify(r));
+    perAdd = upstream.count;
+  }
+  upstream.reset();
+  const results = await Promise.all([addWatchSymbol(db, FILLERS[24], undefined, user), addWatchSymbol(db, FILLERS[25], undefined, user)]);
+  assert.equal(results.filter((r) => r.ok).length, 1, JSON.stringify(results));
+  const rejected = results.find((r) => !r.ok);
+  assert.match(rejected && !rejected.ok ? rejected.error : "", /今天新增的新公司已達上限/);
+  assert.equal(upstream.count, perAdd, "被拒的那一家不能打上游");
+  const row = sql.prepare("SELECT value FROM settings WHERE key LIKE 'watch-new:u2:%'").get() as { value: string };
+  assert.equal(JSON.parse(row.value), 5);
+});
+
+test("上游失敗的新代號也算一次額度：第 5 家抓價失敗後，第 6 家被拒且不打上游", async () => {
+  const { db } = await seededDb();
+  const { addWatchSymbol } = await import("../src/server/jobs.ts");
+  const user = "watchlist:u3";
+  for (const s of FILLERS.slice(30, 34)) {
+    const r = await addWatchSymbol(db, s, undefined, user);
+    assert.ok(r.ok, JSON.stringify(r));
+  }
+  const broken = FILLERS[34];
+  upstream.rules = [(u) => (u.host.endsWith("finance.yahoo.com") && u.href.includes(broken) ? new Response("down", { status: 500 }) : null), consistentSpx];
+  try {
+    const failed = await addWatchSymbol(db, broken, undefined, user);
+    assert.equal(failed.ok, false);
+    assert.match(!failed.ok ? failed.error : "", /抓不到/);
+  } finally {
+    upstream.rules = [consistentSpx];
+  }
+  upstream.reset();
+  const sixth = await addWatchSymbol(db, FILLERS[35], undefined, user);
+  assert.equal(sixth.ok, false);
+  assert.match(!sixth.ok ? sixth.error : "", /今天新增的新公司已達上限/);
+  assert.equal(upstream.count, 0);
+});

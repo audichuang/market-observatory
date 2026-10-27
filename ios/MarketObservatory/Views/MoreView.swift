@@ -371,7 +371,7 @@ struct OutlookView: View {
                 Section {
                     VStack(alignment: .leading, spacing: 6) {
                         if let d = o.drawdown {
-                            Text("\(p.horizon) 個交易日內至少一天比資料日收盤低 5% 以上的機率").font(.subheadline).foregroundStyle(.secondary)
+                            Text(Copy.dd5ShortLabel(horizon: p.horizon)).font(.subheadline).foregroundStyle(.secondary)
                             HStack(alignment: .firstTextBaseline, spacing: 8) {
                                 Text(Fmt.plainPct(d.pick.p * 100, 0)).font(.largeTitle.weight(.bold).monospacedDigit())
                                 Text("（平常 \(Fmt.plainPct(d.pick.base.p * 100, 0))）").font(.subheadline).foregroundStyle(.secondary)
@@ -384,10 +384,10 @@ struct OutlookView: View {
                                     .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                                     .foregroundStyle(Color.orange)
                             }
-                            Text("定義：以資料日收盤為起點，未來 \(p.horizon) 個交易日內至少有一天收盤比它低 5% 以上").font(.caption).foregroundStyle(.secondary)
+                            Text("定義：\(Copy.dd5Definition(horizon: p.horizon))").font(.caption).foregroundStyle(.secondary)
                             Divider().padding(.vertical, 4)
                         }
-                        Text(o.drawdown == nil ? "約 \(p.horizon) 個交易日後 S&P 500 較高的機率" : "上漲機率（約 \(p.horizon) 個交易日後收盤高於資料日）")
+                        Text(o.drawdown == nil ? "約 \(p.horizon) 個交易日後 S&P 500 較高的機率" : "上漲機率（\(Copy.upTargetLabel(horizon: p.horizon))）")
                             .font(.subheadline).foregroundStyle(.secondary)
                         Text(Fmt.plainPct(o.pick.p * 100)).font(.largeTitle.weight(.bold).monospacedDigit())
                         Text(intervalText(o.pick)).font(.footnote).foregroundStyle(.secondary)
@@ -459,11 +459,11 @@ struct OutlookView: View {
                 // Two targets, two labelled blocks: o.evaluation is the up model, drawdown.evaluation is dd5.
                 if let ev = o.drawdown?.evaluation {
                     evaluationSection(ev, horizon: p.horizon, title: "滾動驗證：跌幅機率（dd5）",
-                                      target: "目標：以資料日收盤為起點，未來 \(p.horizon) 個交易日內至少有一天收盤比它低 5% 以上。", showHitRate: false)
+                                      target: "目標：\(Copy.dd5Definition(horizon: p.horizon))。", showHitRate: false)
                 }
                 if let ev = o.evaluation {
                     evaluationSection(ev, horizon: p.horizon, title: "滾動驗證：上漲機率",
-                                      target: "目標：約 \(p.horizon) 個交易日後收盤高於資料日。", showHitRate: true)
+                                      target: "目標：\(Copy.upTargetLabel(horizon: p.horizon))。", showHitRate: true)
                 }
                 forecastSection(p)
             } else {

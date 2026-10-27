@@ -59,6 +59,9 @@ export const dd5Definition = (horizon = HORIZON): string => `以資料日收盤�
 /** 卡片與標題用的 dd5 短名稱。 */
 export const dd5ShortLabel = (horizon = HORIZON): string => `${horizon} 個交易日內至少一天比資料日收盤低 5% 以上的機率`;
 
+/** 上漲機率的目標：約 N 個交易日後收盤高於資料日（標題括號與滾動驗證的「目標」共用）。 */
+export const upTargetLabel = (horizon = HORIZON): string => `約 ${horizon} 個交易日後收盤高於資料日`;
+
 /** U-01：P(up) 沒有方向時的說法；不說「接近平常」或「與平常差不多」，那會被讀成已證明相等。 */
 export const NO_INCREMENTAL_SKILL = "尚未偵測到增額預測力";
 

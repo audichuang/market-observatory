@@ -36,6 +36,6 @@ Preconditions:
 
 - 本機的快照只有回補的 60 個交易日，下拉選單只列這 60 天。
 - 「資料 … 產出」的時間是快照建立時間，不是收盤時間。
-- 下月展望卡片先列 dd5（「21 日內至少一天比資料日收盤低 5% 以上」，`forecast.drawdown.p`；API 沒有 `drawdown` 時只有上漲機率），再列上漲機率。「偵測不到預測力」標籤屬於上漲機率那格，是展望模型的狀態（對應 API 的 `call: "inconclusive"`），此時下方另有小字「尚未偵測到增額預測力」；介面不再出現英文 skill。
+- 下月展望卡片先列 dd5（「21 個交易日內至少一天比資料日收盤低 5% 以上的機率」，網頁用 `dd5ShortLabel`、App 用 `Copy.dd5ShortLabel`，`forecast.drawdown.p`；API 沒有 `drawdown` 時只有上漲機率），再列上漲機率。「偵測不到預測力」標籤屬於上漲機率那格，是展望模型的狀態（對應 API 的 `call: "inconclusive"`），此時下方另有小字「尚未偵測到增額預測力」；介面不再出現英文 skill。
 - 要看到 `overview-stale` 的警告：本機回補會抓到最新收盤，先在 `web/` 用 `npx void db execute "DELETE FROM snapshots WHERE trade_date = '<最新>'"` 刪掉最新快照，並改 `settings` 的 `data_version` 讓頁面快取失效；UTC 22:10 前後各看一次（前不警告、後警告）。
 - 名單剛改過時，總覽會用新名單重算最近 45 個交易日；更早的日子保留舊名單，切到很早的日期看到舊名單是正常的。

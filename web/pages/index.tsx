@@ -1,5 +1,6 @@
 import { Link, useRouter } from "@void/react";
-import { NO_INCREMENTAL_SKILL, dd5Definition } from "../src/lib/communication.ts";
+import { NO_INCREMENTAL_SKILL, dd5Definition, dd5ShortLabel } from "../src/lib/communication.ts";
+import { HORIZON } from "../src/lib/forecast.ts";
 import { REST_LABEL, REST_LABEL_SHORT, type Mag7Row } from "../src/lib/snapshot.ts";
 import { CenteredBar, CheckBadge, Delta } from "../src/ui/bits.tsx";
 import { dateWithWeekday, num, pctText, signed, taipeiTime } from "../src/ui/format.ts";
@@ -83,11 +84,11 @@ export default function Overview({ snapshot, dates, expectedClose, news, digests
       {forecast && viewingLatest && (
         <Link href="/outlook" className="panel section outlook-card">
           <div>
-            <div className="sub">下月展望（約 21 個交易日後）</div>
+            <div className="sub">下月展望（約 {HORIZON} 個交易日後）</div>
             <div style={{ display: "flex", gap: "1.2rem", flexWrap: "wrap" }}>
               {forecast.drawdown && (
                 <div>
-                  <div className="sub" title={dd5Definition()}>21 日內至少一天比資料日收盤低 5% 以上</div>
+                  <div className="sub" title={dd5Definition()}>{dd5ShortLabel()}</div>
                   <div style={{ fontSize: "1.6rem", fontWeight: 700 }}>{Math.round(forecast.drawdown.p * 100)}%</div>
                   <div className="sub">平常 {Math.round(forecast.drawdown.base * 100)}%</div>
                   {!forecast.drawdown.scored && <div className="sub"><span className="badge warn">未通過驗證</span></div>}

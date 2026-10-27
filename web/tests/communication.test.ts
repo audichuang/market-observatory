@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { LIVE_MIN_N, NO_INCREMENTAL_SKILL, PROPORTION_INTERVAL, SKILL_INTERVAL, dd5Definition, dd5ShortLabel, frequencySentences, liveTrackOf, naturalFrequency, outOfCent, outOfTen } from "../src/lib/communication.ts";
+import { LIVE_MIN_N, NO_INCREMENTAL_SKILL, PROPORTION_INTERVAL, SKILL_INTERVAL, dd5Definition, dd5ShortLabel, frequencySentences, upTargetLabel, liveTrackOf, naturalFrequency, outOfCent, outOfTen } from "../src/lib/communication.ts";
 import { DEFAULT_MODEL, assessmentsOf, reasonsOf, buildOutlook, type Assessments, type CellGate } from "../src/lib/forecast.ts";
 import { Series } from "../src/lib/analytics.ts";
 
@@ -165,6 +165,9 @@ test("dd5 定義：以資料日收盤為起點、21 個交易日內至少一天�
   assert.equal(dd5Definition(), "以資料日收盤為起點，未來 21 個交易日內至少有一天收盤比它低 5% 以上");
   assert.equal(dd5ShortLabel(), "21 個交易日內至少一天比資料日收盤低 5% 以上的機率");
   for (const s of [dd5Definition(), dd5ShortLabel()]) assert.ok(!s.includes("今天"));
+  assert.equal(dd5Definition(21), "以資料日收盤為起點，未來 21 個交易日內至少有一天收盤比它低 5% 以上");
+  assert.equal(dd5ShortLabel(21), "21 個交易日內至少一天比資料日收盤低 5% 以上的機率");
+  assert.equal(upTargetLabel(21), "約 21 個交易日後收盤高於資料日");
 });
 
 test("U-01 與 D-04 文案：不說與平常差不多；兩種區間分名", () => {

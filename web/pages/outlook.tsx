@@ -2,7 +2,7 @@ import { Link } from "@void/react";
 import type { ReactNode } from "react";
 import { Delta } from "../src/ui/bits.tsx";
 import { dateWithWeekday, num, pctText } from "../src/ui/format.ts";
-import { LIVE_MIN_N, NO_INCREMENTAL_SKILL, PROPORTION_INTERVAL, SKILL_INTERVAL, dd5Definition, dd5ShortLabel } from "../src/lib/communication.ts";
+import { LIVE_MIN_N, NO_INCREMENTAL_SKILL, PROPORTION_INTERVAL, SKILL_INTERVAL, dd5Definition, dd5ShortLabel, upTargetLabel } from "../src/lib/communication.ts";
 import type { Assessments, Evaluation } from "../src/lib/forecast.ts";
 import type { Props } from "./outlook.server";
 
@@ -104,7 +104,7 @@ function ForecastBlock({ outlook, cells, horizon, minN, minEpisodes, trackPanel,
         <div className="meta">定義：{dd5Definition(horizon)}</div>
       </div>
       <div>
-    <div className="label">上漲機率（約 {horizon} 個交易日後收盤高於資料日）</div>
+    <div className="label">上漲機率（{upTargetLabel(horizon)}）</div>
       <div className="outlook-value">{pct(pick.p)}</div>
       <div className="sub">
         {pick.shrinkWeight > 0 && pick.conditional ? (
@@ -197,7 +197,7 @@ function ForecastBlock({ outlook, cells, horizon, minN, minEpisodes, trackPanel,
 
   <div className="grid two section">
     <WalkForwardPanel title="滾動驗證：跌幅機率（dd5）" target={`目標：${dd5Definition(horizon)}。`} ev={outlook.drawdown.evaluation} horizon={horizon} />
-    <WalkForwardPanel title="滾動驗證：上漲機率" target={`目標：約 ${horizon} 個交易日後收盤高於資料日。`} ev={ev} horizon={horizon} />
+    <WalkForwardPanel title="滾動驗證：上漲機率" target={`目標：${upTargetLabel(horizon)}。`} ev={ev} horizon={horizon} />
   </div>
   <div className="section">{trackPanel}</div>
     </>

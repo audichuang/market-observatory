@@ -116,6 +116,24 @@ enum Fmt {
     }
 }
 
+/// Shared forecast copy; wording must match web/src/lib/communication.ts (dd5Definition, dd5ShortLabel, upTargetLabel).
+enum Copy {
+    /// The overview payload carries no horizon; this mirrors the server's HORIZON (web/src/lib/forecast.ts).
+    static let overviewHorizon = 21
+
+    static func dd5Definition(horizon: Int) -> String {
+        "以資料日收盤為起點，未來 \(horizon) 個交易日內至少有一天收盤比它低 5% 以上"
+    }
+
+    static func dd5ShortLabel(horizon: Int) -> String {
+        "\(horizon) 個交易日內至少一天比資料日收盤低 5% 以上的機率"
+    }
+
+    static func upTargetLabel(horizon: Int) -> String {
+        "約 \(horizon) 個交易日後收盤高於資料日"
+    }
+}
+
 extension Color {
     // 紅漲綠跌；深色模式用較亮的同色系，深底上才有足夠對比。
     static let up = Color(uiColor: UIColor { t in

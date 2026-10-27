@@ -150,12 +150,12 @@ struct OverviewView: View {
                                 if let d = f.drawdown {
                                     ViewThatFits(in: .horizontal) {
                                         HStack {
-                                            Text("21 日內至少一天比資料日收盤低 5% 以上")
+                                            Text(Copy.dd5ShortLabel(horizon: Copy.overviewHorizon))
                                             Spacer()
                                             drawdownValue(d)
                                         }
                                         VStack(alignment: .leading, spacing: 4) {
-                                            Text("21 日內至少一天比資料日收盤低 5% 以上")
+                                            Text(Copy.dd5ShortLabel(horizon: Copy.overviewHorizon))
                                             HStack { drawdownValue(d) }
                                         }
                                     }

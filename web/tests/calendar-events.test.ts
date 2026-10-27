@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { isNyseSession, MACRO_EVENTS, macroEventsSummary } from "../src/lib/calendar.ts";
+import { addDays, easternDate, isNyseSession, MACRO_EVENTS, macroEventsSummary, NYSE_CALENDAR } from "../src/lib/calendar.ts";
 import { eventReminder } from "../src/lib/push.ts";
 
 const byId = new Map(MACRO_EVENTS.map((e) => [e.id, e]));
@@ -36,4 +36,12 @@ test("事件推播：CPI 與非農照標題列出，不會被誤標盤前盤後"
   const rows = MACRO_EVENTS.filter((e) => e.date === "2026-11-10" || e.date === "2026-11-06").map((e) => ({ ...e, kind: "macro", symbol: null }));
   assert.equal(eventReminder("2026-11-10", rows, [])!.body, "CPI 消費者物價指數（2026 年 10 月）");
   assert.equal(eventReminder("2026-11-06", rows, [])!.body, "非農就業報告（2026 年 10 月）");
+});
+
+test("日曆還要覆蓋至少 180 天：NYSE 休市日與總經事件都不能快到期", () => {
+  const need = addDays(easternDate(), 180);
+  const hint = "去 NYSE 官網補 2028 休市日與 FOMC/CPI/非農日程";
+  assert.ok(NYSE_CALENDAR.coverageEnd >= need, `NYSE_CALENDAR.coverageEnd ${NYSE_CALENDAR.coverageEnd} < ${need}：${hint}`);
+  const lastEvent = MACRO_EVENTS.reduce((m, e) => (e.date > m ? e.date : m), "");
+  assert.ok(lastEvent >= need, `MACRO_EVENTS 最後一筆 ${lastEvent} < ${need}：${hint}`);
 });

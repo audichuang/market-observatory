@@ -163,7 +163,7 @@ export interface MarketInput {
 
 const signedNum = (n: number | null, digits: number, unit = "") => (n === null ? "無資料" : `${n >= 0 ? "+" : ""}${n.toFixed(digits)}${unit}`);
 
-/** 大盤那段逐家列出的追蹤公司數；其餘的追蹤公司併成一行。 */
+/** How many tracked companies the market prompt lists one by one; the rest are folded into one line. */
 const MARKET_MOVERS_LISTED = 6;
 
 /** 總覽最上面那段「今天為什麼漲跌」：只講整體，個股原因另有每家的重點。 */
@@ -183,8 +183,7 @@ export function marketPrompt(m: MarketInput): Prompt {
 VIX ${m.vix === null ? "無資料" : m.vix.toFixed(2)}（${signedNum(m.vixChange, 2)}）；等權重減市值加權 ${signedNum(m.spreadPct, 2, " 個百分點")}（負值代表等權重指數落後市值加權指數，也就是較小的成分股平均表現不如大型權值股；不代表多數股票下跌或較弱）。
 追蹤公司的點數貢獻：
 ${movers.join("\n") || "（無資料）"}
-其他成分股（含近似誤差）合計 ${signedNum(m.restPts, 1, " 點")}。
-以上各項加總約等於指數漲跌點數。
+其他成分股（含近似誤差）合計 ${signedNum(m.restPts, 1, " 點")}。${m.restPts === null ? "" : "\n以上各項加總約等於指數漲跌點數。"}
 這天的大盤與總經新聞：
 ${m.news.map((t, i) => `${i + 1}. ${t}`).join("\n") || "（沒有）"}
 

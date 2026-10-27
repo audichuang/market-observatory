@@ -406,7 +406,7 @@ struct OverviewView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(s.weights.note)
                     if s.weights.method == "rolled", let a = s.weights.asOf { Text("權重由 \(Fmt.fullDate(a)) 的持股推算。") }
-                    Text("\(RestLabel.full)＝指數漲跌減掉名單合計，含權重與價格口徑的近似誤差。")
+                    Text(RestLabel.note)
                     ForEach(s.quality.notes, id: \.self) { Text($0) }
                     Text("貢獻點數 = 前一交易日指數 × 前一日權重 × 當日報酬。")
                 }

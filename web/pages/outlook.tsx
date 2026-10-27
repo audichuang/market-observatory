@@ -238,7 +238,7 @@ export default function OutlookPage({ outlook, cells, liveTrack, frequency, rece
       <div className="page-head">
         <div>
           <h1>下月展望</h1>
-          {outlook && <p className="sub">資料日 {dateWithWeekday(outlook.asOf)}。跌幅機率（dd5）：{dd5Definition(horizon)}的機率；上漲機率：約 {horizon} 個交易日後 S&amp;P 500 收盤高於資料日收盤的機率。</p>}
+          {outlook && <p className="sub">資料日 {dateWithWeekday(outlook.asOf)}。跌幅機率（dd5）：{dd5Definition(horizon)}的機率；上漲機率：S&amp;P 500 {upTargetLabel(horizon)}的機率。</p>}
           <p className="sub">以美元計、不含股息的 S&amp;P 500 價格指數；台幣結果另受匯率影響</p>
         </div>
       </div>

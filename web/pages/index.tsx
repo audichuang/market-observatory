@@ -1,7 +1,7 @@
 import { Link, useRouter } from "@void/react";
 import { NO_INCREMENTAL_SKILL, dd5Definition, dd5ShortLabel } from "../src/lib/communication.ts";
 import { HORIZON } from "../src/lib/forecast.ts";
-import { REST_LABEL, REST_LABEL_SHORT, type Mag7Row } from "../src/lib/snapshot.ts";
+import { REST_LABEL_SHORT, REST_NOTE, type Mag7Row } from "../src/lib/snapshot.ts";
 import { CenteredBar, CheckBadge, Delta } from "../src/ui/bits.tsx";
 import { dateWithWeekday, num, pctText, signed, taipeiTime } from "../src/ui/format.ts";
 import { NewsFeed, ToneBadge } from "../src/ui/NewsFeed.tsx";
@@ -137,7 +137,7 @@ export default function Overview({ snapshot, dates, expectedClose, news, digests
           <Link href="/watchlist" className="button secondary small">編輯名單</Link>
         </div>
         <p className="sub">
-          貢獻點數 = 前一交易日指數 × 前一交易日權重 × 當日報酬。{REST_LABEL}＝指數漲跌減掉名單合計，含權重與價格口徑的近似誤差。{s.weights.method === "rolled" ? `權重由 ${s.weights.asOf} SPY 持股依價格推算。` : s.weights.asOf ? `權重來自 ${s.weights.asOf} SPY 持股。` : ""}
+          貢獻點數 = 前一交易日指數 × 前一交易日權重 × 當日報酬。{REST_NOTE}{s.weights.method === "rolled" ? `權重由 ${s.weights.asOf} SPY 持股依價格推算。` : s.weights.asOf ? `權重來自 ${s.weights.asOf} SPY 持股。` : ""}
         </p>
         <div className="table-wrap">
           <table>

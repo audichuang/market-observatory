@@ -387,7 +387,7 @@ struct OutlookView: View {
                             Text("定義：\(Copy.dd5Definition(horizon: p.horizon))").font(.caption).foregroundStyle(.secondary)
                             Divider().padding(.vertical, 4)
                         }
-                        Text(o.drawdown == nil ? "約 \(p.horizon) 個交易日後 S&P 500 較高的機率" : "上漲機率（\(Copy.upTargetLabel(horizon: p.horizon))）")
+                        Text(o.drawdown == nil ? "S&P 500 \(Copy.upTargetLabel(horizon: p.horizon))的機率" : "上漲機率（\(Copy.upTargetLabel(horizon: p.horizon))）")
                             .font(.subheadline).foregroundStyle(.secondary)
                         Text(Fmt.plainPct(o.pick.p * 100)).font(.largeTitle.weight(.bold).monospacedDigit())
                         Text(intervalText(o.pick)).font(.footnote).foregroundStyle(.secondary)

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Series } from "../src/lib/analytics.ts";
-import { type PriceCheck, buildSnapshot, contributionPoints } from "../src/lib/snapshot.ts";
+import { type PriceCheck, REST_NOTE, buildSnapshot, contributionPoints } from "../src/lib/snapshot.ts";
 import { DEFAULT_WATCHLIST, watchTickers } from "../src/lib/universe.ts";
 const MAG7_TICKERS = watchTickers(DEFAULT_WATCHLIST);
 
@@ -80,4 +80,9 @@ test("持股檔晚於目標日、價格有載到時，歷史快照有歸因（�
   const s = buildSnapshot(input({ weightsAsOf: D2 }))!;
   assert.equal(s.weights.method, "rolled");
   assert.notEqual(s.mag7Total.contributionPts, null);
+});
+
+test("其他成分股說明句只說一次「近似誤差」", () => {
+  assert.equal(REST_NOTE.split("近似誤差").length - 1, 1);
+  assert.equal(REST_NOTE, "其他成分股（含近似誤差）＝指數漲跌減掉名單合計（權重與價格口徑不同造成的誤差也算在這裡）。");
 });

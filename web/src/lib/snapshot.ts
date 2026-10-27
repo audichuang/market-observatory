@@ -11,6 +11,8 @@ export const SNAPSHOT_VERSION = 1;
 export const REST_LABEL = "其他成分股（含近似誤差）";
 /** Short form for tight spots (chart legends, table cells); pair it with REST_LABEL in nearby copy. */
 export const REST_LABEL_SHORT = "其他成分股";
+/** Explanatory sentence for the residual; REST_LABEL already says 含近似誤差, so the tail must not repeat it. */
+export const REST_NOTE = `${REST_LABEL}＝指數漲跌減掉名單合計（權重與價格口徑不同造成的誤差也算在這裡）。`;
 
 export type CheckStatus = "match" | "mismatch" | "pending" | "unavailable";
 

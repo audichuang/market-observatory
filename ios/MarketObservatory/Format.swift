@@ -6,6 +6,8 @@ enum RestLabel {
     static let full = "其他成分股（含近似誤差）"
     /// For tight spots (chart legends, row titles); pair it with `full` in nearby copy.
     static let short = "其他成分股"
+    /// Explanatory sentence; must match REST_NOTE in web/src/lib/snapshot.ts.
+    static let note = "\(full)＝指數漲跌減掉名單合計（權重與價格口徑不同造成的誤差也算在這裡）。"
 }
 
 // 數字格式與漲跌顏色，跟網頁一致（src/ui/format.ts、styles.css）：台股習慣紅漲綠跌。

@@ -9,7 +9,7 @@
 - `overview-attribution`（B3）：名單每家的收盤、漲跌 %、權重、貢獻點數＝API；順序同 API `mag7`；「其餘 N 檔（推算）」列存在；名單合計＋其餘＝指數漲跌點數（差 ≤ 0.02）。
 - `overview-symbol-link`（B4）：點公司 → 走勢頁、標的是那家。
 - `overview-date`（B5）：選其他交易日 → 標題與數字換成 `?date=` 的值；能回到最新。
-- `overview-events`（B7、B8）：未來三週事件只列名單公司財報與 FOMC，由近到遠；「完整日曆 →」到新聞的日曆。
+- `overview-events`（B7、B8）：未來三週事件只列名單公司財報與總經事件（FOMC、CPI、非農），由近到遠；「完整日曆 →」到新聞的日曆。
 - `overview-refresh`（B10）：App 下拉重新整理。
 - `overview-stale`：看最新（沒有 `?date=`）且 `snapshot.tradeDate` < API `expectedClose` 時，網頁與 App 頂端出現「最新快照是 …，但 … 應該已收盤」橘色警告。`expectedClose` 是抓價排程（週一到週五 UTC 21:40）加 30 分緩衝跑完後才換成當天，收盤後到 UTC 22:10 之間不警告；資料來源頁的「落後」標記用同一個日期。
 

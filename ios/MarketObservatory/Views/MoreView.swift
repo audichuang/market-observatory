@@ -951,14 +951,14 @@ struct PushSettingsView: View {
                         LabeledContent("門檻", value: "±\(Fmt.num(prefs.moveThresholdPct, 1))%")
                     }
                 }
-                Toggle("財報與 FOMC 當天提醒", isOn: $prefs.events)
+                Toggle("財報與總經事件當天提醒", isOn: $prefs.events)
             } header: {
                 HStack {
                     Text("通知內容")
                     if saving { Spacer(); ProgressView().controlSize(.mini) }
                 }
             } footer: {
-                Text("收盤摘要與大漲大跌在台灣時間清晨 5:40 左右發（美股收盤後）；事件提醒在美東早上（台灣晚上 7:30）發。設定套用到這個帳號的所有裝置。")
+                Text("收盤摘要與大漲大跌在台灣時間清晨 5:40 左右發（美股收盤後）；事件提醒在美東早上（台灣晚上 7:30）發，總經事件指 FOMC、CPI、非農。設定套用到這個帳號的所有裝置。")
             }
             .onChange(of: prefs) { _, new in
                 guard new != saved else { return }

@@ -440,6 +440,34 @@ final class VerifyInteractionTests: XCTestCase {
         snap("B11-foreground-updated"); note("B11-foreground-updated", "before=\(before) after=\(after)\n" + texts(app))
     }
 
+    // T8: The local fixture must contain market and company digests with positive/negative tones.
+    func test15_DigestToneLabels() throws {
+        for (size, arguments) in [
+            ("normal", [String]()),
+            ("largest", ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
+        ] {
+            let app = try signedIn(arguments: arguments)
+            tab(app, "總覽")
+            let market = app.descendants(matching: .any)["market-digest"].firstMatch
+            reveal(app, market)
+            XCTAssertTrue(market.waitForExistence(timeout: 10), "缺少市場摘要 fixture")
+            XCTAssertTrue(market.label.contains("利多") || market.label.contains("利空"), "市場摘要沒有可朗讀的利多／利空標示")
+            snap("B12-tone-\(size)"); note("B12-tone-\(size)", market.label)
+            tab(app, "新聞")
+            let digest = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'news-digest-' AND (label CONTAINS '利多' OR label CONTAINS '利空')")).firstMatch
+            reveal(app, digest)
+            XCTAssertTrue(digest.waitForExistence(timeout: 10), "缺少帶利多／利空的公司摘要 fixture，或摘要沒有標示")
+            XCTAssertTrue(app.staticTexts["利多"].firstMatch.exists || app.staticTexts["利空"].firstMatch.exists, "畫面上找不到利多／利空文字標籤")
+            snap("E9-tone-\(size)"); note("E9-tone-\(size)", digest.label)
+            XCTAssertTrue(app.buttons["全部"].isSelected, "全部 chip 沒有 selected trait")
+            let symbol = String(digest.identifier.dropFirst("news-digest-".count))
+            let chip = app.buttons[symbol]
+            reveal(app, chip, up: false).tap()
+            XCTAssertTrue(chip.isSelected, "股票 chip 選取後沒有 selected trait")
+            app.terminate()
+        }
+    }
+
     private func overviewDate(_ session: URLSession, base: URL) async throws -> String {
         struct ProbeOverview: Decodable {
             struct Snapshot: Decodable { let tradeDate: String }

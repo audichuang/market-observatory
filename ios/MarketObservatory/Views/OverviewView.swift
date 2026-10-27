@@ -465,13 +465,19 @@ private struct MarketDigestCard: View {
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             Capsule().fill(Color.newsTone(digest.tone)).frame(width: 3).frame(maxHeight: .infinity)
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 4) {
-                Text("今天為什麼漲跌").font(.subheadline.weight(.semibold))
+                HStack(spacing: 6) {
+                    Text("今天為什麼漲跌").font(.subheadline.weight(.semibold)).lineLimit(1)
+                    ToneTag(tone: digest.tone)
+                    Spacer(minLength: 0)
+                }
                 Text(digest.summary).font(.subheadline).fixedSize(horizontal: false, vertical: true)
             }
         }
         .cardBackground()
         .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("market-digest")
     }
 }
 

@@ -332,5 +332,6 @@ private struct Chip: View {
                 .foregroundStyle(selected ? Color.white : Color.primary)
         }
         .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }

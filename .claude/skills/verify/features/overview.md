@@ -10,6 +10,7 @@
 - `overview-symbol-link`（B4）：點公司 → 走勢頁、標的是那家。
 - `overview-date`（B5）：選其他交易日 → 標題與數字換成 `?date=` 的值；能回到最新。
 - `overview-events`（B7、B8）：未來三週事件只列名單公司財報與總經事件（FOMC、CPI、非農），由近到遠；「完整日曆 →」到新聞的日曆。
+- `overview-digest-tone`（B12）：市場重點標題列有「利多／利空／中性」文字，VoiceOver 會讀到，裝飾色條不朗讀。一般與最大字級標籤均可見。
 - `overview-quality`：即使 quality.notes 為空，missing 或 pendingChecks 仍顯示「缺少」「待核對」；missing 非空時頁首另有橘色提示。下月展望的 up 紅色、down 綠色，摘要統一寫「上漲機率」。
 - `overview-refresh`（B10）：App 下拉重新整理保留完整亮度與工具列；只有切換日期時內容變暗。
 - `overview-foreground`（B11）：看最新日期時，距上次成功載入超過 10 分鐘，回前景重抓；看歷史日期時不自動切回最新。
@@ -33,7 +34,8 @@ Preconditions:
 - **公司連結。** 點 `loc=href:/history?symbol=NVDA`（`text=NVIDIA` 也會對到新聞標題），網址變 `/history?symbol=NVDA`（B4）。
 - **App。** walkthrough 的 `02-overview.png`、`02b-overview-attribution.png`、`02c-overview-events.png`；`ios-test.sh … VerifyInteractionTests/test02_Overview` 的 `B2-before.txt`（value＝已收合）、`B2-kpi-expanded.png`／`.txt`（已展開，全部指標的數字對 API）、`B5-dates.txt`（test 從交易日清單讀到的最新與第二新的一天）、`B5-older.png`／`.txt`（第二新那天的數字對 `?date=<那天>`）、`B5-latest.png`、`B4-nvda-history.png`、`B8-calendar.png`。逐張看數字與 API 一致、顏色紅漲綠跌、沒有被切掉的字，`B2-kpi-expanded.png` 要真的看到展開的指標。
 - **品質與判讀（網頁）。** 在本機 D1 準備 notes=[]、pendingChecks 非空的快照並 bump data_version，重新載入總覽應顯示「待核對」；再測 missing 非空時頁首的缺資料警告。對照 API quality 陣列並截圖。
-- **下拉與回前景（App）。** walkthrough 下拉期間截圖確認內容沒有半透明、日期與名單按鈕保留。`test14_ForegroundLoadsNewTradingDay` 用 DEBUG launch argument `-verifyOverviewRefreshInterval 0` 避免等 10 分鐘；本機站初始須停在上一交易日，測試寫出 `B11-ready.txt` 後，在這個 worktree 的 `web/` 用站長登入跑 `MO_URL=<BASE> MO_EMAIL=<owner> MO_PASSWORD=<從 owner.pw 讀入> node scripts/backfill.ts --sessions 60`。必須有真正更新的收盤可回補；測試以獨立 API 讀到更新日期後才回前景，最多等 120 秒，日期未增加會明確失敗。證據 `B11-before`／`B11-refreshed` 與日期文字。
+- **下拉與回前景（App）。** walkthrough 下拉期間截圖確認內容沒有半透明、日期與名單按鈕保留。`test14_ForegroundLoadsNewTradingDay` 用 DEBUG launch argument `-verifyOverviewRefreshInterval 0` 避免等 10 分鐘；本機站初始須停在上一交易日，測試寫出 `B11-ready.txt` 後，在這個 worktree 的 `web/` 用站長登入跑 `MO_URL=<BASE> MO_EMAIL=<owner> MO_PASSWORD=<從 owner.pw 讀入> node scripts/backfill.ts --sessions 60`。必須有真正更新的收盤可回補；測試以獨立 API 讀到更新日期後才回前景，最多等 120 秒，日期未增加會明確失敗。證據 `B11-background`／`B11-foreground-updated` 與日期文字。
+- **重點語氣（App）。** `test15_DigestToneLabels` 一般與最大字級檢查 `market-digest` 卡片含「利多」或「利空」，截圖 `B12-tone-normal`／`B12-tone-largest`；先在本機 news_digests 準備當日 SPX 的 positive/negative 重點，缺資料明確失敗。
 - **Proof。** `overview-kpi.png`、`overview.api.json`、`overview-date.png`；App 的 walkthrough 三張與 test02 的截圖、`.txt`。
 
 ## Gotchas

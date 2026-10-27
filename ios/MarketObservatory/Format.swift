@@ -166,6 +166,55 @@ struct Delta: View {
     }
 }
 
+/// Compare a model estimate with its historical baseline without implying an investment signal.
+struct ProbabilityComparison: View {
+    let probability: Double
+    let baseline: Double
+    var digits = 1
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .firstTextBaseline, spacing: 24) {
+                    estimate
+                    Spacer(minLength: 8)
+                    historical
+                }
+                VStack(alignment: .leading, spacing: 16) {
+                    estimate
+                    historical
+                }
+            }
+            let difference = (probability - baseline) * 100
+            Text("與歷史基準相差 \(Fmt.signed(difference, 1)) 個百分點")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var estimate: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("本次估計").font(.subheadline).foregroundStyle(.secondary)
+            Text(Fmt.plainPct(probability * 100, digits))
+                .font(.largeTitle.weight(.bold).monospacedDigit())
+                .fixedSize()
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private var historical: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("歷史基準率").font(.subheadline).foregroundStyle(.secondary)
+            Text(Fmt.plainPct(baseline * 100, digits))
+                .font(.title2.weight(.medium).monospacedDigit())
+                .foregroundStyle(.secondary)
+                .fixedSize()
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
 /// 收盤價核對：只有兩個來源對不上時才顯示，其餘狀態（一致、待核對、無第二來源）不必看。
 struct CheckBadge: View {
     let status: String
@@ -184,18 +233,16 @@ struct CheckBadge: View {
 /// 展望判讀：偏多紅、偏空綠（紅漲綠跌），不確定橘。
 struct CallBadge: View {
     let call: String
-    /// 滾動驗證的最小可偵測 BSS；沒有方向時附在標籤上。
-    var mde: Double?
     var body: some View {
         let (text, color): (String, Color) = switch call {
         case "up": ("高於平常", .up)
         case "down": ("低於平常", .down)
-        default: (mde.map { "偵測不到預測力（最小可偵測 BSS 約 \(String(format: "%.2f", $0))）" } ?? "偵測不到預測力", .orange)
+        default: ("偵測不到預測力", .secondary)
         }
         Text(text)
-            .font(.caption.weight(.semibold))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 2)
+            .font(.subheadline.weight(.semibold))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
             // 大字級時徽章會換成多行，Capsule 的半圓兩端會裁掉文字；用圓角矩形，單行時看起來一樣。
             .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             .foregroundStyle(color)
@@ -208,7 +255,7 @@ extension View {
     func noticeRow() -> some View {
         self
             .listRowBackground(Color.clear)
-            .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+            .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
             .listRowSeparator(.hidden)
     }
 
@@ -216,7 +263,7 @@ extension View {
     func cardRow() -> some View {
         self
             .listRowBackground(Color.clear)
-            .listRowInsets(EdgeInsets(top: 5, leading: 16, bottom: 5, trailing: 16))
+            .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
             .listRowSeparator(.hidden)
     }
 
@@ -224,8 +271,8 @@ extension View {
     func cardBackground() -> some View {
         self
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(12)
-            .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+            .padding(20)
+            .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 }
 
@@ -240,15 +287,18 @@ struct Notice: View {
         case .ok: .down
         case .info: .accentColor
         }
-        Label {
-            Text(text).font(.footnote)
-        } icon: {
+        HStack(alignment: .top, spacing: 10) {
             Image(systemName: kind == .ok ? "checkmark.circle.fill" : kind == .info ? "info.circle.fill" : "exclamationmark.triangle.fill")
+                .foregroundStyle(color)
+            Text(text)
+                .foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .foregroundStyle(color)
+        .font(.subheadline)
+        .lineSpacing(4)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(10)
-        .background(color.opacity(0.1), in: RoundedRectangle(cornerRadius: 10))
+        .padding(16)
+        .background(color.opacity(0.1), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 }
 

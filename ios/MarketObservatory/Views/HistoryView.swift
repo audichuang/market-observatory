@@ -183,7 +183,7 @@ struct HistoryView: View {
                         }
                         .font(.caption2)
                         Text("\(RestLabel.full)＝指數漲跌減掉名單合計。")
-                            .font(.caption2)
+                            .font(.footnote)
                             .foregroundStyle(.secondary)
                     } else {
                         ContentUnavailableView("尚無貢獻資料", systemImage: "chart.bar", description: Text("名單上有公司那幾天還沒有資料，或目前還沒有快照。"))
@@ -218,7 +218,7 @@ struct HistoryView: View {
         let kind = s.symbol == "SPX" ? "指數" : s.symbol == "RSP" ? "等權重 ETF" : (s.label ?? "")
         let sub = (kind.isEmpty ? [] : [kind]) + ["收盤 \(Fmt.num(s.close))"]
         if dts.isAccessibilitySize {
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 5) {
                 Text(title).font(.headline)
                 Text(sub.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary)
                 Text(Fmt.pct(s.ret)).font(.headline.monospacedDigit()).foregroundStyle(Color.tone(s.ret))
@@ -226,16 +226,15 @@ struct HistoryView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         } else {
-            VStack(alignment: .leading, spacing: 1) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(title).font(.headline)
-                Text(sub.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                Text(sub.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary)
             }
             Spacer(minLength: 8)
             VStack(alignment: .trailing, spacing: 1) {
                 Text(Fmt.pct(s.ret)).font(.headline.monospacedDigit()).foregroundStyle(Color.tone(s.ret))
                 Text(risk).font(.caption).foregroundStyle(.secondary).monospacedDigit()
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+
             }
         }
     }
@@ -268,8 +267,7 @@ private struct StatCell: View {
             Text(value)
                 .font(.title3.weight(.semibold).monospacedDigit())
                 .foregroundStyle(tone == nil ? Color.primary : Color.tone(tone))
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
+
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }

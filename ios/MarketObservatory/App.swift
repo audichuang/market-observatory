@@ -11,6 +11,8 @@ struct MarketObservatoryApp: App {
         WindowGroup {
             RootView()
                 .environment(session)
+                .environment(\.defaultMinListRowHeight, 56)
+                .lineSpacing(3)
                 // 沒有 Localizable 字串檔時系統會用英文格式化日期（圖表軸上的 Jan、Sep 6）：整個 App 固定用台灣繁中。
                 .environment(\.locale, Locale(identifier: "zh_Hant_TW"))
                 .task { await session.restore() }

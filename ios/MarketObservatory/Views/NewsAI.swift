@@ -56,7 +56,7 @@ struct NewsRow: View {
     private var zh: String? { (titleZh?.isEmpty == false) ? titleZh : nil }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: 7) {
             let meta = metaLine
             if zh != nil && NewsText.toneLabel(tone) != nil || meta != nil {
                 HStack(spacing: 6) {
@@ -64,11 +64,11 @@ struct NewsRow: View {
                     if let meta { meta }
                 }
             }
-            Text(zh ?? title).font(.body).foregroundStyle(.primary).multilineTextAlignment(.leading).lineLimit(titleLines)
+            Text(zh ?? title).font(.body).foregroundStyle(.primary).multilineTextAlignment(.leading).fixedSize(horizontal: false, vertical: true)
             if zh != nil {
-                Text(title).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                Text(title).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
-            Text(sourceLine).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+            Text(sourceLine).font(.caption).foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
@@ -106,7 +106,7 @@ struct NewsDetailSheet: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 16) {
                     HStack(spacing: 6) {
                         if zh != nil { ToneTag(tone: tone) }
                         let showCategory = zh != nil && category?.isEmpty == false
@@ -130,7 +130,7 @@ struct NewsDetailSheet: View {
                             ForEach(Array(points.enumerated()), id: \.offset) { _, p in
                                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                                     Text("•")
-                                    Text(p).fixedSize(horizontal: false, vertical: true)
+                                    Text(p).lineSpacing(4).fixedSize(horizontal: false, vertical: true)
                                 }
                                 .font(.body)
                             }
@@ -171,7 +171,7 @@ struct DigestRow: View {
             HStack(alignment: .top, spacing: 10) {
                 Capsule().fill(Color.newsTone(digest.tone)).frame(width: 3).frame(maxHeight: .infinity)
                     .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 8) {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         Text(digest.symbol).font(.headline).lineLimit(1).fixedSize(horizontal: true, vertical: false)
                         if let c = digest.company, !c.isEmpty { Text(c).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
@@ -179,9 +179,10 @@ struct DigestRow: View {
                         Spacer(minLength: 4)
                     }
                     Text(digest.summary)
-                        .font(.subheadline)
+                        .font(.body)
                         .foregroundStyle(.primary)
                         .multilineTextAlignment(.leading)
+                        .lineSpacing(4)
                         .lineLimit(expanded ? nil : 3)
                         .fixedSize(horizontal: false, vertical: true)
                 }

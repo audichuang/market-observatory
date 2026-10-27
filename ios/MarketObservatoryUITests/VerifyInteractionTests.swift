@@ -493,6 +493,76 @@ final class VerifyInteractionTests: XCTestCase {
         return try JSONDecoder().decode(ProbeOverview.self, from: data).snapshot.tradeDate
     }
 
+    /// Capture every reading surface at the system's largest text size, or at the normal size for dark-mode review.
+    func test16_Readability() throws {
+        let variant = env["MO_READING_VARIANT"] ?? "light-largest"
+        let arguments = variant.contains("largest")
+            ? ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"] : []
+        let app = try signedIn(arguments: arguments)
+        tab(app, "總覽")
+        XCTAssertTrue(app.buttons["觀察名單"].waitForExistence(timeout: 15))
+        snap("UI-\(variant)-overview")
+        app.buttons["觀察名單"].tap()
+        XCTAssertTrue(app.navigationBars["觀察名單"].waitForExistence(timeout: 5))
+        snap("UI-\(variant)-watchlist")
+        app.buttons["完成"].tap()
+
+        tab(app, "走勢")
+        XCTAssertTrue(app.buttons["1 年"].waitForExistence(timeout: 15))
+        snap("UI-\(variant)-history")
+        app.swipeUp()
+        snap("UI-\(variant)-history-statistics")
+
+        tab(app, "新聞")
+        XCTAssertTrue(app.buttons["日曆"].waitForExistence(timeout: 15))
+        snap("UI-\(variant)-news")
+        app.buttons["日曆"].tap()
+        XCTAssertTrue(app.buttons["下個月"].waitForExistence(timeout: 5))
+        snap("UI-\(variant)-calendar")
+        app.buttons["下個月"].tap()
+        XCTAssertTrue(app.buttons["今天"].waitForExistence(timeout: 5))
+        app.buttons["今天"].tap()
+        let eventDate = try injectedDate("MO_EVENT_DATE")
+        let event = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@ AND NOT (label CONTAINS '、')", dayPrefix(eventDate))).firstMatch
+        reveal(app, event)
+        XCTAssertTrue(event.isHittable, "大字日期清單無法選取事件日")
+        event.tap()
+        XCTAssertTrue(event.isSelected, "事件日期選取沒有生效")
+        snap("UI-\(variant)-calendar-selected")
+
+        tab(app, "更多")
+        snap("UI-\(variant)-more")
+        open(app, "ETF 與定投試算")
+        XCTAssertTrue(app.buttons["1Y"].waitForExistence(timeout: 15))
+        snap("UI-\(variant)-etfs")
+        app.buttons["我的規劃"].tap()
+        XCTAssertTrue(app.navigationBars["我的規劃"].waitForExistence(timeout: 5))
+        snap("UI-\(variant)-plan")
+        app.buttons["取消"].tap()
+        back(app)
+        open(app, "下月展望")
+        XCTAssertTrue(waitLabel(app, contains: "定義：以資料日收盤為起點"))
+        snap("UI-\(variant)-outlook-risk")
+        let model = app.buttons["機率與模型說明"]
+        reveal(app, model)
+        snap("UI-\(variant)-outlook-conclusion")
+        model.tap()
+        XCTAssertTrue(app.staticTexts["outlook-interval"].waitForExistence(timeout: 5))
+        snap("UI-\(variant)-outlook-details")
+        back(app)
+        open(app, "推播設定")
+        XCTAssertTrue(app.switches["每日收盤摘要"].waitForExistence(timeout: 15))
+        snap("UI-\(variant)-push")
+        back(app)
+        open(app, "帳號")
+        XCTAssertTrue(app.buttons["登出"].waitForExistence(timeout: 5))
+        snap("UI-\(variant)-account")
+        note("UI-\(variant)-tree", app.debugDescription)
+        reveal(app, app.buttons["登出"]).tap()
+        XCTAssertTrue(app.textFields["email"].waitForExistence(timeout: 10))
+        snap("UI-\(variant)-login")
+    }
+
     // Z1、A5、A2：登出、錯誤密碼、短密碼，最後用正確密碼登入回來。
     func test10_SignOutAndErrors() throws {
         let app = try signedIn()
@@ -529,14 +599,33 @@ final class VerifyInteractionTests: XCTestCase {
         let app = try signedIn()
         tab(app, "更多"); open(app, "下月展望")
         XCTAssertTrue(waitLabel(app, contains: "定義：以資料日收盤為起點"), "找不到 dd5 定義")
-        var all = ""
-        for i in 0 ..< 12 {
-            snap(String(format: "H1-outlook-%02d", i)); all += texts(app) + "\n"
-            app.swipeUp(velocity: .slow); sleep(1)
+        snap("H1-outlook-summary")
+        let interval = app.staticTexts["outlook-interval"]
+        let model = app.buttons["機率與模型說明"]
+        reveal(app, model)
+        XCTAssertTrue(model.isHittable, "模型說明無法展開")
+        XCTAssertFalse(interval.exists, "模型細節預設應收合")
+        snap("H1-model-collapsed")
+        model.tap()
+        XCTAssertTrue(interval.waitForExistence(timeout: 5), "模型說明展開後缺少機率依據")
+        snap("H1-model-expanded"); note("H1-model-expanded", texts(app))
+        reveal(app, model, up: false).tap()
+        XCTAssertTrue(interval.waitForNonExistence(timeout: 5), "模型說明無法收合")
+
+        for (target, title) in [("dd5", "滾動驗證：跌幅機率（dd5）"), ("up", "滾動驗證：上漲機率")] {
+            let disclosure = app.buttons[title]
+            reveal(app, disclosure)
+            XCTAssertTrue(disclosure.isHittable, "找不到 \(title)")
+            let detail = app.staticTexts["outlook-validation-\(target)-details"]
+            XCTAssertFalse(detail.exists, "驗證細節預設應收合")
+            snap("H1-validation-\(target)-collapsed")
+            disclosure.tap()
+            reveal(app, detail)
+            XCTAssertTrue(detail.waitForExistence(timeout: 5), "\(title) 展開後沒有 BSS 解釋")
+            snap("H1-validation-\(target)-expanded"); note("H1-validation-\(target)", texts(app))
+            reveal(app, disclosure, up: false).tap()
+            XCTAssertTrue(detail.waitForNonExistence(timeout: 5), "\(title) 無法收合")
         }
-        note("H1-outlook", all)
-        XCTAssertTrue(all.contains("滾動驗證：跌幅機率（dd5）"), "沒有 dd5 驗證區塊")
-        XCTAssertTrue(all.contains("滾動驗證：上漲機率"), "沒有上漲驗證區塊")
     }
 
     func test11_DeleteAccount() throws {

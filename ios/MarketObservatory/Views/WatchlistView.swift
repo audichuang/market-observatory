@@ -119,6 +119,7 @@ struct WatchlistView: View {
                         Button("移除", role: .destructive) { pendingRemoval = m }
                     }
                     .disabled(busy != nil)
+                    .listRowInsets(EdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16))
                 }
                 if w.members.isEmpty {
                     Text("名單是空的。點右上角＋加入。").foregroundStyle(.secondary)
@@ -146,12 +147,12 @@ struct WatchlistView: View {
     @ViewBuilder
     private func memberRow(_ m: Watchlist.Member) -> some View {
         let weight = Text("\(Fmt.num(m.weightPct, 2))%").font(.body.monospacedDigit()).foregroundStyle(.secondary)
-        let names = VStack(alignment: .leading, spacing: 2) {
+        let names = VStack(alignment: .leading, spacing: 5) {
             Text(m.tickers.joined(separator: " + ")).font(.headline)
             Text(m.company).font(.caption).foregroundStyle(.secondary)
             if dts.isAccessibilitySize { weight }
             if !m.outOfIndex.isEmpty {
-                Text("\(m.outOfIndex.joined(separator: "、")) 已不在最新 SPY 持股（可能調出 S&P 500）").font(.caption2).foregroundStyle(.orange)
+                Text("\(m.outOfIndex.joined(separator: "、")) 已不在最新 SPY 持股（可能調出 S&P 500）").font(.footnote).foregroundStyle(.orange)
             }
         }
         if dts.isAccessibilitySize {
@@ -220,7 +221,7 @@ private struct AddSheet: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         } else {
             HStack {
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: 5) {
                     Text(c.ticker).font(.headline).foregroundStyle(.primary)
                     Text(c.name).font(.caption).foregroundStyle(.secondary)
                 }

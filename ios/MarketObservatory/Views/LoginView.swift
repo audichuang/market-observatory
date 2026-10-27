@@ -24,14 +24,14 @@ struct LoginView: View {
     var body: some View {
         GeometryReader { geo in
         ScrollView {
-            VStack(spacing: 20) {
+            VStack(spacing: 24) {
                 Spacer(minLength: 0)
-                VStack(spacing: 8) {
+                VStack(spacing: 12) {
                     Image(systemName: "chart.line.uptrend.xyaxis")
                         .font(.system(size: 44, weight: .semibold))
                         .foregroundStyle(.tint)
                     Text("市場觀測室").font(.largeTitle.bold())
-                    Text("S&P 500、名單歸因、ETF 與收盤推播").font(.subheadline).foregroundStyle(.secondary)
+                    Text("S&P 500、名單歸因、ETF 與收盤推播").font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 }
 
                 SignInWithAppleButton(mode == .signUp ? .signUp : .signIn) { request in
@@ -53,7 +53,7 @@ struct LoginView: View {
                     VStack { Divider() }
                 }
 
-                VStack(spacing: 12) {
+                VStack(spacing: 16) {
                     TextField("Email", text: $email)
                         .textContentType(.username)
                         .keyboardType(.emailAddress)

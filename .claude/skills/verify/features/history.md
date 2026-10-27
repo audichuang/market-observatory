@@ -27,6 +27,8 @@ Preconditions:
 - **App。** walkthrough 的 `03-history.png`、`03b-history-compare.png`、`03c-history-contribution.png`；`ios-test.sh … VerifyInteractionTests/test03_History` 的 `C2-ranges.txt`（每個區間的報酬、回檔、交易日對 `months=` 的 API）、`C3-rapid.png`、`C4-nvda.png`／`.txt`、`C6-aapl.png`。
 - **Proof。** `history-main.png`、`history-nvda.png`、對應 API JSON、App 的 walkthrough 三張與 test03 的截圖、`.txt`。
 
+- App 大字級檢查區間統計、報酬及回檔文字完整換行；圖表與圖例仍可辨識。
+
 ## Gotchas
 
 - 圖是 canvas（TradingView Lightweight Charts），DOM 裡沒有線，只能用截圖判斷，數字用統計卡片比。

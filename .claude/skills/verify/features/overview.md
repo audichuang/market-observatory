@@ -32,7 +32,7 @@ Preconditions:
 - **名單拆解。** 在「觀察名單，拆開來看」表格用 `evaluate` 讀每列的儲存格，逐欄比 API `snapshot.data.mag7`、`rest`、`index`（實測 54 項全對）（B3）；每列的貢獻點數加總＋「其他成分股」列＝最下面 S&P 500 列的點數。
 - **其他交易日。** `page.selectOption("select", { index: 1 })`（「查看其他交易日」的第二天；也可直接給選項值 `"2026-10-22"`），等網址出現 `?date=`、`h1` 換日期；`fetch("/api/v1/overview?date=<那天>")` 比數字；再選回第一項，標題回到最新（B5）。
 - **公司連結。** 點 `loc=href:/history?symbol=NVDA`（`text=NVIDIA` 也會對到新聞標題），網址變 `/history?symbol=NVDA`（B4）。
-- **App。** walkthrough 的 `02-overview.png`、`02b-overview-attribution.png`、`02c-overview-events.png`；`ios-test.sh … VerifyInteractionTests/test02_Overview` 的 `B2-before.txt`（value＝已收合）、`B2-kpi-expanded.png`／`.txt`（已展開，全部指標的數字對 API）、`B5-dates.txt`（test 從交易日清單讀到的最新與第二新的一天）、`B5-older.png`／`.txt`（第二新那天的數字對 `?date=<那天>`）、`B5-latest.png`、`B4-nvda-history.png`、`B8-calendar.png`。逐張看數字與 API 一致、顏色紅漲綠跌、沒有被切掉的字，`B2-kpi-expanded.png` 要真的看到展開的指標。
+- **App。** walkthrough 的 `02-overview.png`、`02b-overview-attribution.png`、`02c-overview-events.png`；`ios-test.sh … VerifyInteractionTests/test02_Overview` 的 `B2-before.txt`（value＝已收合）、`B2-kpi-expanded.png`／`.txt`（已展開，全部指標的數字對 API）、`B5-dates.txt`（test 從交易日清單讀到的最新與第二新的一天）、`B5-older.png`／`.txt`（第二新那天的數字對 `?date=<那天>`）、`B5-latest.png`、`B4-nvda-history.png`、`B8-calendar.png`。逐張看數字與 API 一致、顏色紅漲綠跌、沒有被切掉的字；確認首屏收盤與期間報酬、名單貢獻列及下月展望的數字層級清楚，標籤與數值在一般及最大字級均不互相擠壓，`B2-kpi-expanded.png` 要真的看到展開的指標。
 - **品質與判讀（網頁）。** 在本機 D1 準備 notes=[]、pendingChecks 非空的快照並 bump data_version，重新載入總覽應顯示「待核對」；再測 missing 非空時頁首的缺資料警告。對照 API quality 陣列並截圖。
 - **下拉與回前景（App）。** walkthrough 下拉期間截圖確認內容沒有半透明、日期與名單按鈕保留。`test14_ForegroundLoadsNewTradingDay` 用 DEBUG launch argument `-verifyOverviewRefreshInterval 0` 避免等 10 分鐘；本機站初始須停在上一交易日，測試寫出 `B11-ready.txt` 後，在這個 worktree 的 `web/` 用站長登入跑 `MO_URL=<BASE> MO_EMAIL=<owner> MO_PASSWORD=<從 owner.pw 讀入> node scripts/backfill.ts --sessions 60`。必須有真正更新的收盤可回補；測試以獨立 API 讀到更新日期後才回前景，最多等 120 秒，日期未增加會明確失敗。證據 `B11-background`／`B11-foreground-updated` 與日期文字。
 - **重點語氣（App）。** `test15_DigestToneLabels` 一般與最大字級檢查 `market-digest` 卡片含「利多」或「利空」，截圖 `B12-tone-normal`／`B12-tone-largest`；最大字級的畫面必須完整看得到「今天為什麼漲跌」，不能只靠 AX label（SwiftUI 截斷時 AX 仍會回傳全文），以畫面 OCR 與實看截圖確認。先在本機 news_digests 準備當日 SPX 的 positive/negative 重點，缺資料明確失敗。
@@ -42,6 +42,6 @@ Preconditions:
 
 - 本機的快照只有回補的 60 個交易日，下拉選單只列這 60 天。
 - 「資料 … 產出」的時間是快照建立時間，不是收盤時間。
-- 下月展望卡片先列 dd5（「21 個交易日內至少一天比資料日收盤低 5% 以上的機率」，網頁用 `dd5ShortLabel`、App 用 `Copy.dd5ShortLabel`，`forecast.drawdown.p`；API 沒有 `drawdown` 時只有上漲機率），再列上漲機率。「偵測不到預測力」標籤屬於上漲機率那格，是展望模型的狀態（對應 API 的 `call: "inconclusive"`），此時下方另有小字「尚未偵測到增額預測力」；介面不再出現英文 skill。
+- 下月展望卡片以「下跌風險」與「上漲機率」分組，數字、平常值與驗證狀態分行，先列 dd5（「21 個交易日內至少一天比資料日收盤低 5% 以上的機率」，網頁用 `dd5ShortLabel`、App 用 `Copy.dd5ShortLabel`，`forecast.drawdown.p`；API 沒有 `drawdown` 時只有上漲機率），再列上漲機率。「偵測不到預測力」標籤屬於上漲機率那格，是展望模型的狀態（對應 API 的 `call: "inconclusive"`），此時下方另有小字「尚未偵測到增額預測力」；介面不再出現英文 skill。
 - 要看到 `overview-stale` 的警告：本機回補會抓到最新收盤，先在 `web/` 用 `npx void db execute "DELETE FROM snapshots WHERE trade_date = '<最新>'"` 刪掉最新快照，並改 `settings` 的 `data_version` 讓頁面快取失效；UTC 22:10 前後各看一次（前不警告、後警告）。
 - 名單剛改過時，總覽會用新名單重算最近 45 個交易日；更早的日子保留舊名單，切到很早的日期看到舊名單是正常的。

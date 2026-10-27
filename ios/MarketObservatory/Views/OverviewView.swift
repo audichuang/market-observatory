@@ -180,42 +180,40 @@ struct OverviewView: View {
                 if let f = o.forecast, o.viewingLatest {
                     Section("下月展望") {
                         NavigationLink(value: Destination.outlook) {
-                            VStack(alignment: .leading, spacing: 8) {
-                                // U-01: dd5 first; P(up) has no detected incremental skill most of the time.
+                            VStack(alignment: .leading, spacing: 20) {
                                 if let d = f.drawdown {
-                                    ViewThatFits(in: .horizontal) {
-                                        HStack {
-                                            Text(Copy.dd5ShortLabel(horizon: Copy.overviewHorizon))
-                                            Spacer()
-                                            drawdownValue(d)
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        Text("下跌風險").font(.subheadline.weight(.semibold))
+                                        Text(Fmt.plainPct(d.p * 100))
+                                            .font(.title2.weight(.bold).monospacedDigit())
+                                        Text("平常 \(Fmt.plainPct(d.base * 100))")
+                                            .font(.footnote).foregroundStyle(.secondary)
+                                        if !d.scored {
+                                            Text("未通過驗證")
+                                                .font(.caption.weight(.semibold))
+                                                .foregroundStyle(.orange)
                                         }
-                                        VStack(alignment: .leading, spacing: 4) {
-                                            Text(Copy.dd5ShortLabel(horizon: Copy.overviewHorizon))
-                                            HStack { drawdownValue(d) }
-                                        }
+                                        Text(Copy.dd5ShortLabel(horizon: Copy.overviewHorizon))
+                                            .font(.footnote).foregroundStyle(.secondary)
+                                            .fixedSize(horizontal: false, vertical: true)
                                     }
+                                    Divider()
                                 }
-                                ViewThatFits(in: .horizontal) {
-                                    HStack {
-                                        Text("下月上漲機率")
-                                        Spacer()
-                                        Text(Fmt.plainPct(f.probability * 100)).font(.headline.monospacedDigit())
-                                        Text("平常 \(Fmt.plainPct(f.baseRate * 100))").font(.caption).foregroundStyle(.secondary)
-                                        CallBadge(call: f.call)
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text("上漲機率").font(.subheadline.weight(.semibold))
+                                    Text(Fmt.plainPct(f.probability * 100))
+                                        .font(.title2.weight(.bold).monospacedDigit())
+                                    Text("平常 \(Fmt.plainPct(f.baseRate * 100))")
+                                        .font(.footnote).foregroundStyle(.secondary)
+                                    CallBadge(call: f.call)
+                                    if f.call == "inconclusive" {
+                                        Text("尚未偵測到增額預測力")
+                                            .font(.footnote).foregroundStyle(.secondary)
                                     }
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text("下月上漲機率")
-                                        HStack {
-                                            Text(Fmt.plainPct(f.probability * 100)).font(.headline.monospacedDigit())
-                                            Text("平常 \(Fmt.plainPct(f.baseRate * 100))").font(.caption).foregroundStyle(.secondary)
-                                            CallBadge(call: f.call)
-                                        }
-                                    }
-                                }
-                                if f.call == "inconclusive" {
-                                    Text("尚未偵測到增額預測力").font(.caption).foregroundStyle(.secondary)
                                 }
                             }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.vertical, 8)
                         }
                     }
                 }
@@ -225,21 +223,6 @@ struct OverviewView: View {
         } else {
             ContentUnavailableView("還沒有任何快照", systemImage: "chart.bar", description: Text("等收盤後的排程抓到資料就會出現。"))
                 .refreshable { await load() }
-        }
-    }
-
-    /// 跌幅機率：數字、平常值，沒通過驗證時加標籤。
-    @ViewBuilder
-    private func drawdownValue(_ d: ForecastBrief.Drawdown) -> some View {
-        Text(Fmt.plainPct(d.p * 100)).font(.headline.monospacedDigit())
-        Text("平常 \(Fmt.plainPct(d.base * 100))").font(.caption).foregroundStyle(.secondary)
-        if !d.scored {
-            Text("未通過驗證")
-                .font(.caption.weight(.semibold))
-                .padding(.horizontal, 8)
-                .padding(.vertical, 2)
-                .background(Color.orange.opacity(0.12), in: Capsule())
-                .foregroundStyle(Color.orange)
         }
     }
 
@@ -256,7 +239,7 @@ struct OverviewView: View {
                 titleLine
             }
         } else {
-            HStack(alignment: .firstTextBaseline) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
                 day.frame(width: dateWidth, alignment: .leading)
                 titleLine
                 Spacer()
@@ -467,7 +450,7 @@ private struct MarketDigestCard: View {
         HStack(alignment: .top, spacing: 10) {
             Capsule().fill(Color.newsTone(digest.tone)).frame(width: 3).frame(maxHeight: .infinity)
                 .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 8) {
                 heading
                 Text(digest.summary).font(.subheadline).fixedSize(horizontal: false, vertical: true)
             }
@@ -510,7 +493,7 @@ private struct IndexHero: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 6) {
                 Text("S&P 500").font(.caption).foregroundStyle(.secondary)
                 CheckBadge(status: s.index.check.status)
@@ -521,7 +504,7 @@ private struct IndexHero: View {
                 Text("(\(Text(Fmt.pct(s.index.returnPct)).foregroundStyle(Color.tone(s.index.returnPct))))").foregroundStyle(.secondary)
             }
             .font(.headline)
-            periods.padding(.top, 4)
+            periods.padding(.top, 8)
             Text("資料 \(Fmt.taipeiTime(createdAt)) 產出").font(.caption2).foregroundStyle(.secondary)
         }
         .cardBackground()
@@ -542,7 +525,7 @@ private struct IndexHero: View {
                     cell(it.0, it.1).frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-            Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 8) {
+            Grid(alignment: .leading, horizontalSpacing: 24, verticalSpacing: 16) {
                 GridRow { cell(items[0].0, items[0].1); cell(items[1].0, items[1].1) }
                 GridRow { cell(items[2].0, items[2].1); cell(items[3].0, items[3].1) }
             }
@@ -693,7 +676,7 @@ private struct Kpi<Detail: View, Badge: View>: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 4) {
                 Text(label).font(.caption).foregroundStyle(.secondary).lineLimit(2)
                 badge()
@@ -725,7 +708,7 @@ private struct AttributionRow: View {
     @Environment(\.dynamicTypeSize) private var dts
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 10) {
             // 大字級時左右並排放不下：副標（收盤價）會被截、% 會被擠到下一行，改成上下排列、全部靠左。
             if dts.isAccessibilitySize {
                 VStack(alignment: .leading, spacing: 2) {
@@ -754,7 +737,7 @@ private struct AttributionRow: View {
                 CheckBadge(status: check)
             }
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 6)
     }
 
     private var points: some View {

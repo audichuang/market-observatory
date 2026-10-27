@@ -32,6 +32,8 @@ Preconditions:
 
 - **語氣與篩選無障礙（App）。** `test15_DigestToneLabels` 一般與最大字級各檢查 `news-digest-<symbol>` 的文字與利多／利空 staticTexts，並確認選中篩選 chip 的 `isSelected`；截圖 `E9-tone-normal`／`E9-tone-largest`。本機需有近三天、前幾家名單公司 positive/negative 重點，缺資料測試明確失敗。
 
+- App 一般及最大字級檢查新聞標題與事件列完整換行、摘要展開後可讀；月曆大字級改以單欄列出本月日期與事件標記，檢查選取日期及上／下個月按鈕。
+
 ## Gotchas
 
 - 本機沒有翻譯與 AI 重點（那是本機 Orca 排程寫進正式站的），標題是英文；要驗 AI 文字的呈現（例如 iOS 的「今天為什麼漲跌」展開）要用正式站一次性帳號，或用站長 `POST /api/admin/ai` 在本機寫一筆。

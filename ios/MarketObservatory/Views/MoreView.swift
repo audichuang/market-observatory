@@ -33,9 +33,9 @@ struct MoreView: View {
     /// 主標文字開頭不變（走查用 BEGINSWITH 找），副標寫出裡面有什麼。
     private func moreLabel(_ title: String, _ sub: String, _ icon: String) -> some View {
         Label {
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 5) {
                 Text(title)
-                Text(sub).font(.caption).foregroundStyle(.secondary)
+                Text(sub).font(.subheadline).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
         } icon: { Image(systemName: icon) }
     }
@@ -132,20 +132,21 @@ struct EtfView: View {
                 }
                 .pickerStyle(.segmented)
                 ForEach(e.rows) { r in
-                    HStack(alignment: .top) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            HStack(spacing: 6) {
-                                Text(r.ticker).font(.headline)
-                                if r.multiple != 1 { Text("\(r.multiple > 0 ? "" : "反向 ")\(Int(abs(r.multiple)))×").font(.caption2.weight(.semibold)).foregroundStyle(.orange) }
-                            }
-                            Text(r.name).font(.subheadline)
-                            Text("\(r.issuer) · 費用\u{00A0}\(Fmt.fee(r.netFeePct)) · 規模\u{00A0}\(Fmt.compactUsd(r.aumUsd))").font(.caption).foregroundStyle(.secondary)
-                            if let n = r.note, !n.isEmpty { Text(n).font(.caption2).foregroundStyle(.secondary) }
-                        }
-                        Spacer()
-                        VStack(alignment: .trailing, spacing: 2) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(alignment: .firstTextBaseline) {
+                            Text(r.ticker).font(.headline)
+                            if r.multiple != 1 { Text("\(r.multiple > 0 ? "" : "反向 ")\(Int(abs(r.multiple)))×").font(.caption.weight(.semibold)).foregroundStyle(.orange) }
+                            Spacer(minLength: 12)
                             let v = period == "YTD" ? r.ytd : (r.returns[period] ?? nil)
                             Text(Fmt.pct(v)).font(.headline.monospacedDigit()).foregroundStyle(Color.tone(v))
+                        }
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(r.name).font(.subheadline)
+                            Text(r.issuer).font(.caption).foregroundStyle(.secondary)
+                            Text("費用 \(Fmt.fee(r.netFeePct)) · 規模 \(Fmt.compactUsd(r.aumUsd))").font(.caption).foregroundStyle(.secondary)
+                            if let n = r.note, !n.isEmpty { Text(n).font(.caption2).foregroundStyle(.secondary) }
+                        }
+                        VStack(alignment: .leading, spacing: 4) {
                             Text("收盤 \(Fmt.num(r.close))").font(.caption).foregroundStyle(.secondary).monospacedDigit()
                             if let drift = r.drift1y {
                                 HStack(spacing: 4) {
@@ -156,6 +157,7 @@ struct EtfView: View {
                             }
                         }
                     }
+                    .padding(.vertical, 6)
                 }
             } header: {
                 Text("報酬（資料到 \(Fmt.fullDate(e.asOf))）")
@@ -245,6 +247,7 @@ struct EtfView: View {
             }
         }
         .listStyle(.insetGrouped)
+        .lineSpacing(3)
         .refreshable { await load() }
         .toolbar {
             ToolbarItemGroup(placement: .keyboard) {
@@ -368,93 +371,75 @@ struct OutlookView: View {
         return List {
             Text("以美元計、不含股息的 S&P 500 價格指數；台幣結果另受匯率影響").font(.caption).foregroundStyle(.secondary).noticeRow()
             if let o = p.outlook {
-                Section {
-                    VStack(alignment: .leading, spacing: 6) {
-                        if let d = o.drawdown {
-                            Text(Copy.dd5ShortLabel(horizon: p.horizon)).font(.subheadline).foregroundStyle(.secondary)
-                            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                                Text(Fmt.plainPct(d.pick.p * 100, 0)).font(.largeTitle.weight(.bold).monospacedDigit())
-                                Text("（平常 \(Fmt.plainPct(d.pick.base.p * 100, 0))）").font(.subheadline).foregroundStyle(.secondary)
-                            }
+                Text("資料日 \(Fmt.fullDate(o.asOf))").font(.footnote).foregroundStyle(.secondary).noticeRow()
+                if let d = o.drawdown {
+                    Section("下跌風險") {
+                        VStack(alignment: .leading, spacing: 16) {
+                            Text("期間內收盤跌 5% 以上的機率")
+                                .font(.headline)
+                            ProbabilityComparison(probability: d.pick.p, baseline: d.pick.base.p, digits: 0)
+                            if let frequency = p.frequency?.dd5 { Text("\(frequency)。").font(.body) }
                             if !d.scored {
-                                Text("未通過驗證，只供參考")
-                                    .font(.caption.weight(.semibold))
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 2)
-                                    .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                                    .foregroundStyle(Color.orange)
+                                Text("未通過驗證，只供參考").font(.subheadline.weight(.semibold)).foregroundStyle(.orange)
                             }
-                            Text("定義：\(Copy.dd5Definition(horizon: p.horizon))").font(.caption).foregroundStyle(.secondary)
-                            Divider().padding(.vertical, 4)
+                            Text("定義：\(Copy.dd5Definition(horizon: p.horizon))").font(.footnote).foregroundStyle(.secondary)
                         }
-                        Text(o.drawdown == nil ? "S&P 500 \(Copy.upTargetLabel(horizon: p.horizon))的機率" : "上漲機率（\(Copy.upTargetLabel(horizon: p.horizon))）")
-                            .font(.subheadline).foregroundStyle(.secondary)
-                        Text(Fmt.plainPct(o.pick.p * 100)).font(.largeTitle.weight(.bold).monospacedDigit())
-                        Text(intervalText(o.pick)).font(.footnote).foregroundStyle(.secondary)
-                        // 大字級時徽章很長，並排會把徽章與基準率都擠成多行，改上下排。
-                        let badgeLayout = dts.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 6)) : AnyLayout(HStackLayout(spacing: 8))
-                        badgeLayout {
-                            CallBadge(call: o.call, mde: o.evaluation?.mde)
-                            Text("歷史基準率 \(Fmt.plainPct(o.pick.base.p * 100))").font(.subheadline)
-                        }
-                        Text(Self.callWhy[o.call] ?? Self.callWhy["inconclusive"]!).font(.footnote).foregroundStyle(.secondary)
-                        if let f = p.frequency {
-                            VStack(alignment: .leading, spacing: 2) {
-                                if let up = f.up { Text("\(up)。") }
-                                if let dd = f.dd5 { Text("\(dd)。") }
-                            }
-                            .font(.footnote).foregroundStyle(.secondary)
-                            .padding(.top, 2)
-                        }
+                        .padding(.vertical, 6)
+                    }
+                }
+                Section("上漲展望") {
+                        VStack(alignment: .leading, spacing: 16) {
+                        Text("約 \(p.horizon) 個交易日後的上漲機率").font(.headline)
+                        ProbabilityComparison(probability: o.pick.p, baseline: o.pick.base.p)
+                        CallBadge(call: o.call)
+                        Text("目標：\(Copy.upTargetLabel(horizon: p.horizon))。" ).font(.footnote).foregroundStyle(.secondary)
+                        Text(Self.callWhy[o.call] ?? Self.callWhy["inconclusive"]!).font(.body)
+                        if let frequency = p.frequency?.up { Text("\(frequency)。").font(.body) }
                         Text("對每月定期定額：這不是加碼或停扣的訊號，它描述下個月可能的波動。").font(.footnote.weight(.semibold))
                     }
                     .padding(.vertical, 6)
-                    if let q = o.returnQuantiles?.cell { quantileText(q, all: o.returnQuantiles?.all, horizon: p.horizon) }
-                    if let a = o.assessments { assessmentRows(a) }
-                    if let c = o.globalCaveat, !c.isEmpty { Text(c).font(.caption).foregroundStyle(.secondary) }
-                    LabeledContent("資料日", value: Fmt.fullDate(o.asOf))
-                    if let h = o.historyStart { LabeledContent("樣本起點", value: h) }
-                    if let v = o.modelVersion { LabeledContent("模型版本", value: v) }
-                    LabeledContent("S&P 500 vs 200 日線") {
-                        VStack(alignment: .trailing, spacing: 1) {
-                            Delta(value: o.sma200.map { (o.close / $0 - 1) * 100 }, digits: 2, percent: true)
-                            let side = o.regime.map { $0.aboveSma200 ? "站上" : "跌破" } ?? (o.sma200.map { o.close >= $0 ? "站上" : "跌破" } ?? "—")
-                            Text("\(side) · 均線 \(Fmt.num(o.sma200, 0))").font(.caption2).foregroundStyle(.secondary)
-                        }
-                    }
-                    LabeledContent("VIX") {
-                        VStack(alignment: .trailing, spacing: 1) {
-                            Text(Fmt.num(o.vix)).monospacedDigit()
-                            if let r = o.regime {
-                                Text(r.vixStress ? "≥ 30（恐慌區）" : "< 30（非恐慌區）").font(.caption2).foregroundStyle(r.vixStress ? Color.orange : .secondary)
+                    DisclosureGroup("機率與模型說明") {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text(intervalText(o.pick))
+                                .accessibilityIdentifier("outlook-interval")
+                            if let q = o.returnQuantiles?.cell { quantileText(q, all: o.returnQuantiles?.all, horizon: p.horizon) }
+                            if let a = o.assessments { assessmentRows(a) }
+                            if let c = o.globalCaveat, !c.isEmpty { Text(c) }
+                            ForEach(o.reasons, id: \.self) { Text($0) }
+                            if let h = o.historyStart { LabeledContent("樣本起點", value: h) }
+                            if let v = o.modelVersion { LabeledContent("模型版本", value: v) }
+                            LabeledContent("S&P 500 vs 200 日線") {
+                                VStack(alignment: .trailing, spacing: 2) {
+                                    Delta(value: o.sma200.map { (o.close / $0 - 1) * 100 }, digits: 2, percent: true)
+                                    let side = o.regime.map { $0.aboveSma200 ? "站上" : "跌破" } ?? (o.sma200.map { o.close >= $0 ? "站上" : "跌破" } ?? "—")
+                                    Text("\(side) · 均線 \(Fmt.num(o.sma200, 0))")
+                                }
+                            }
+                            LabeledContent("VIX") {
+                                VStack(alignment: .trailing, spacing: 2) {
+                                    Text(Fmt.num(o.vix)).monospacedDigit()
+                                    if let r = o.regime { Text(r.vixStress ? "≥ 30（恐慌區）" : "< 30（非恐慌區）") }
+                                }
                             }
                         }
-                    }
-                } footer: {
-                    // 主數字下方已寫「採歷史基準率…包含基準率」時，不再重複「看不出差別」那條理由；項目符號用懸掛縮排。
-                    let reasons = o.reasons.filter { !(o.pick.distinct != true && o.pick.conditional != nil && $0.contains("看不出差別") && (o.pick.shrinkWeight ?? 0) == 0) }
-                    VStack(alignment: .leading, spacing: 4) {
-                        ForEach(reasons, id: \.self) { r in
-                            // 只有一條時直接當說明文字，不要孤零零一個項目符號。
-                            if reasons.count == 1 {
-                                Text(r)
-                            } else {
-                                HStack(alignment: .firstTextBaseline, spacing: 2) { Text("・"); Text(r) }
-                            }
-                        }
+                        .font(.footnote)
+                        .lineSpacing(4)
+                        .padding(.top, 8)
                     }
                 }
 
                 Section {
                     ForEach(p.cells) { c in cellRow(c, isBase: c.id == p.cells.first?.id, minN: minN, minEpisodes: p.minEpisodes) }
-                } header: {
-                    Text(p.minEpisodes == nil ? "各條件下的歷史上漲比例" : "樣本內：各條件下的歷史上漲比例")
-                } footer: {
+                    DisclosureGroup("如何閱讀這張表") {
                     if let me = p.minEpisodes {
                         Text("樣本內：這張表用全部歷史算出，同一批資料也用來挑條件，只描述過去、不代表預測力（預測力看下面的滾動驗證與上線後紀錄）。重疊的 \(p.horizon) 日窗口不是獨立樣本，有效樣本以「天數 ÷ \(p.horizon)」計；有效樣本少於 \(minN)、或條件成立的日子分成不到 \(me) 段（段與段相隔至少 \(p.horizon) 個交易日）的條件不採用，標為「樣本不足」（灰字）；基準率不受此限。")
                     } else {
                         Text("重疊的 \(p.horizon) 日窗口不是獨立樣本，有效樣本以天數 ÷ \(p.horizon) 計；有效樣本少於 \(minN) 的條件不採用（灰字）。")
                     }
+                    }
+                    .font(.footnote).foregroundStyle(.secondary)
+                } header: {
+                    Text(p.minEpisodes == nil ? "各條件下的歷史上漲比例" : "樣本內：各條件下的歷史上漲比例")
                 }
                 // Two targets, two labelled blocks: o.evaluation is the up model, drawdown.evaluation is dd5.
                 if let ev = o.drawdown?.evaluation {
@@ -470,17 +455,18 @@ struct OutlookView: View {
                 Text("資料不足，還無法產生展望。").foregroundStyle(.secondary)
             }
 
-            Section {
-            } header: {
-                Text("機構觀點（背景資訊，不放進上面的機率）")
-            } footer: {
-                Text("研究顯示分析師目標價系統性偏樂觀，策略師年底目標與實際報酬幾乎沒有相關；這裡列出來是讓你知道市場共識在哪，而不是當漲跌訊號。")
+            Section("機構觀點（背景資訊，不放進上面的機率）") {
+                DisclosureGroup("如何看待機構目標") {
+                    Text("研究顯示分析師目標價系統性偏樂觀，策略師年底目標與實際報酬幾乎沒有相關；這裡列出來是讓你知道市場共識在哪，而不是當漲跌訊號。")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
             }
             if let f = p.factset.first { factsetSection(f) }
             if let c = p.consensus { consensusSection(c) }
             if let s = p.strategists { strategistSection(s) }
         }
         .listStyle(.insetGrouped)
+        .lineSpacing(3)
         .refreshable { await load() }
     }
 
@@ -564,15 +550,17 @@ struct OutlookView: View {
         case "fail": ("未通過", .up)
         default: ("不適用", .secondary)
         }
-        return HStack(alignment: .top, spacing: 8) {
-            Text(name).font(.subheadline).frame(width: 78, alignment: .leading)
+        return VStack(alignment: .leading, spacing: 5) {
+            HStack {
+            Text(name).font(.subheadline.weight(.semibold))
             Text(text)
                 .font(.caption.weight(.semibold))
                 .padding(.horizontal, 8)
                 .padding(.vertical, 2)
                 .background(color.opacity(0.12), in: Capsule())
                 .foregroundStyle(color)
-            VStack(alignment: .leading, spacing: 1) {
+            }
+            VStack(alignment: .leading, spacing: 3) {
                 Text(line1).font(.footnote)
                 Text(line2).font(.caption).foregroundStyle(.secondary)
             }
@@ -583,6 +571,7 @@ struct OutlookView: View {
     /// One walk-forward block per target. Hit-rate rows only make sense for the up model ("always guess up").
     private func evaluationSection(_ ev: OutlookPage.Outlook.Evaluation, horizon: Int, title: String, target: String, showHitRate: Bool) -> some View {
         Section {
+            DisclosureGroup(title) {
             Text("\(target)\(ev.firstDate.map(Fmt.fullDate) ?? "—")～\(ev.lastDate.map(Fmt.fullDate) ?? "—")，每 \(horizon) 個交易日預測一次（共 \(ev.points) 次）")
                 .font(.footnote).foregroundStyle(.secondary)
             if showHitRate {
@@ -594,15 +583,15 @@ struct OutlookView: View {
             LabeledContent("BSS") {
                 VStack(alignment: .trailing, spacing: 1) {
                     Text(Fmt.num(ev.bss, 3)).monospacedDigit()
-                    Text("\(Self.skillInterval) \(Fmt.num(ev.bssLow, 3))～\(Fmt.num(ev.bssHigh, 3))").font(.caption2).foregroundStyle(.secondary)
+                Text("\(Self.skillInterval) \(Fmt.num(ev.bssLow, 3))～\(Fmt.num(ev.bssHigh, 3))").font(.footnote).foregroundStyle(.secondary)
                         .multilineTextAlignment(.trailing)
                 }
             }
             if let mde = ev.mde { LabeledContent("最小可偵測 BSS", value: Fmt.num(mde, 2)) }
-        } header: {
-            Text(title)
-        } footer: {
             Text("BSS = 1 − Brier ÷ 基準 Brier；區間下限 > 0 才代表穩定勝過基準率")
+                .font(.footnote).foregroundStyle(.secondary)
+                .accessibilityIdentifier(showHitRate ? "outlook-validation-up-details" : "outlook-validation-dd5-details")
+            }
         }
     }
 
@@ -727,13 +716,16 @@ struct OutlookView: View {
                 LabeledContent("Reuters 民調中位數", value: "\(Fmt.num(poll.median, 0))（\(poll.respondents) 人\(poll.surveyed.map { "，\($0) 調查" } ?? "")）")
             }
             ForEach(s.list) { t in
-                HStack(alignment: .firstTextBaseline) {
-                    VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(alignment: .firstTextBaseline) {
                         if let u = t.sourceUrl.flatMap({ URL(string: $0) }) {
                             Link(t.firm, destination: u)
                         } else {
                             Text(t.firm)
                         }
+                        Spacer(minLength: 12)
+                        Text(Fmt.num(t.target, 0)).bold().monospacedDigit()
+                    }
                         let range: String? = t.targetIsMidpoint == true
                             ? t.targetLow.flatMap { lo in t.targetHigh.map { "區間 \(Fmt.num(lo, 0))–\(Fmt.num($0, 0)) 的中點" } }
                             : nil
@@ -744,11 +736,9 @@ struct OutlookView: View {
                             t.inMedian == false ? "不計入中位數" : nil,
                             t.stale == true ? "待重新核對" : nil,
                         ].compactMap { $0 }
-                        if !tags.isEmpty { Text(tags.joined(separator: " · ")).font(.caption2).foregroundStyle(.secondary) }
-                    }
-                    Spacer()
-                    Text(Fmt.num(t.target, 0)).bold().monospacedDigit()
+                        if !tags.isEmpty { Text(tags.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary) }
                 }
+                .padding(.vertical, 4)
             }
         } header: {
             Text(common.map { "策略師目標（\($0)）" } ?? "策略師年底目標")

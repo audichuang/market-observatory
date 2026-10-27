@@ -125,6 +125,7 @@ struct NewsView: View {
             NewsRow(titleZh: n.titleZh, title: n.title, tone: n.tone, category: n.category, symbols: n.symbols, publisher: n.publisher, publishedAt: n.publishedAt, titleLines: 3)
         }
         .buttonStyle(.plain)
+        .listRowInsets(EdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16))
     }
 
     /// 名單公司的每日重點（排程寫好的）；沒有就不顯示這一段。
@@ -179,9 +180,15 @@ struct NewsView: View {
             )
             .listRowInsets(EdgeInsets(top: 8, leading: 8, bottom: 4, trailing: 8))
             .listRowSeparator(.hidden)
-            HStack(spacing: 14) {
+            ViewThatFits(in: .horizontal) {
+              HStack(spacing: 14) {
                 legend(Color.up, "總經（FOMC、CPI、非農）")
                 legend(Color.accentColor, "名單公司財報")
+              }
+              VStack(alignment: .leading, spacing: 6) {
+                legend(Color.up, "總經（FOMC、CPI、非農）")
+                legend(Color.accentColor, "名單公司財報")
+              }
             }
             .font(.caption)
             .foregroundStyle(.secondary)
@@ -227,15 +234,20 @@ struct NewsView: View {
 
     /// 「接下來」的精簡列：點了在月曆上選到那天。
     private func upcomingRow(_ e: NewsPage.Event, today: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Circle().fill(e.kind == "earnings" ? Color.accentColor : Color.up).frame(width: 7, height: 7)
-            Text(Fmt.dateWithWeekday(e.date)).font(.subheadline.monospacedDigit()).foregroundStyle(.secondary).lineLimit(1).fixedSize()
-            if let s = e.symbol { Text(s).font(.subheadline.monospaced().weight(.semibold)).foregroundStyle(Color.accentColor) }
-            Text(e.title).font(.subheadline).lineLimit(1)
-            Spacer(minLength: 4)
-            if let d = Fmt.daysBetween(today, e.date) {
-                Text(d == 0 ? "今天" : "\(d) 天後").font(.caption).foregroundStyle(d == 0 ? Color.orange : Color.secondary).lineLimit(1).fixedSize()
+        HStack(alignment: .top, spacing: 10) {
+            Circle().fill(e.kind == "earnings" ? Color.accentColor : Color.up)
+                .frame(width: 7, height: 7).padding(.top, 7)
+            VStack(alignment: .leading, spacing: 5) {
+                Text(Fmt.dateWithWeekday(e.date)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    if let symbol = e.symbol { Text(symbol).font(.subheadline.monospaced().weight(.semibold)).foregroundStyle(Color.accentColor) }
+                    Text(e.title).font(.body).fixedSize(horizontal: false, vertical: true)
+                }
+                if let days = Fmt.daysBetween(today, e.date) {
+                    Text(days == 0 ? "今天" : "\(days) 天後").font(.caption).foregroundStyle(days == 0 ? Color.orange : Color.secondary)
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .contentShape(Rectangle())
     }
@@ -268,12 +280,12 @@ struct NewsView: View {
                             if let s = e.symbol {
                                 Text(s).font(.subheadline.monospaced().weight(.semibold)).foregroundStyle(Color.accentColor)
                             }
-                            Text(e.title).font(.subheadline).foregroundStyle(.primary)
+                            Text(e.title).font(.body).foregroundStyle(.primary)
                                 .multilineTextAlignment(.leading)
                                 .layoutPriority(1)
                         }
                         EventStatusBadge(status: e.status)
-                        if let d = e.detail, !d.isEmpty { Text(d).font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.leading) }
+                        if let d = e.detail, !d.isEmpty { Text(d).font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.leading) }
                     }
                 }
                 Spacer(minLength: 0)

@@ -33,6 +33,8 @@ Preconditions:
 - **App 加入、移除、點公司。** 名單是七巨頭時跑 `ios-test.sh … VerifyInteractionTests/test04_Watchlist`（只斷言「7/30 家」開頭；`D1-before.txt`、`D8-removed.txt` 的合計權重對 API `totalWeight`）：`D5-search-nvda.txt`（已在名單的不出現）、`D4-search-zzzz.txt`、`D2-added.txt`（第一次加入全站沒人追蹤的公司時是「已加入 Broadcom（AVGO），補了 2514 筆日線」；「8/30 家 · 合計權重 …」對 API `totalWeight`）、`D6-full-swipe.png`（整列快速左滑後仍 8 家）、`D7-confirm.png`、`D8-removed.png`、`D9-tsla.png`。
 - **Proof。** `watchlist-before.png`、`watchlist-add.png`、`watchlist-add-overview.png`、`watchlist-add.api.json`、`ios/04-watchlist.png`、test04 的截圖與 `.txt`、移除後的 API JSON。
 
+- App 一般及最大字級檢查公司名稱、權重與加入候選列有足夠留白且文字完整。
+
 ## Gotchas
 
 - 「加入」按鈕在輸入框空白時停用；輸入框有 `aria-label="股票代號"`，但 ego-browser 用 role 名稱找不到它，用 placeholder。

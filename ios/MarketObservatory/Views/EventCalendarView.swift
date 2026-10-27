@@ -16,6 +16,7 @@ struct EventCalendarView: View {
     @Binding var selected: String
 
     @State private var month: Month?
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     struct Month: Equatable {
         var year: Int
@@ -66,53 +67,100 @@ struct EventCalendarView: View {
     var body: some View {
         VStack(spacing: 10) {
             header
-            HStack(spacing: 0) {
-                ForEach(Array(Self.weekdays.enumerated()), id: \.offset) { i, w in
-                    Text(w)
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(Color(.secondaryLabel))
-                        .frame(maxWidth: .infinity)
+            if typeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(cells(shown).compactMap { $0 }, id: \.self) { date in
+                        accessibleDayRow(date)
+                    }
                 }
+            } else {
+                calendarGrid
+                    .contentShape(Rectangle())
+                    .gesture(
+                        DragGesture(minimumDistance: 30).onEnded { v in
+                            guard abs(v.translation.width) > abs(v.translation.height) else { return }
+                            if v.translation.width < 0, canGoForward { go(1) } else if v.translation.width > 0, canGoBack { go(-1) }
+                        }
+                    )
             }
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 0), count: 7), spacing: 6) {
-                ForEach(Array(cells(shown).enumerated()), id: \.offset) { _, d in
-                    if let d { dayCell(d) } else { Color.clear.frame(height: 1) }
-                }
-            }
-            .id(shown.key)
-            .transition(.opacity)
         }
         .padding(.vertical, 6)
-        .contentShape(Rectangle())
-        .gesture(
-            DragGesture(minimumDistance: 30).onEnded { v in
-                guard abs(v.translation.width) > abs(v.translation.height) else { return }
-                if v.translation.width < 0, canGoForward { go(1) } else if v.translation.width > 0, canGoBack { go(-1) }
-            }
-        )
         .onChange(of: selected) { _, new in
             // 外部改了選取的日子（例如點推播進來）：翻到那個月
             if let m = Month(new), m != shown { withAnimation { month = m } }
         }
     }
 
-    private var header: some View {
-        HStack {
-            Text(shown.title).font(.headline)
-            Spacer()
-            if shown != Month(today) {
-                Button("今天") {
-                    withAnimation { month = Month(today) }
-                    selected = today
+    private var calendarGrid: some View {
+        VStack(spacing: 10) {
+            HStack(spacing: 0) {
+                ForEach(Array(Self.weekdays.enumerated()), id: \.offset) { _, weekday in
+                    Text(weekday)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(Color(.secondaryLabel))
+                        .frame(maxWidth: .infinity)
                 }
-                .font(.subheadline)
             }
-            Button { go(-1) } label: { Image(systemName: "chevron.left").frame(width: 36, height: 32) }
-                .disabled(!canGoBack)
-                .accessibilityLabel("上個月")
-            Button { go(1) } label: { Image(systemName: "chevron.right").frame(width: 36, height: 32) }
-                .disabled(!canGoForward)
-                .accessibilityLabel("下個月")
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 0), count: 7), spacing: 6) {
+                ForEach(Array(cells(shown).enumerated()), id: \.offset) { _, date in
+                    if let date { dayCell(date) } else { Color.clear.frame(height: 1) }
+                }
+            }
+            .id(shown.key)
+            .transition(.opacity)
+        }
+    }
+
+    private func accessibleDayRow(_ date: String) -> some View {
+        let marks = marks[date] ?? DayMarks()
+        let isSelected = date == selected
+        return Button {
+            selected = date
+        } label: {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(Fmt.dateWithWeekday(date)).font(.body.monospacedDigit())
+                    if date == today { Text("今天").font(.caption).foregroundStyle(.secondary) }
+                    if marks.macro { Label("總經事件", systemImage: "circle.fill").foregroundStyle(Color.up) }
+                    if marks.earnings { Label("財報", systemImage: "circle.fill").foregroundStyle(Color.accentColor) }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                if isSelected { Image(systemName: "checkmark").foregroundStyle(Color.accentColor) }
+            }
+            .padding(.vertical, 10)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!range.contains(date))
+        .opacity(range.contains(date) ? 1 : 0.3)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibility(date, marks))
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private var header: some View {
+        let layout = typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
+            : AnyLayout(HStackLayout())
+        return layout {
+            Text(shown.title).font(.headline)
+            HStack {
+                Spacer(minLength: 0)
+                if shown != Month(today) {
+                    Button("今天") {
+                        withAnimation { month = Month(today) }
+                        selected = today
+                    }
+                    .font(.subheadline)
+                    .frame(minHeight: 44)
+                }
+                Button { go(-1) } label: { Image(systemName: "chevron.left").frame(minWidth: 44, minHeight: 44) }
+                    .disabled(!canGoBack)
+                    .accessibilityLabel("上個月")
+                Button { go(1) } label: { Image(systemName: "chevron.right").frame(minWidth: 44, minHeight: 44) }
+                    .disabled(!canGoForward)
+                    .accessibilityLabel("下個月")
+            }
         }
         .buttonStyle(.borderless)
         .padding(.horizontal, 4)
@@ -134,7 +182,6 @@ struct EventCalendarView: View {
             VStack(spacing: 3) {
                 Text("\(day)")
                     .font(.body.monospacedDigit().weight(isToday || isSelected ? .semibold : .regular))
-                    .dynamicTypeSize(...DynamicTypeSize.xxLarge)
                     .foregroundStyle(isSelected ? Color.white : isToday ? Color.accentColor : d < today ? Color.secondary : Color.primary)
                     .frame(width: 36, height: 36)
                     .background {

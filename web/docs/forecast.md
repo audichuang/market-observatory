@@ -121,6 +121,8 @@
 
 依據：`docs/research-2026-10-27/proposal.md` §5.2 的草稿，以及 `docs/research-2026-10-27/codex-review.md` 對 §5.2 與 M-01..M-07、D-02、D-03 的修改；兩者不一致時以 codex-review.md 為準。
 
+與 main 的實作狀態對齊：PR #34 已合併 `targetOutlookOf` 的單一目標評估、`--null-n` 與 `permutationP`（commit `d20b258`），本節沿用這些基礎設施，不代表第二輪已登記或已執行。`drawdownScored` 仍是原 G09 全域閘門，`recordForecast` 仍未存 dd5 專屬 `modelVersion`；R2-5、R2-6 與 `DD5_MODEL` 都是合併後才可實作的待辦。
+
 ### 外部接觸與既有暴露（非試驗）
 
 下列結果在本節登記之前已被看過或已被程式算出並存下。它們不是試驗，但會影響候選的選擇與解讀，所以如實記錄；這些暴露不可逆，不能事後重新描述成「未看過」。
@@ -129,7 +131,7 @@
 | --- | --- | --- | --- | --- |
 | 2026-10-27 | dd5（相對 expanding 基準率的 BSS） | 1992-01-02..2025-11-10 | 外部研究 P3 比較了 6 個波動基準：raw VIX（連續監測兩種 drift、每日收盤）、以過往 variance ratio 校正的 VIX、trailing 21 日 RV、EWMA λ=0.94。P3 自算點估計：校正 VIX 0.064、trailing RV 0.052、EWMA 0.056（區間皆跨零），raw VIX 每日收盤 −0.010、連續監測為負。試算包不可取得，數字無法核實。資料、日期、實作與評分方式都與本專案不同，**不得與 incumbent 的 0.049 或 0.038 比較**，也不得用來排序候選。研究 LLM 與本專案協調者都看過。 | `docs/research-2026-10-27/results/P3-drawdown.md` |
 | 2026-10-27 | 21 日漲跌與 dd5，條件為「策略師發出看多／看空呼叫」 | 2018-01..2026-10 | 協調者自訂規則、未事前登記，對 99 筆便利樣本呼叫做描述性計分（可計分 75 筆）。進場 = 發布後第一個交易日收盤；dd5 = 進場後 21 日內任一收盤 ≤ 進場收盤 × 0.95。看空後 dd5 發生率 9/43 = 20.9%（同期基準 18.1%）；看多 21 日命中 18/27、看空 12/43（基準 67.2%／32.8%）。 | `docs/research-2026-10-27/scripts/score-calls.mjs`、`results/P5-tactical-calls.md`、`results/P7-youtube-gemini.md`、proposal.md §4 |
-| 2026-10-26 起 | dd5 的 per-cell 驗證（cell 的列數、段數、bssLow） | 1990-01-02 起的完整歷史與正式站每日紀錄 | 現行程式每次評估都會算 dd5 的 cell 診斷：`evaluateRows` 一律呼叫 `cellEvaluations`（`src/lib/forecast.ts:523`），`scripts/backtest.ts` 在 `--target dd5` 時印出所用 cell 的 cellGate（標「僅參考」），`recordForecast` 把 `detail.drawdown.cellGate` 存進每筆預測紀錄（`src/server/jobs.ts:549`）。因此 **不能宣稱 G09 修訂一是在任何 per-cell dd5 BSS 計算之前定的**；本節只能宣稱門檻數字沿用第一輪 G03 的 30／8 與增補一的 1900，沒有依 dd5 的 cell 結果另選。 | 程式本身 |
+| 2026-10-26 起 | dd5 的 per-cell 驗證（cell 的列數、段數、bssLow） | 1990-01-02 起的完整歷史與正式站每日紀錄 | 現行程式每次評估都會算 dd5 的 cell 診斷：`evaluateRows` 一律呼叫 `cellEvaluations`（`src/lib/forecast.ts`），`scripts/backtest.ts` 在 `--target dd5` 時印出所用 cell 的 cellGate（標「僅參考」），`recordForecast` 把 `detail.drawdown.cellGate` 存進每筆預測紀錄（`src/server/jobs.ts` 的 `recordForecast`）。因此 **不能宣稱 G09 修訂一是在任何 per-cell dd5 BSS 計算之前定的**；本節只能宣稱門檻數字沿用第一輪 G03 的 30／8 與增補一的 1900，沒有依 dd5 的 cell 結果另選。 | 程式本身 |
 
 沒有可用的保留期：P3 看到 2025-11-10，之後只有約 11 個不重疊列。名額 A 即使通過，也只是「經探索選出的回溯驗證」（R2-1）。
 
@@ -141,10 +143,10 @@
 | R2-1 波動族與政策性加嚴 | 「波動族」指任何以已實現或隱含波動定義的 dd5 條件，包括 trailing RV、EWMA、校正 VIX、raw VIX 的任何變換。波動族候選的 L08 採用門檻為 p ≤ 0.025（R2-3），一般候選為 p ≤ 0.045。0.025 是**事前承諾的政策性加嚴**，不是對六個探索模型或未知搜尋歷程的校正，不得宣稱它已消除偷看的影響。波動族候選即使通過全部採用條件，紀錄與頁面一律標「經探索選出的回溯驗證」，直到依 R2-6 累積凍結版本的前瞻紀錄。若名額 A 被否決：不得在同一段歷史上換窗口長度、換分位切點或換變換再測同族條件；日後的波動族研究須另有登記的不同機制，或只用前瞻資料檢驗。這不是永久禁止所有波動研究。 |
 | R2-2 策略師呼叫排除 | 「策略師或銀行的看空／看多呼叫」及其衍生（含 B&B、FMS 訊號）不登記為 P(up) 或 P(dd5) 的候選條件。這是**產品範圍與維護成本的決定**（模型只用可自動、可回溯取得的價格資料；呼叫的期限、條件與發布時點無法機械判定），不是統計結論：上方那份便利樣本不能證明所有策略師訊號永遠無效。要重開須另行登記，先說明資料來源全集、收集方式與計分規則。 |
 | R2-3 L08 增補二（dd5 標籤的虛無分佈） | 適用於第二輪的 dd5 名額。虛無序列：把 1990-01-02 起每日觀測的 **dd5 標籤**以區塊置換，區塊長 = 21 × b 個交易日，b 由該組種子在 {6,…,12} 均勻抽出；regime 與 knownOn 不動。**參考模型與候選模型在同一組虛無序列上執行（同一個置換）**，計算相位平均配對 BSS（L02，以 label = dd5）。虛無組數 N = 199，固定；第 j 組種子 20261026+j（j = 1..199）。m = #{虛無值 ≥ 觀測值}（相等算入；m 是計數，與上面的區塊倍數 b 無關），p = (1 + m) / (N + 1) = (1 + m) / 200。一般候選需 p ≤ 0.045（等於 m ≤ 8）；波動族候選需 p ≤ 0.025（等於 m ≤ 4，即觀測值嚴格大於第 5 大的虛無值）。不得在結果接近門檻時追加抽樣、換種子或改 N。任何一組虛無值無法計算時，該組不剔除也不補抽，整個名額視為「統計量無法計算」而否決。第一輪名額 1、2 的重現維持原 L08 的 20 組（門檻 = 最大值），不用本條改算。 |
-| R2-3a 虛無的限制 | 199 組只提高 p 的解析度，不讓區塊置換成為精確檢定：置換打亂了標籤與所有 regime 的關係，連參考模型既有的 dd5 訊號也一併消除，所以它不完全對應「候選沒有增額價值」的虛無假設，區塊置換也只近似保留時間相依。本條把它定位為**已登記的搜尋閘門**，不得只憑 (1+m)/(N+1) 公式宣稱整個程序精確。第一次在 SPX／VIX 上使用前，須先在合成資料（候選與標籤無關、參考有訊號）上跑一次，報告誤通過率；這個檢查只用合成資料。 |
+| R2-3a 虛無的限制 | 199 組只提高 p 的解析度，不讓區塊置換成為精確檢定：置換打亂了標籤與所有 regime 的關係，連參考模型既有的 dd5 訊號也一併消除，所以它不完全對應「候選沒有增額價值」的虛無假設，區塊置換也只近似保留時間相依。本條把它定位為**已登記的搜尋閘門**，不得只憑 (1+m)/(N+1) 公式宣稱整個程序精確。第一次在 SPX／VIX 上使用前，須先在合成資料（候選旗標獨立於參考旗標與 dd5 標籤、參考旗標對 dd5 有訊號）上檢查。固定 K = 1000 組獨立合成資料，資料生成種子為 20271028+i（i = 1..1000，與置換種子分開）；每組依 R2-3 使用 N = 199 與既定置換種子，誤通過定義為搜尋閘門 p ≤ 0.025（名額 A 的門檻），不與其他採用條件合併計數。資料生成程序（序列長度、時間相依與參考訊號強度）及程式 commit hash 須在首次生成與檢查前記錄，不得看結果後挑生成設定。報告誤通過次數、K、誤通過率及二項抽樣 MC 標準誤 sqrt(q̂(1−q̂)/K)。**可接受上限為 5%（最多 50/1000）；超過 5% 就不得執行名額 A，須先修檢定方法並另開登記條目，不得調整門檻後直接沿用本登記。** 不得因接近或超過上限而追加合成組數、換種子或重抽；檢查中有統計量無法計算也視為方法檢查未通過，不得剔除該組後以較小分母報告。5% 是方法檢查的政策上限，不是名目 α = 0.025 的替代，也不證明檢定已精確控制在 2.5%；K = 1000 時，誤通過率 5% 附近的 MC 標準誤約 0.69 個百分點。這個檢查只用合成資料，通過也不消除前述虛無假設的限制。 |
 | R2-4 dd5 主報 | 遵循 L02：今後 dd5 的採用與否決一律用相位平均。`drawdownScored` 的 live gate 維持 offset 0 單一相位，兩者並列時明確標示「單一相位（offset 0）」。G09 列不改寫，也不混用相位。0.038 [0.014, 0.064]（相位平均）與 0.049 [0.016, 0.083]（offset 0）是 as-of 2026-10-23 的已登記結果，頁面引用時要附日期，不得寫成頁面常數。 |
 | R2-5 G09 修訂一（dd5 cell 閘門） | 規則變更：dd5 標「已計分」須同時滿足 (a) 第一輪 G09 的全域條件（全域 bssLow > 0、所用 cell nEff ≥ 30、段數 ≥ 8）；(b) 今天所選 cell 在 offset 0 walk-forward 的列數 ≥ 30；(c) 該 cell 在 offset 0 walk-forward 列序列中的**連續區段個數** ≥ 8（相鄰列都屬於該 cell 的一段算一個，數段數，不是最長一段的長度）；(d) 該 cell 的 dd5 bssLow > 0：以 G08 stationary bootstrap **先重抽完整的 walk-forward 列序列，再篩出屬於該 cell 的列**計算 BSS，取 2.5% 分位；某次重抽沒有該 cell 的列就跳過，有效重抽 < 1900 次時 bssLow 為 null，視為不通過。30、8、1900 沿用 G03 與增補一，不是推導，也不是依 dd5 的 cell 結果選的。不通過時 p 照常顯示，標「未通過驗證」。不設 dd5 事件群數下限（proposal 草稿的 (e) 刪除：在 offset 0 每 21 日一列的格線上，它幾乎等於「正例列數 ≥ 8」，擋不住單一危機主導）；若日後需要危機群閘門，須先另定每日事件群與歸屬方法再登記。版本與追溯：上線時 `DEFAULT_MODEL.version` 要升，並在試驗登記新增一列「G09 修訂一」，寫明生效日（上線 commit 的日期）與版本；生效日之前的紀錄照原 G09 判定，不重算。每筆紀錄的 `detail.drawdown` 要能看出 (a)–(d) 各項的值與未通過的原因。 |
-| R2-6 dd5 前瞻紀錄（L09 第三種分數） | 資格：只有「即時發布」的列計入前瞻紀錄。即時發布 = `forecasts` 列的 `detail.recordedLagSessions` 為 0（該次排程寫入時，這一天就是最新的 SPX 交易日）且 `detail.drawdown.p`、`detail.drawdown.base`、`detail.drawdown.modelVersion` 都存在。`recordForecast` 會補記最近 5 個交易日（`FORECAST_CATCHUP_SESSIONS`，`src/server/jobs.ts:507`），補記列雖把價格截到預測日，仍可能用到之後的程式版本與修訂資料，所以 `recordedLagSessions` ≥ 1 的列是「延遲補記」，缺這個欄位或缺 drawdown 的列是「資格不明」：兩者都保留原始紀錄（G02 不可改），不計入前瞻分數，另外報告各自的列數。格線：從第一筆即時發布列的交易日起，每 21 個 SPX 交易日一個格點；格點當天沒有即時發布列就略過，不遞補相鄰日、不改用補記列。標籤 = 該列交易日之後 21 個 SPX 交易日內任一收盤 ≤ 0.95 × 該列存下的 `close`（D4），第 21 個交易日收盤後才計（成熟日）。計分：Brier、相對該列存下的 `detail.drawdown.base` 的 BSS、計分列數 n；n < `LIVE_MIN_N`（12）時顯示「樣本太少」、不報 BSS。版本：頂層 `model_version` 存的是 P(up) 模型（`DEFAULT_MODEL`）的版本，名額 A 採用後 dd5 改用獨立的 `DD5_MODEL` 時它不會變，不能用來區分 dd5 模型。所以即時發布列須在 `detail.drawdown` 隨 p、base 一起存 dd5 專屬的 `modelVersion`，以及 dd5 所用的 regime、basis 與歷史起點（`historyStart`）；前瞻分數依 `detail.drawdown.modelVersion` 分組計算與顯示，不默默跨 dd5 版本合併；缺 `detail.drawdown.modelVersion` 的列歸「資格不明」。頂層 `model_version` 保留原用途（P(up) 的版本）。前瞻紀錄只顯示，不作退場依據；退場檢定另行登記，登記時須附檢定力論證（可用合成資料），不以固定列數（例如 300 列，約 25 年）作為唯一觸發條件。 |
+| R2-6 dd5 前瞻紀錄（L09 第三種分數） | 資格：只有「即時發布」的列計入前瞻紀錄。即時發布 = `forecasts` 列的 `detail.recordedLagSessions` 為 0（該次排程寫入時，這一天就是最新的 SPX 交易日）且 `detail.drawdown.p`、`detail.drawdown.base`、`detail.drawdown.modelVersion` 都存在。`recordForecast` 會補記最近 5 個交易日（`src/server/jobs.ts` 的 `FORECAST_CATCHUP_SESSIONS`），補記列雖把價格截到預測日，仍可能用到之後的程式版本與修訂資料，所以 `recordedLagSessions` ≥ 1 的列是「延遲補記」，缺這個欄位或缺 drawdown 的列是「資格不明」：兩者都保留原始紀錄（G02 不可改），不計入前瞻分數，另外報告各自的列數。格線：從第一筆即時發布列的交易日起，每 21 個 SPX 交易日一個格點；格點當天沒有即時發布列就略過，不遞補相鄰日、不改用補記列。標籤 = 該列交易日之後 21 個 SPX 交易日內任一收盤 ≤ 0.95 × 該列存下的 `close`（D4），第 21 個交易日收盤後才計（成熟日）。計分：Brier、相對該列存下的 `detail.drawdown.base` 的 BSS、計分列數 n；n < `LIVE_MIN_N`（12）時顯示「樣本太少」、不報 BSS。版本：頂層 `model_version` 存的是 P(up) 模型（`DEFAULT_MODEL`）的版本，名額 A 採用後 dd5 改用獨立的 `DD5_MODEL` 時它不會變，不能用來區分 dd5 模型。所以即時發布列須在 `detail.drawdown` 隨 p、base 一起存 dd5 專屬的 `modelVersion`，以及 dd5 所用的 regime、basis 與歷史起點（`historyStart`）；前瞻分數依 `detail.drawdown.modelVersion` 分組計算與顯示，不默默跨 dd5 版本合併；缺 `detail.drawdown.modelVersion` 的列歸「資格不明」。頂層 `model_version` 保留原用途（P(up) 的版本）。前瞻紀錄只顯示，不作退場依據；退場檢定另行登記，登記時須附檢定力論證（可用合成資料），不以固定列數（例如 300 列，約 25 年）作為唯一觸發條件。 |
 | R2-7 dd5 校準診斷（描述性） | 只對已採用的 dd5 模型做，不對候選做。固定輸入：與名額 A 相同的資料快照與 as-of（見名額 A 的 reference 固定）；offset 0 單一相位與 21 個相位各自報告，相位平均另列。內容：calibration-in-the-large（平均預測 − 實際發生率）；**clipped log score**（p 先截到 [0.005, 0.995]，名稱一律寫 clipped log score）；4 個 bin 的可靠度表，邊界為 [0, 0.10)、[0.10, 0.15)、[0.15, 0.25)、[0.25, 1]，每格列數、事件數、段數（G04 定義）；分 bin 的 Murphy 分解，標明它是分 bin 近似，不等於原始連續機率 Brier 的精確分解（expanding 基準的 resolution 接近 0、不是剛好 0）。bin 邊界是在已知 as-of 2026-10-23 的 P(dd5)=11.9%、基準 16.6% 之後才定的，照實註明。結果只寫進試驗登記的結果欄，不上頁面；**永不用來挑門檻、bin、窗口或做採用、否決、調參**。 |
 | R2-8 EWMA 比較 | 延後，不在本輪。現有草稿缺 variance 遞迴式、初始化日期與初值、當日報酬納入時點；BGK 修正也只是離散監測的近似。要做須另行完整登記，並寫明它永不用來挑下一個候選或改模型；在那之前不在 SPX／VIX 歷史上計算任何 EWMA 首達機率。 |
 | R2-9 組合方法（M-06） | 第一輪草稿「第 3 個 flag 通過後自動採等權組合」的承諾不採用：第 3 個 flag 通過不代表等權組合也通過，扣除基準 log-odds 也不能消除成分相關性。日後任何組合方法本身都要獨立登記、獨立檢驗。 |
@@ -154,18 +156,18 @@
 
 | 名額 | 定義 | 候選順序 | 採用與否決 |
 | --- | --- | --- | --- |
-| A：`rvHigh` 取代 dd5 模型的 `vixStress`（波動族） | RV_t = Σ_{k=0..20}(ln(S_{t−k}/S_{t−k−1}))²，共 21 個平方 log 報酬，**含當日 t**；S 為 Cboe SPX 收盤（M0 已補，不用 Yahoo）。`rvHigh` = RV_t 高於「1990-01-02 起到 t（含 t）所有 RV 值的 expanding 中位數」；累積滿 252 個 RV 值之前為 null（regime 為 null 的日子不產生預測，依 D1）。新增獨立的 `DD5_MODEL`（自己的 version 字串），P(up) 用的 `DEFAULT_MODEL` 不動。只評估 P(dd5)：**不計算、不報告 `rvHigh` 在 P(up) 上的任何結果**；執行前 `scripts/backtest.ts` 必須改成只走指定 target 的路徑（現行 `--target dd5` 會經 `buildOutlook` 順便算 up 的 pick 與評估），這項改動只用合成資料測試。 | 固定為 [[aboveSma200, rvHigh],[rvHigh],[aboveSma200]]，不跳過任何一側；G01 k = 40、G04（nEff ≥ 30、段數 ≥ 8）、M5 照舊。配對時兩模型都只用兩者 regime 皆不為 null 的日子（交集訓練），在參考模型的格線上配對（共同格線，增補一「配對日期」），報告捨去的格數。 | 主要終點：dd5 的相位平均配對 BSS = 1 − Brier(候選)／Brier(參考)，label = dd5。採用：(1) 相位平均配對 BSS 的 bootstrap 下界 > 0（L02，固定種子 20261026）；(2) R2-3 的 p ≤ 0.025（m ≤ 4）；(3) L03 不判為不確定；三者都成立。否決：任何一項未達成（含點估計 > 0 但下界 ≤ 0、統計量無法計算）。通過也標「經探索選出的回溯驗證」（R2-1）。不論結果都記入試驗登記。 |
+| A：`rvHigh` 取代 dd5 模型的 `vixStress`（波動族） | RV_t = Σ_{k=0..20}(ln(S_{t−k}/S_{t−k−1}))²，共 21 個平方 log 報酬，**含當日 t**；S 為 Cboe SPX 收盤（M0 已補，不用 Yahoo）。`rvHigh` = RV_t 高於「1990-01-02 起到 t（含 t）所有 RV 值的 expanding 中位數」；累積滿 252 個 RV 值之前為 null（regime 為 null 的日子不產生預測，依 D1）。新增獨立的 `DD5_MODEL`（自己的 version 字串），P(up) 用的 `DEFAULT_MODEL` 不動。只評估 P(dd5)：**不計算、不報告 `rvHigh` 在 P(up) 上的任何結果**；沿用 main 已合併的 target 隔離路徑（`scripts/backtest.ts` 呼叫 `targetOutlookOf(..., "dd5")`，不經 `buildOutlook`）。新增候選時須維持隔離，相關驗證只用合成資料，不得在登記合併前執行候選的歷史評估。 | 固定為 [[aboveSma200, rvHigh],[rvHigh],[aboveSma200]]，不跳過任何一側；G01 k = 40、G04（nEff ≥ 30、段數 ≥ 8）、M5 照舊。配對時兩模型都只用兩者 regime 皆不為 null 的日子（交集訓練），在參考模型的格線上配對（共同格線，增補一「配對日期」），報告捨去的格數。 | 主要終點：dd5 的相位平均配對 BSS = 1 − Brier(候選)／Brier(參考)，label = dd5。採用：(1) 相位平均配對 BSS 的 bootstrap 下界 > 0（L02，固定種子 20261026）；(2) R2-3 的 p ≤ 0.025（m ≤ 4）；(3) L03 不判為不確定；三者都成立。否決：任何一項未達成（含點估計 > 0 但下界 ≤ 0、統計量無法計算）。通過也標「經探索選出的回溯驗證」（R2-1）。不論結果都記入試驗登記。 |
 
 名額 A 的 reference 固定（執行前寫進試驗登記名額 A 列，寫不齊不得執行）：
 
 | 項目 | 固定為 |
 | --- | --- |
 | 登記 | 本節合併 commit 的 hash |
-| 執行程式 | 實作 `DD5_MODEL` 與 target 隔離的 commit hash；執行時工作目錄無未提交變更 |
+| 執行程式 | 實作 `DD5_MODEL`、保留既有 target 隔離與明確 N／種子路徑的 commit hash；執行時工作目錄無未提交變更 |
 | 參考模型設定 | 執行當下的 `DEFAULT_MODEL`，記下其 version；決定 p 的欄位必須等於登記時的值：flags = aboveSma200（close > 200 日線）、vixStress（VIX ≥ 30）；skipSingleWhen：aboveSma200 不設，vixStress = false（vixStress 為 false 即 VIX < 30 時不以 [vixStress] 單獨成候選，往下試）；candidates = [[aboveSma200, vixStress],[vixStress],[aboveSma200]]；minEffectiveN 30；minEpisodes 8；shrinkK 40；bootstrap stationary、平均區塊 6、2000 次、種子 20261026；baseWindowStart 1990-01-02；vixMaxStaleSessions 3。任何一項不同就不得執行，須另行登記。 |
 | 資料截止 | `--as-of 2026-10-23`（與第一輪及 G09 列相同） |
 | 輸入資料 | 與 `docs/research-2026-10-27/data-snapshot.md` 同一份 Cboe CSV，執行時在試驗登記照同一格式記錄並比對：`SPX_History.csv sha256 9a2d92ae30eb4d440de1475c1ea1218881f93ace4c315bba86c33ffe55c47f98 rows 13063 range 01/02/1975..10/26/2026`、`VIX_History.csv sha256 8e67801e46bab11ab543ac8d575544db4e8cd6fd7e4c7e9dc419b498de8a77ff rows 9302 range 01/02/1990..10/26/2026`。雜湊不符就不得執行。 |
-| 指令 | `node scripts/backtest.ts --offline --as-of 2026-10-23 --target dd5 --variant <ref>,<cand> --null`，虛無組數與種子依 R2-3（腳本須能明確指定 N = 199，並保留第一輪 N = 20 的重現方式） |
+| 指令 | `node scripts/backtest.ts --offline --as-of 2026-10-23 --target dd5 --variant <ref>,<cand> --null --null-n 199`，虛無組數與種子依 R2-3；`<ref>`、`<cand>` 是實作後登錄的變體名稱，執行前須換成實名。main 已支援 `--null-n` 與 `permutationP`；預設仍為第一輪的 N = 20，因此本輪不得省略 `--null-n 199` |
 
 機制與事前驗屍（L13）：
 
@@ -175,7 +177,7 @@
 
 退場規則：補完歷史後，該 basis 的相位平均 BSS bootstrap 上界 < 0 即撤下。前瞻紀錄依 R2-6 只顯示，退場檢定另行登記。
 
-執行順序：本節合併 → R2-3a 合成資料檢查與 `backtest.ts` 的 target 隔離、明確 N／種子（只用合成資料測試）→ R2-5（G09 修訂一）與 R2-6 程式上線 → 名額 A 的 reference 寫進試驗登記 → 執行名額 A → 結果依上方規則寫回試驗登記。R2-7 只在名額 A 定案後，對當時採用的 dd5 模型做。
+執行順序：本節合併 → 保留並以合成資料驗證既有 target 隔離、明確 N／種子路徑，完成 R2-3a 合成資料檢查且未超過上限（未通過則停止，依 R2-3a 另行登記）→ R2-5（G09 修訂一）與 R2-6 程式上線 → 名額 A 的 reference 寫進試驗登記 → 執行名額 A → 結果依上方規則寫回試驗登記。R2-7 只在名額 A 定案後，對當時採用的 dd5 模型做。
 
 ## 2026-10 研究：投行做法與我們的差距
 

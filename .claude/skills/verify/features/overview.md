@@ -6,7 +6,7 @@
 
 - `overview-title`（B1）：標題「S&P 500 收盤 YYYY-MM-DD（週X）」（網頁）／「S&P 500 M/D（週X）」（App），日期＝API `snapshot.tradeDate`。
 - `overview-kpi`（B2）：KPI 卡片等於 API `snapshot.data`；App 的「市場指標」是可展開的按鈕（label 以「市場指標」開頭，value「已收合／已展開」），預設收起只顯示 VIX、距高、200 日線一行，展開後全部。只有 `index.check.status` 為 mismatch 才出現「來源不一致」。
-- `overview-attribution`（B3）：名單每家的收盤、漲跌 %、權重、貢獻點數＝API；順序同 API `mag7`；「其他成分股 N 檔（推算）」列存在（App 列標題「其他成分股」、副標「N 檔（推算）」）；表格上方說明句寫「其他成分股（含近似誤差）＝指數漲跌減掉名單合計…」；名單合計＋其他成分股＝指數漲跌點數（差 ≤ 0.02）。
+- `overview-attribution`（B3）：名單每家的收盤、漲跌 %、權重、貢獻點數＝API；順序同 API `mag7`；「其他成分股 N 檔（推算）」列存在（App 列標題「其他成分股」、副標「N 檔（推算）」）；說明句寫「其他成分股（含近似誤差）＝指數漲跌減掉名單合計，含權重與價格口徑的近似誤差」（網頁在表格上方；App 在表格下方的「說明」展開區）；名單合計＋其他成分股＝指數漲跌點數（差 ≤ 0.02）。
 - `overview-symbol-link`（B4）：點公司 → 走勢頁、標的是那家。
 - `overview-date`（B5）：選其他交易日 → 標題與數字換成 `?date=` 的值；能回到最新。
 - `overview-events`（B7、B8）：未來三週事件只列名單公司財報與總經事件（FOMC、CPI、非農），由近到遠；「完整日曆 →」到新聞的日曆。

@@ -98,3 +98,22 @@ test("上游失敗的新代號也算一次額度：第 5 家抓價失敗後，�
   assert.match(!sixth.ok ? sixth.error : "", /今天新增的新公司已達上限/);
   assert.equal(upstream.count, 0);
 });
+
+test("刪除帳號時一併刪掉這個使用者的每日新增額度列，不動其他人的", async () => {
+  const { db, sql } = await migratedDb();
+  const put = sql.prepare("INSERT INTO settings (key, value) VALUES (?, ?)");
+  put.run("watch-new:u_1:2026-10-26", "3");
+  put.run("watch-new:u_1:2026-10-27", "1");
+  put.run("watch-new:ux1:2026-10-27", "2"); // '_' must not act as a wildcard
+  put.run("watch-new:u_10:2026-10-27", "2");
+  const { DELETE } = await import("../routes/api/v1/me.ts");
+  const c = {
+    get: (k: string) => (k === "user" ? { id: "u_1", email: "u1@example.com", name: "" } : undefined),
+    env: { DB: db, OWNER_EMAIL: "owner@example.com" },
+    json: (body: unknown, status?: number) => ({ body, status }),
+  };
+  const out = await (DELETE as unknown as (c: unknown) => Promise<unknown>)(c);
+  assert.deepEqual(out, { deleted: true });
+  const left = (sql.prepare("SELECT key FROM settings WHERE key LIKE 'watch-new:%' ORDER BY key").all() as { key: string }[]).map((r) => r.key);
+  assert.deepEqual(left, ["watch-new:u_10:2026-10-27", "watch-new:ux1:2026-10-27"]);
+});

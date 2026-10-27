@@ -1,4 +1,4 @@
-// NYSE 休市日與 FOMC 日程。兩者都是官方公布的靜態資料，超出覆蓋範圍就不判斷「應該開市」。
+// NYSE 休市日與總經事件（FOMC、CPI、非農）日程。都是官方公布的靜態資料，超出覆蓋範圍就不判斷「應該開市」。
 
 export const NYSE_CALENDAR = {
   sourceUrl: "https://www.nyse.com/markets/hours-calendars",
@@ -127,7 +127,7 @@ const FOMC: [string, string, boolean, boolean][] = [
   ["2027-10-27", "10/26–27", false, true], ["2027-12-08", "12/7–8", true, true],
 ];
 
-export const MACRO_EVENTS: MacroEvent[] = FOMC.map(([date, span, sep, tentative]) => ({
+const fomcEvents: MacroEvent[] = FOMC.map(([date, span, sep, tentative]) => ({
   id: `fomc-${date}`,
   date,
   title: `FOMC 利率決議（${span}）`,
@@ -135,3 +135,52 @@ export const MACRO_EVENTS: MacroEvent[] = FOMC.map(([date, span, sep, tentative]
   sourceUrl: FOMC_URL,
   status: tentative ? "tentative" : "scheduled",
 }));
+
+// BLS release schedules, read 2026-10-27 from the official pages below (plain curl gets 403,
+// so the pages were read through a browser-like fetch tool). BLS marks none of these dates
+// as tentative. Releases before 2026-10-27 are not listed; refresh when BLS publishes 2028.
+// [release date (ET), reference month]
+const BLS_CPI_URL = "https://www.bls.gov/schedule/news_release/cpi.htm";
+const BLS_CPI: [string, string][] = [
+  ["2026-11-10", "2026-10"], ["2026-12-10", "2026-11"], ["2027-01-13", "2026-12"],
+  ["2027-02-11", "2027-01"], ["2027-03-10", "2027-02"], ["2027-04-13", "2027-03"],
+  ["2027-05-12", "2027-04"], ["2027-06-10", "2027-05"], ["2027-07-14", "2027-06"],
+  ["2027-08-11", "2027-07"], ["2027-09-14", "2027-08"], ["2027-10-14", "2027-09"],
+  ["2027-11-10", "2027-10"], ["2027-12-10", "2027-11"],
+];
+const BLS_EMPSIT_URL = "https://www.bls.gov/schedule/news_release/empsit.htm";
+const BLS_EMPSIT: [string, string][] = [
+  ["2026-11-06", "2026-10"], ["2026-12-04", "2026-11"], ["2027-01-08", "2026-12"],
+  ["2027-02-05", "2027-01"], ["2027-03-05", "2027-02"], ["2027-04-02", "2027-03"],
+  ["2027-05-07", "2027-04"], ["2027-06-04", "2027-05"], ["2027-07-02", "2027-06"],
+  ["2027-08-06", "2027-07"], ["2027-09-03", "2027-08"], ["2027-10-08", "2027-09"],
+  ["2027-11-05", "2027-10"], ["2027-12-03", "2027-11"],
+];
+
+const refMonth = (ym: string) => `${ym.slice(0, 4)} 年 ${Number(ym.slice(5))} 月`;
+
+const cpiEvents: MacroEvent[] = BLS_CPI.map(([date, ref]) => ({
+  id: `cpi-${date}`,
+  date,
+  title: `CPI 消費者物價指數（${refMonth(ref)}）`,
+  detail: "美東 08:30 公布；勞工統計局（BLS）",
+  sourceUrl: BLS_CPI_URL,
+  status: "scheduled",
+}));
+
+const nfpEvents: MacroEvent[] = BLS_EMPSIT.map(([date, ref]) => ({
+  id: `nfp-${date}`,
+  date,
+  title: `非農就業報告（${refMonth(ref)}）`,
+  detail: "美東 08:30 公布；勞工統計局（BLS）就業情勢報告",
+  sourceUrl: BLS_EMPSIT_URL,
+  status: "scheduled",
+}));
+
+export const MACRO_EVENTS: MacroEvent[] = [...fomcEvents, ...cpiEvents, ...nfpEvents].sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
+
+/** Run summary for the events job, e.g. 「總經事件 44 筆（FOMC 16、CPI 14、非農 14）」. */
+export function macroEventsSummary(events: MacroEvent[] = MACRO_EVENTS): string {
+  const count = (prefix: string) => events.filter((e) => e.id.startsWith(prefix)).length;
+  return `總經事件 ${events.length} 筆（FOMC ${count("fomc-")}、CPI ${count("cpi-")}、非農 ${count("nfp-")}）`;
+}

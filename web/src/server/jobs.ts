@@ -1,4 +1,4 @@
-import { addDays, latestExpectedClose, MACRO_EVENTS } from "../lib/calendar.ts";
+import { addDays, latestExpectedClose, MACRO_EVENTS, macroEventsSummary } from "../lib/calendar.ts";
 import { type Snapshot, buildSnapshot, snapshotLoadWindow } from "../lib/snapshot.ts";
 import { CBOE_SOURCE, fetchCboeDaily } from "../lib/sources/cboe.ts";
 import { type EarningsDate, NASDAQ_SOURCE, fetchAnalystView, fetchEarningsCalendar, fetchEarningsDate, fetchNasdaqHistorical, fetchNasdaqNews } from "../lib/sources/nasdaq.ts";
@@ -447,7 +447,7 @@ async function jobEvents(db: D1Database, _opts: JobOptions, budget: Budget): Pro
   await db.batch(stmts);
   return {
     status: failed.length === 0 ? "ok" : found.length === 0 ? "failed" : "partial",
-    summary: `財報日 ${found.join("、") || "無"}${unknown.length ? `；尚未公布 ${unknown.join("、")}` : ""}${skipped.length ? `；請求額度不足、這次略過 ${skipped.join("、")}` : ""}；FOMC ${MACRO_EVENTS.length} 場`,
+    summary: `財報日 ${found.join("、") || "無"}${unknown.length ? `；尚未公布 ${unknown.join("、")}` : ""}${skipped.length ? `；請求額度不足、這次略過 ${skipped.join("、")}` : ""}；${macroEventsSummary()}`,
     detail: { failed, unknown, skipped },
   };
 }

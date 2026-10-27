@@ -171,7 +171,8 @@ export default function LineChart({ lines, height: maxHeight = 300, digits = 2, 
         {lines.map((l, li) => {
           const v = lookup[li].get(hi);
           return (
-            <span key={l.name} style={{ marginLeft: ".7rem", color: l.color }}>
+            <span key={l.name} style={{ marginLeft: ".7rem", color: "var(--ink)" }}>
+              <i style={{ background: l.color }} aria-hidden />
               {l.name} {v === null || v === undefined ? "—" : `${num(v, digits)}${suffix}`}
             </span>
           );

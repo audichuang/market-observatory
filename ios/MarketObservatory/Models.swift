@@ -589,6 +589,21 @@ struct OutlookPage: Decodable, Sendable {
             let asOf: String?
             let note: String?
             let sourceUrl: String?
+            // Added 2026-10; optional so older payloads (and older Apps reading newer ones) keep decoding.
+            let institution: String?
+            /// "research" or "wealth_management"
+            let department: String?
+            let targetLow: Double?
+            let targetHigh: Double?
+            /// true: `target` is the midpoint of targetLow–targetHigh, not a published point estimate.
+            let targetIsMidpoint: Bool?
+            /// "year_end" or "rolling_12m"
+            let horizonType: String?
+            let verified: Bool?
+            let verifiedOn: String?
+            let inMedian: Bool?
+            /// Data date older than `staleAfterDays`: needs re-checking (maintenance flag).
+            let stale: Bool?
         }
 
         struct Poll: Decodable, Sendable {
@@ -604,6 +619,9 @@ struct OutlookPage: Decodable, Sendable {
         let checked: String?
         let poll: Poll?
         let factsetUrl: String?
+        let medianCount: Int?
+        let medianRule: String?
+        let staleAfterDays: Int?
     }
 
     let outlook: Outlook?

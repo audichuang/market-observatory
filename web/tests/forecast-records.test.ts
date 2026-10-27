@@ -71,6 +71,10 @@ test("VIX 過期：outlookView 的 outlook 為 null，但共識、策略師、�
   assert.equal(v.outlook, null);
   assert.deepEqual(v.cells, []);
   assert.ok(v.strategists && v.strategists.list.length > 0);
+  // Additive strategist metadata reaches the payload; existing fields keep their types.
+  assert.equal(typeof v.strategists.median, "number");
+  assert.ok(v.strategists.list.every((t) => typeof t.target === "number" && typeof t.inMedian === "boolean" && typeof t.stale === "boolean"));
+  assert.equal(v.strategists.medianCount, v.strategists.list.filter((t) => t.inMedian).length);
   assert.ok(v.recent.length >= 1);
   for (const k of ["track", "consensus", "factset", "horizon", "minN"]) assert.ok(k in v, k);
   assert.ok("modelVersion" in v.recent[0] && "historyStart" in v.recent[0]);

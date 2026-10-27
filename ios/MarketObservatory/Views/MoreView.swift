@@ -722,9 +722,9 @@ struct OutlookView: View {
         let shared = Set(s.list.compactMap { $0.horizon }.filter { !$0.isEmpty })
         let common = shared.count == 1 ? shared.first : nil
         return Section {
-            LabeledContent("中位數", value: "\(Fmt.num(s.median, 0))（\(Fmt.pct(s.medianUpsidePct, 1))）")
+            LabeledContent("中位數", value: "\(Fmt.num(s.median, 0))\(s.medianCount.map { "，\($0) 家" } ?? "")（\(Fmt.pct(s.medianUpsidePct, 1))）")
             if let poll = s.poll {
-                LabeledContent("Reuters 民調中位數", value: "\(Fmt.num(poll.median, 0))（\(poll.respondents) 人\(poll.surveyed.map { "，\($0)" } ?? "")）")
+                LabeledContent("Reuters 民調中位數", value: "\(Fmt.num(poll.median, 0))（\(poll.respondents) 人\(poll.surveyed.map { "，\($0) 調查" } ?? "")）")
             }
             ForEach(s.list) { t in
                 HStack(alignment: .firstTextBaseline) {
@@ -734,8 +734,17 @@ struct OutlookView: View {
                         } else {
                             Text(t.firm)
                         }
-                        let meta = [t.horizon == common ? nil : t.horizon, t.asOf, t.note].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+                        let range: String? = t.targetIsMidpoint == true
+                            ? t.targetLow.flatMap { lo in t.targetHigh.map { "區間 \(Fmt.num(lo, 0))–\(Fmt.num($0, 0)) 的中點" } }
+                            : nil
+                        let meta = [range, t.horizon == common ? nil : t.horizon, t.asOf.map { "資料日期 \($0)" }, t.note].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
                         if !meta.isEmpty { Text(meta).font(.caption).foregroundStyle(.secondary) }
+                        let tags = [
+                            t.verified.map { $0 ? "已核對原文" : "媒體轉述，待原文核對" },
+                            t.inMedian == false ? "不計入中位數" : nil,
+                            t.stale == true ? "待重新核對" : nil,
+                        ].compactMap { $0 }
+                        if !tags.isEmpty { Text(tags.joined(separator: " · ")).font(.caption2).foregroundStyle(.secondary) }
                     }
                     Spacer()
                     Text(Fmt.num(t.target, 0)).bold().monospacedDigit()
@@ -744,7 +753,11 @@ struct OutlookView: View {
         } header: {
             Text(common.map { "策略師目標（\($0)）" } ?? "策略師年底目標")
         } footer: {
-            Text("人工整理自新聞轉述\(s.checked.map { "（\($0) 核對）" } ?? "")，未必是券商原文。")
+            if let rule = s.medianRule {
+                Text("\(rule)資料日期超過 \(s.staleAfterDays ?? 45) 天的列標「待重新核對」（維護提醒，不代表數字有誤）。全表\(s.checked.map { " \($0) " } ?? "")核對；標「已核對原文」的列對過機構官方原文，其餘取自新聞轉述。")
+            } else {
+                Text("人工整理自新聞轉述\(s.checked.map { "（\($0) 核對）" } ?? "")，未必是券商原文。")
+            }
         }
     }
 

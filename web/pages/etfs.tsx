@@ -6,6 +6,15 @@ import { compactUsd, num, pctText } from "../src/ui/format.ts";
 import { planIssue } from "../src/lib/plan.ts";
 import type { Props } from "./etfs.server";
 
+const errorText = (e: unknown) => {
+  const body = (e as { body?: unknown })?.body;
+  if (body && typeof body === "object" && "error" in body) return String((body as { error: unknown }).error);
+  if (body && typeof body === "object" && "errors" in body) return "輸入格式不對，請檢查規劃欄位";
+  const status = (e as { status?: number })?.status;
+  if (status && status >= 500) return `伺服器錯誤（HTTP ${status}），規劃沒有變更，請稍後再試`;
+  return e instanceof Error && e.message ? `操作失敗：${e.message}` : "操作失敗，請檢查網路後再試";
+};
+
 export default function EtfPage({ asOf, catalogAsOf, rows, periods, plan, sim, dca, fxLast }: Props) {
   const router = useRouter();
   const form = useForm("/etfs", { ...plan });
@@ -22,13 +31,13 @@ export default function EtfPage({ asOf, catalogAsOf, rows, periods, plan, sim, d
     try {
       const res = await action("/etfs", { data: { ...plan, etf: sim.etf, years: sim.years, monthlyTwd: sim.monthlyTwd } });
       if (!res.ok) {
-        setDefaultError("無法儲存預設，請確認輸入格式後再試");
+        setDefaultError(errorText(res.error));
         return;
       }
       setSavedDefault(true);
       router.visit(simUrl({}));
-    } catch {
-      setDefaultError("儲存失敗，請檢查網路後再試");
+    } catch (e) {
+      setDefaultError(errorText(e));
     } finally {
       setSavingDefault(false);
     }

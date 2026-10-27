@@ -59,6 +59,7 @@ scripts/testflight.sh            # archive → 匯出（發佈簽章）→ 上�
 - 匯出時 `aps-environment` 會從 development 換成 production（archive 本身是開發簽章，這是正常的）；App 的 Release 版向後端註冊 `production` 環境。
 - 腳本會把 `/usr/bin` 排到 PATH 最前面：Homebrew 的 rsync 3.x 會讓 Xcode 打包 IPA 失敗（`exportArchive Copy failed`）。
 - App Store Connect：App「市場觀測室」（Apple ID 6826800828）。TestFlight 內部群組「自己」設成所有 build 自動開放，內部測試不用審核；處理完約 5～15 分鐘。
+- 外部群組「Beta」（`1e9efde4-54fc-42b6-9325-d4fa20261c3e`，測試員 audichuang880208@gmail.com、carrie30111@gmail.com）給其他人測。發版一律只到「自己」；使用者明確說要給大家測，才把那個 build 加進 Beta 並送 Beta App Review（每個新版本號的第一個 build 要審）。
 
 ## Apple 後台設定（已完成）
 

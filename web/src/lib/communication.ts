@@ -5,6 +5,13 @@ import { HORIZON, type Rate } from "./forecast.ts";
 /** 上線後實際紀錄至少要有幾個獨立月份才報分數。 */
 export const LIVE_MIN_N = 12;
 
+/** Directional forecast badges follow the Taiwan market convention: red up, green down. */
+export const FORECAST_CALL: Record<string, [string, string, string]> = {
+  up: ["tone-pos", "高於平常", "目前條件下的上漲機率明顯高於歷史基準（平常），且滾動驗證勝過基準"],
+  down: ["tone-neg", "低於平常", "目前條件下的上漲機率明顯低於歷史基準（平常），且滾動驗證勝過基準"],
+  inconclusive: ["warn", "偵測不到預測力", "目前的訊號不足以把機率拉離歷史基準"],
+};
+
 export interface LiveRow {
   date: string;
   p: number;

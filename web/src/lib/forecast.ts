@@ -685,6 +685,32 @@ export function assessmentsOf(args: { pick: Pick; evaluation: Evaluation; gate: 
   };
 }
 
+/**
+ * Single-target view of the outlook for the backtest: evaluates only `label` on prebuilt observations,
+ * so a dd5-only trial never computes P(up) for the candidate. For label "dd5" the fields match
+ * buildOutlook's `drawdown` and `returnQuantiles`; `scored` follows drawdownScored and is only meaningful for dd5.
+ */
+export function targetOutlookOf(
+  obs: Observation[],
+  cfg: ModelConfig,
+  label: Label,
+): { asOf: string; pick: Pick; evaluation: Evaluation; cellGate: CellGate; scored: boolean; returnQuantiles: { cell: ReturnQuantiles | null; all: ReturnQuantiles | null } } | null {
+  const last = obs.at(-1);
+  if (!last?.regime) return null;
+  const pick = pickProbability(obs, last.date, last.regime, cfg, label);
+  if (!pick) return null;
+  const evaluation = walkForward(obs, 504, undefined, undefined, cfg, label);
+  const cond = condOfPick(pick, last.regime, cfg);
+  return {
+    asOf: last.date,
+    pick,
+    evaluation,
+    cellGate: cellGateOf(evaluation.byCell, pick.cell),
+    scored: drawdownScored(pick, evaluation, cfg),
+    returnQuantiles: { cell: returnQuantiles(obs, last.date, cond), all: returnQuantiles(obs, last.date) },
+  };
+}
+
 export function buildOutlook(spx: Series, vix: Series, cfg: ModelConfig = DEFAULT_MODEL): Outlook | null {
   const obs = buildObservations(spx, vix, cfg);
   const last = obs.at(-1);

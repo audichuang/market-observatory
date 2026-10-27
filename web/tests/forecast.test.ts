@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Series } from "../src/lib/analytics.ts";
-import { DEFAULT_MODEL, EVAL_SEED, HORIZON, condOfPick, drawdownScored, returnQuantiles, MIN_CELL_ROWS, MIN_CELL_RUNS, MIN_EPISODES, MIN_VALID_REPLICATES, buildObservations, buildOutlook, callOf, cellEvaluations, cellGateOf, conditionalRate, evaluateRows, mulberry32, pickProbability, sdOf, stationaryBootstrapIndices, VRP_MODEL, SEASON_MODEL, isWinter, VRP_MIN_VALUES, vrpAt, vrpHighSeries, walkForward, walkForwardRows, wilson, type CellEval, type ModelConfig, type Observation, type WalkRow } from "../src/lib/forecast.ts";
+import { DEFAULT_MODEL, EVAL_SEED, HORIZON, condOfPick, drawdownScored, returnQuantiles, targetOutlookOf, MIN_CELL_ROWS, MIN_CELL_RUNS, MIN_EPISODES, MIN_VALID_REPLICATES, buildObservations, buildOutlook, callOf, cellEvaluations, cellGateOf, conditionalRate, evaluateRows, mulberry32, pickProbability, sdOf, stationaryBootstrapIndices, VRP_MODEL, SEASON_MODEL, isWinter, VRP_MIN_VALUES, vrpAt, vrpHighSeries, walkForward, walkForwardRows, wilson, type CellEval, type ModelConfig, type Observation, type WalkRow } from "../src/lib/forecast.ts";
 import { PHASES, bssOf, nullPairedBss, pairedBrierDiffMcStdErr, pairedBrierDiffPhase, pairedMcStdErr, pairedPhaseAveraged, phaseGrid, pointInTimeCalls } from "../src/lib/forecast-eval.ts";
 
 const day = (i: number) => new Date(Date.UTC(2015, 0, 1) + i * 864e5).toISOString().slice(0, 10);
@@ -822,4 +822,31 @@ test("L01：方向相對基準率，不是 50%", () => {
   assert.equal(callOf({ p: 0.45, distinct: true, base: { p: 0.4 } }, pass), "up");
   // 相等 → inconclusive
   assert.equal(callOf({ p: 0.64, distinct: true, base: { p: 0.64 } }, pass), "inconclusive");
+});
+
+// ---- 回測的目標隔離（codex-review #1）：dd5 試驗不能順帶算出候選的 P(up) ----
+const trapUp = (obs: Observation[]) =>
+  obs.map((o) => {
+    const x = { ...o };
+    Object.defineProperty(x, "up", { enumerable: true, get: () => { throw new Error("read up"); } });
+    return x;
+  });
+
+test("targetOutlookOf：dd5 只讀 dd5 標籤、完全不碰 up；up 則一定會讀（測試有鑑別力）", () => {
+  const obs = trapUp(dd5Obs(1500));
+  const d = targetOutlookOf(obs, DEFAULT_MODEL, "dd5")!;
+  assert.ok(d.evaluation.points > 0);
+  assert.equal(d.asOf, day(1499));
+  assert.throws(() => targetOutlookOf(obs, DEFAULT_MODEL, "up"), /read up/);
+});
+
+test("targetOutlookOf(dd5) 與 buildOutlook 的 drawdown、returnQuantiles 完全相同", () => {
+  const closes = alternating(3000, 600);
+  const vixes = closes.map((_, i) => (Math.floor(i / 170) % 3 === 2 ? 35 : 15));
+  const o = buildOutlook(series(closes), series(vixes))!;
+  const d = targetOutlookOf(buildObservations(series(closes), series(vixes)), DEFAULT_MODEL, "dd5")!;
+  assert.equal(d.asOf, o.asOf);
+  assert.deepEqual({ pick: d.pick, evaluation: d.evaluation, cellGate: d.cellGate, scored: d.scored }, o.drawdown);
+  assert.deepEqual(d.returnQuantiles, o.returnQuantiles);
+  assert.ok(o.drawdown.evaluation.points > 0);
 });

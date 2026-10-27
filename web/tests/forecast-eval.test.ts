@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { DEFAULT_MODEL, HORIZON, mulberry32, walkForwardRows, type ModelConfig, type Observation, type WalkRow } from "../src/lib/forecast.ts";
-import { EVAL_SEED, bootstrapCI, bssOf, intersectRegimes, nullPairedBss, pairedBrierDiff, pairedBrierDiffMcStdErr, pairedBrierDiffPhase, pairedMcStdErr, pairedPhaseAveraged, phaseAveraged, phaseAverageFromCells, phaseGrid, pointInTimeCalls, stationaryBootstrapIndices, summarizeByCell } from "../src/lib/forecast-eval.ts";
+import { EVAL_SEED, bootstrapCI, bssOf, intersectRegimes, nullPairedBss, pairedBrierDiff, pairedBrierDiffMcStdErr, pairedBrierDiffPhase, pairedMcStdErr, pairedPhaseAveraged, permutationP, phaseAveraged, phaseAverageFromCells, phaseGrid, pointInTimeCalls, stationaryBootstrapIndices, summarizeByCell } from "../src/lib/forecast-eval.ts";
 
 const day = (i: number) => new Date(Date.UTC(2015, 0, 1) + i * 864e5).toISOString().slice(0, 10);
 const mkRows = (n: number, f: (i: number) => { p: number; pBase: number; y: number }): WalkRow[] =>
@@ -250,4 +250,36 @@ test("配對相位平均 Brier 差：相同模型 → 0 [0,0]；較差的候選 
   assert.equal(mc.values.length, 5);
   const mc0 = pairedBrierDiffMcStdErr(obs, obs, DEFAULT_MODEL, DEFAULT_MODEL, { resamples: 100, phases: 3 });
   assert.equal(mc0.se, 0);
+});
+
+test("L08 置換 p：p = (1 + #{虛無 ≥ 觀測})/(N+1)，同值算入；N = 199 時 p ≤ 0.025 ⇔ b ≤ 4、p ≤ 0.045 ⇔ b ≤ 8", () => {
+  const observed = 0.01;
+  // b draws at or above observed (the first one is an exact tie), the rest strictly below.
+  const draws = (b: number) => Array.from({ length: 199 }, (_, i) => (i === 0 && b > 0 ? observed : i < b ? observed + 0.001 * i : observed - 0.001 * (i + 1)));
+  for (let b = 0; b <= 20; b++) {
+    const r = permutationP(draws(b), observed);
+    assert.equal(r.exceed, b);
+    assert.equal(r.n, 199);
+    assert.equal(r.p, (1 + b) / 200);
+    assert.equal(r.p <= 0.025, b <= 4, `b=${b}`);
+    assert.equal(r.p <= 0.045, b <= 8, `b=${b}`);
+  }
+  // Tie counts against the candidate.
+  assert.equal(permutationP([0.5], 0.5).exceed, 1);
+  assert.equal(permutationP([0.4999], 0.5).exceed, 0);
+  // N = 20 (round 1): smallest attainable p is 1/21.
+  assert.equal(permutationP(Array(20).fill(-1), 0).p, 1 / 21);
+  // Uncomputable statistic must not look significant.
+  assert.ok(Number.isNaN(permutationP([0.1, 0.2], NaN).p));
+  assert.ok(Number.isNaN(permutationP([0.1, NaN], 0.5).p));
+});
+
+test("L08 虛無值不受 N 影響：N = 3 的值等於 N = 5 的前 3 組（種子固定 EVAL_SEED + j）", () => {
+  const obs = informativeObs(3000);
+  const cand: ModelConfig = { ...DEFAULT_MODEL, version: "cand", candidates: [["aboveSma200"]], minEffectiveN: 5 };
+  const opts = { phases: 3, firstDate: day(1800) };
+  const three = nullPairedBss(obs, obs, DEFAULT_MODEL, cand, { ...opts, N: 3 });
+  const five = nullPairedBss(obs, obs, DEFAULT_MODEL, cand, { ...opts, N: 5 });
+  assert.equal(five.values.length, 5);
+  assert.deepEqual(three.values, five.values.slice(0, 3));
 });

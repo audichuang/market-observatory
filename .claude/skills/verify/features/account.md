@@ -10,6 +10,7 @@
 - `account-signin-wrong`（A5）：錯誤密碼顯示中文錯誤；網頁錯誤段落有 `role="alert"`；再用正確密碼成功。
 - `navigation-current`：桌面、窄螢幕與手機底部導覽的目前頁連結都有 `aria-current="page"`，其他連結沒有。
 - `account-apple-cancel`（A6）：App 點「使用 Apple 登入」後取消，回登入畫面。
+- `account-session-cache`：登入 session cookie 快取 300 秒，App 登入、登出及新帳號總覽都正常；其他裝置撤銷或刪帳號最多 5 分鐘後生效。
 - `account-signout`（Z1）：網頁右上「登出」、App「更多 → 帳號 → 登出」。
 - `account-delete`（Z2、Z3）：App 刪除帳號，先取消一次、再確認一次。
 - `account-gate`：未登入打開 `/watchlist` 會導到 `/login?next=%2Fwatchlist`，登入後回到原頁。
@@ -31,6 +32,7 @@ Preconditions:
 - **登出。** 網頁右上「登出」：登入或任何整頁跳轉後要先等 hydrate 再點（SKILL.md Drive 的 `waitForFunction`），否則點了沒反應。App：`ios-test.sh … VerifyInteractionTests/test10_SignOutAndErrors` 的 `Z1-signed-out.png`，test 最後會用正確密碼登回（Z1）。
 - **導覽無障礙。** 登入後切換總覽、走勢與 ETF 頁，分別讀桌面、窄螢幕與手機底部導覽中 `.active` 連結，確認 `aria-current="page"`，其餘連結沒有 `aria-current`。
 - **登入閘門。** 登出後 `goto("/watchlist")`：網址變 `/login?next=%2Fwatchlist`；登入後回到 `/watchlist`（截圖 `account-signin-next.png`）。`page.fetch("/api/v1/me")` 在登出狀態回 401。
+- **session 快取。** 用本機 App 登入、登出再登入，新帳號也登入一次，總覽 `/api/v1/overview` 均可讀；確認網頁登入後有 `better-auth.session_data` cookie（只記名稱、不存內容）。效能前後比較用唯讀 `npx wrangler d1 insights <db> --time-period 7d --limit 100`，部署 24 小時後再比 session／user 查詢相對頁面查詢的比例。
 - **App 登入。** `ios-walkthrough.sh <run-id> <email> <密碼檔>`：`01-login.png` 是登入畫面，`02-overview.png` 已在總覽，底部四個分頁：總覽、走勢、新聞、更多（名單在總覽右上星號）。再 `simctl terminate` + `simctl launch` 一次，直接進總覽（A4）。
 - **App 刪除帳號。** 只對一次性帳號：`-only-testing:MarketObservatoryUITests/WalkthroughTests/test2_DeleteAccount`（環境變數同 walkthrough）。`11-delete-confirm.png` 是確認對話框、`12-after-delete.png` 回到登入畫面；之後用同帳密打 `POST /api/auth/sign-in/email` 要失敗。
 - **Proof。** `evidence/web/account-signup.png`（總覽＋右上 email）、`evidence/ios/01-login.png`、`02-overview.png`；刪除時加上登入失敗的 API 回應。

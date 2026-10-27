@@ -56,8 +56,8 @@ export const watchlistKey = (v: Pick<Viewer, "id" | "isOwner">) => (v.isOwner ? 
  */
 export async function viewerWatchlist(primary: Db, v: Viewer) {
   const key = watchlistKey(v);
-  const exists = await primary.prepare("SELECT 1 AS x FROM settings WHERE key = ?").bind(key).first();
-  if (v.isOwner || exists) return { key, members: await loadWatchlist(primary, key), needsRebuild: false };
+  const members = await loadWatchlist(primary, key, null);
+  if (v.isOwner || members !== null) return { key, members: members ?? DEFAULT_WATCHLIST, needsRebuild: false };
   const before = await loadTrackedMembers(primary);
   const created = await ensureWatchlist(primary, key);
   const tracked = new Set(watchTickers(before));

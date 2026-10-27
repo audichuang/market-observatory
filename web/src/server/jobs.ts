@@ -15,7 +15,7 @@ import { rotationPicks } from "../lib/consensus.ts";
 import { easternDate } from "../lib/calendar.ts";
 import { EQUAL_WEIGHT_SYMBOL, FX_SYMBOL, INDEX_SYMBOL, VIX_SYMBOL, type WatchMember, nasdaqCheckSymbols, watchTickers, yahooSymbols } from "../lib/universe.ts";
 import { MAX_TRACKED, addToWatchlist, removeFromWatchlist } from "../lib/watchlist.ts";
-import { WATCHLIST_KEY, latestHoldings, loadTrackedMembers, loadWatchlist, updateWatchlist } from "./watchlist.ts";
+import { USER_WATCHLIST_PREFIX, WATCHLIST_KEY, latestHoldings, newTrackedQuotaPrefix, loadTrackedMembers, loadWatchlist, updateWatchlist } from "./watchlist.ts";
 import { type BarBatch, applyCrossChecks, compareCloses, finishRun, insertMissingBars, insertWeights, loadPrices, getSetting, loadWeightAnchors, nowIso, putSetting, saveSnapshots, startRun, upsertBars, weightsNear } from "./repo.ts";
 
 export type JobName = "prices" | "crosscheck" | "weights" | "news" | "events" | "analysts" | "factset" | "forecast" | "snapshots" | "notify-close" | "notify-events" | "backfill-prices" | "backfill-checks" | "backfill-index-history";
@@ -200,7 +200,8 @@ async function jobPrices(db: D1Database, _opts: JobOptions, budget: Budget): Pro
   try {
     forecast = await recordForecast(db);
     detail.forecast = forecast.message;
-    // 單純在等 VIX 或核對是正常的（status 照舊，detail 列出）；VIX 超過 3 個交易日未更新、SPX 核對不一致超過 2 個交易日才讓這次抓價標成 partial。
+    // Waiting briefly for VIX or the SPX cross-check is normal (status unchanged, listed in detail). The run is marked partial only when
+    // VIX is more than 3 sessions stale, an SPX mismatch is older than 2 sessions, or an SPX close is still unchecked 2 sessions later.
     // 「資料不足」（例如還沒補歷史）只記在 detail，不拖累抓價狀態。
     detail.forecastReason = forecast.reason ?? null;
     detail.forecastRecorded = forecast.recorded;
@@ -212,7 +213,7 @@ async function jobPrices(db: D1Database, _opts: JobOptions, budget: Budget): Pro
   const total = entries.length + 1;
   return {
     status: failedNames.length === 0 && stale.length === 0 && !(forecast?.attention && forecast.reason !== "insufficient") ? "ok" : failedNames.length > total / 2 ? "failed" : "partial",
-    summary: `更新 ${total - failedNames.length}/${total} 檔；失敗 ${failedNames.join(",") || "無"}；尚無 ${expected} 收盤 ${stale.join(",") || "無"}${rebasedSymbols.length ? `；偵測到分割 ${rebasedSymbols.map((s) => `${s}×${({ ...pending, ...rebased })[s].toFixed(3)}`).join(",")}` : ""}；新快照 ${snaps.created.join(",") || "無"}${forecast && forecastNeedsAttention(forecast) ? `；預測：${forecast.message}` : ""}`,
+    summary: `更新 ${total - failedNames.length}/${total} 檔；失敗 ${failedNames.join(",") || "無"}；尚無 ${expected} 收盤 ${stale.join(",") || "無"}${rebasedSymbols.length ? `；偵測到分割 ${rebasedSymbols.map((s) => `${s}×${({ ...pending, ...rebased })[s].toFixed(3)}`).join(",")}` : ""}；新快照 ${snaps.created.join(",") || "無"}${spxError ? `；SPX 核對失敗 ${spxError}` : ""}${forecast && forecastNeedsAttention(forecast) ? `；預測：${forecast.message}` : ""}`,
     detail,
   };
 }
@@ -369,19 +370,23 @@ async function jobBackfillChecks(db: D1Database, opts: JobOptions, budget: Budge
   };
 }
 
+/**
+ * Upsert one article under one symbol. Symbol membership is matched with comma delimiters on both sides,
+ * so a substring (MS inside 'SPY,MSFT') does not count as already attached.
+ */
+export const NEWS_UPSERT_SQL = `INSERT INTO news (id, symbols, title, url, publisher, published_at, source, fetched_at, summary, primary_symbol) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET symbols = CASE WHEN instr(',' || news.symbols || ',', ',' || excluded.symbols || ',') > 0 THEN news.symbols ELSE news.symbols || ',' || excluded.symbols END,
+       summary = COALESCE(news.summary, excluded.summary), primary_symbol = COALESCE(news.primary_symbol, excluded.primary_symbol),
+       -- A newly attached symbol: the AI must re-judge who the article is about
+       enriched_at = CASE WHEN instr(',' || news.symbols || ',', ',' || excluded.symbols || ',') > 0 THEN news.enriched_at ELSE NULL END`;
+
 async function jobNews(db: D1Database, _opts: JobOptions, budget: Budget): Promise<JobResult> {
   // 一家一個請求；額度不夠時大盤（SPY）優先，名單照順序取到額度為止，其餘下一輪（4 小時後）再抓。
   const all = ["SPY", ...(await loadTrackedMembers(db)).map((m) => m.key)];
   const symbols = all.slice(0, Math.max(0, budget.remaining - RETRY_RESERVE));
   const skipped = all.slice(symbols.length);
   const results = await mapLimit(symbols, 3, (s) => fetchNasdaqNews(s, 8, budget));
-  const stmt = db.prepare(
-    `INSERT INTO news (id, symbols, title, url, publisher, published_at, source, fetched_at, summary, primary_symbol) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(id) DO UPDATE SET symbols = CASE WHEN instr(news.symbols, excluded.symbols) > 0 THEN news.symbols ELSE news.symbols || ',' || excluded.symbols END,
-       summary = COALESCE(news.summary, excluded.summary), primary_symbol = COALESCE(news.primary_symbol, excluded.primary_symbol),
-       -- 多掛了一個代號：AI 要重新判斷這則在講誰
-       enriched_at = CASE WHEN instr(news.symbols, excluded.symbols) > 0 THEN news.enriched_at ELSE NULL END`,
-  );
+  const stmt = db.prepare(NEWS_UPSERT_SQL);
   const stmts: D1PreparedStatement[] = [];
   const failed: string[] = [];
   const fetchedAt = nowIso();
@@ -479,7 +484,10 @@ const FORECAST_REASON_TEXT: Record<ForecastReason, string> = {
 };
 const FORECAST_CALL_TEXT: Record<string, string> = { up: "高於平常", down: "低於平常", inconclusive: "偵測不到預測力" };
 
-/** VIX 超過 3 個交易日沒更新、SPX 核對不一致超過 2 個交易日、資料不足才算異常（工作標 partial）；單純在等 VIX 或核對是正常的。 */
+/**
+ * Anomalies (job marked partial): VIX more than 3 sessions stale, an SPX mismatch older than 2 sessions,
+ * an SPX close still unchecked 2 sessions after its date, or insufficient data. Briefly waiting for VIX or the check is normal.
+ */
 export function forecastNeedsAttention(f: ForecastRecord): boolean {
   return f.attention;
 }
@@ -488,6 +496,11 @@ export function forecastNeedsAttention(f: ForecastRecord): boolean {
 const FORECAST_CATCHUP_SESSIONS = 5;
 /** SPX 核對不一致超過這麼多個交易日還沒更正，就當成異常 */
 const FORECAST_MISMATCH_GRACE = 2;
+/**
+ * An SPX close still unchecked this many sessions after its date is an anomaly (3 consecutive unchecked sessions).
+ * The catch-up window only looks back FORECAST_CATCHUP_SESSIONS, so a close left unchecked longer can never be recorded.
+ */
+const FORECAST_UNCHECKED_GRACE = 2;
 
 const upTo = (s: Series, date: string) => new Series(s.points.filter((p) => p.date <= date));
 
@@ -556,10 +569,11 @@ export async function recordForecast(db: D1Database): Promise<ForecastRecord> {
     }
   }
 
-  // 整體原因：核對不一致太久 > VIX 太久沒更新 > 資料不足 > 其餘還在等的。
+  // Overall reason: old mismatch > stale VIX > long-unchecked SPX > insufficient data > anything else still pending.
   const lastIdx = dates.length - 1;
   const vixStale = vixAt(spx, vix, spx.points.length - 1, DEFAULT_MODEL.vixMaxStaleSessions) === null;
   const oldMismatch = pending.find((p) => p.reason === "spx-mismatch" && lastIdx - dates.indexOf(p.date) > FORECAST_MISMATCH_GRACE);
+  const oldUnchecked = pending.find((p) => p.reason === "spx-unchecked" && lastIdx - dates.indexOf(p.date) >= FORECAST_UNCHECKED_GRACE);
   const latestPending = pending.find((p) => p.date === dates[lastIdx]);
   let reason: ForecastReason | undefined;
   let attention = true;
@@ -570,6 +584,9 @@ export async function recordForecast(db: D1Database): Promise<ForecastRecord> {
   } else if (latestPending?.reason === "vix-pending" && vixStale) {
     reason = "vix-stale";
     why = `VIX 超過 ${DEFAULT_MODEL.vixMaxStaleSessions} 個交易日未更新（最新 ${vix.points.at(-1)?.date}，SPX 到 ${dates[lastIdx]}）`;
+  } else if (oldUnchecked) {
+    reason = "spx-unchecked";
+    why = `${oldUnchecked.date} 的 SPX 收盤 ${FORECAST_UNCHECKED_GRACE} 個交易日後仍未核對`;
   } else if (insufficient) {
     reason = "insufficient";
     why = "資料不足";
@@ -776,6 +793,9 @@ export const WATCHLIST_REBUILD_SESSIONS = 45;
 
 export type WatchChange = { ok: true; summary: string } | { ok: false; error: string };
 
+/** Per-user daily cap on adding companies nobody tracks yet (each one fetches ten years of bars and rebuilds snapshots). */
+export const MAX_NEW_TRACKED_PER_DAY = 5;
+
 /**
  * 把一家公司加進某個使用者的名單（listKey，預設是擁有者的）。
  * 全站沒人追蹤過的公司先抓十年日線（新代號在資料庫裡一筆都沒有，沒有價格就算不出權重與貢獻），
@@ -792,6 +812,20 @@ export async function addWatchSymbol(db: D1Database, input: string, budget = new
   const trackedTickers = new Set(watchTickers(tracked));
   const isNew = member.tickers.some((t) => !trackedTickers.has(t));
   if (isNew && tracked.length >= MAX_TRACKED) return { ok: false, error: `全站追蹤的公司已達 ${MAX_TRACKED} 家上限，目前只能加入其他人已在追蹤的公司` };
+  // The owner list (WATCHLIST_KEY) is exempt: the cap guards against registered users using this path to hammer upstream sources.
+  // Counted before fetching, so a failed fetch still uses a slot (the upstream requests were made either way).
+  // One conditional upsert takes the slot: concurrent requests cannot all read the same count and pass.
+  // No returned row means the counter was already at the cap.
+  if (isNew && listKey !== WATCHLIST_KEY) {
+    const quotaKey = `${newTrackedQuotaPrefix(listKey.slice(USER_WATCHLIST_PREFIX.length))}${easternDate()}`;
+    const taken = await db
+      .prepare(
+        "INSERT INTO settings (key, value, updated_at) VALUES (?, '1', datetime('now')) ON CONFLICT(key) DO UPDATE SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT), updated_at = excluded.updated_at WHERE CAST(value AS INTEGER) < ? RETURNING value",
+      )
+      .bind(quotaKey, MAX_NEW_TRACKED_PER_DAY)
+      .first();
+    if (!taken) return { ok: false, error: `今天新增的新公司已達上限（每天 ${MAX_NEW_TRACKED_PER_DAY} 家沒有其他人追蹤的公司），明天再試，或先加入其他人已在追蹤的公司` };
+  }
   let summary = `已加入 ${member.company}（${member.tickers.join("＋")}）`;
   if (isNew) {
     const expected = latestExpectedClose();

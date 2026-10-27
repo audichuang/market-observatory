@@ -115,24 +115,23 @@ printf '%s' 'verify-<run-id>-pw' > "$RUN/user.pw"; chmod 600 "$RUN/user.pw"
 | `test02_Overview` | B2 市場指標展開、B5 其他交易日與回到最新、B4 點公司到走勢、B8 完整日曆 |
 | `test03_History` | C2 區間、C3 快速連點、C4 標的選單、C6 點統計表的列 |
 | `test04_Watchlist` | D2 加入 AVGO、D4 ZZZZ、D5 已在名單、D6–D8 左滑與確認、D9 點公司 |
-| `test05_NewsCalendar` | E3 代號篩選、E4 快速連點、E5 點 10/28、換月、今天 |
+| `test05_NewsCalendar` | E3 代號篩選、E4 快速連點、E5 點今天以後第一個事件日、換月、今天 |
 | `test06_EtfsPlan` | F2 期間、F3 試算、F3b 設為預設再讀回、F4 出場漲幅 150、F5 每批投入 |
 | `test07_PushPrefs` | F8 關每日摘要、門檻 ±6.0%，離開再進來讀回，再改回 |
 | `test08_PushOpenDaily`、`test09_PushOpenEvents` | G1 前景橫幅、G2／G3 背景點開推播（要 shell 送推播，見下） |
 | `test12_Outlook` | H1 展望頁從上捲到底逐段截圖（`H1-outlook-NN.png`），斷言 dd5 與上漲兩個驗證區塊都在；文字存 `H1-outlook.txt` |
 | `test10_SignOutAndErrors` | Z1 登出、A5 錯誤密碼、A2 短密碼，最後用正確密碼登回 |
 
-每個 test 把看到的畫面文字寫成 `<ID>.txt`（例如 `B5-older.txt`、`D2-added.txt`），拿去跟同帳號的 `/api/v1/*` 對帳。這些 test 寫死了寫測試當時本機站的資料（`2026-10-22`／`10/23` 交易日、`7/30 家 · 合計權重 34.01%`、事件日 10/28）；資料日期不同時先改 test 裡的字串，否則會 fail 在找不到元素。
+每個 test 把看到的畫面文字寫成 `<ID>.txt`（例如 `B5-older.txt`、`D2-added.txt`），拿去跟同帳號的 `/api/v1/*` 對帳。test 不寫死資料日期：test02 從「交易日」清單讀最新與第二新的一天（寫在 `B5-dates.txt`）；`ios-test.sh` 每次先用這個帳號讀本機站 API，把第二新的交易日（`MO_PUSH_DATE`）、今天以後第一個事件日（`MO_EVENT_DATE`）與 API 的 today 傳給 test，開頭印出「日期：推播 …、事件 …」。名單只斷言「7/30 家」，合計權重寫在 `D1-before.txt`／`D8-removed.txt`，跟 `/api/v1/watchlist` 的 `totalWeight` 對帳。
 
-**08／09 要 shell 同時送推播**：test 只等橫幅出現再點，推播由 shell 在背景每 8 秒送一次，test 跑完用旗標檔停掉迴圈。迴圈、test、停止要寫在**同一個 Bash 呼叫**裡（shell 狀態不跨呼叫，`S`、`RUN` 也要在這個呼叫裡設）：
+**08／09 各自單獨跑一次**：test 只等橫幅出現再點。`ios-test.sh` 的 test 參數**剛好只有** `VerifyInteractionTests/test08_PushOpenDaily`（或 `test09_PushOpenEvents`）時，會用上面讀到的日期寫好 `$RUN/daily.json`（`date`＝`MO_PUSH_DATE`，test08 斷言打開的就是這天）或 `$RUN/events.json`（`date`＝`MO_EVENT_DATE`），在背景每 8 秒 `simctl push` 一次直到測試結束；跟其他 test 一起跑時不送推播（橫幅會擋到別的 test）。
 
 ```sh
-UDID=$(cat "$RUN/sim.udid"); STOP="$RUN/push.stop"; rm -f "$STOP"
-( while [ ! -f "$STOP" ]; do xcrun simctl push "$UDID" com.audichuang.observatory "$RUN/daily.json"; sleep 8; done ) &
-"$S/ios-test.sh" <run-id> verify-<run-id>@example.test "$RUN/user.pw" VerifyInteractionTests/test08_PushOpenDaily; touch "$STOP"; wait
+"$S/ios-test.sh" <run-id> verify-<run-id>@example.test "$RUN/user.pw" VerifyInteractionTests/test08_PushOpenDaily
+"$S/ios-test.sh" <run-id> verify-<run-id>@example.test "$RUN/user.pw" VerifyInteractionTests/test09_PushOpenEvents
 ```
 
-（test09 換成 `$RUN/events.json`；payload 在 [推播功能檔](features/push.md)，daily 的 `date` 要等於 test08 斷言的 `2026-10-22`。）
+一次跑整組時注意 XCTest 依名字排序：`test11_DeleteAccount` 會排在 `test12_Outlook` 前面並刪掉帳號，要放在最後單獨跑。
 
 **跑完要逐張看截圖。** 測試通過只代表找得到元素、斷言的那一項成立，不代表畫面對：例如「市場指標」點了沒展開時，只斷言存在的舊版測試照樣過。字有沒有被切掉、顏色、數字是不是 0，都只能看圖。
 

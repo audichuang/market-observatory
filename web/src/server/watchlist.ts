@@ -6,6 +6,8 @@ import { type Db, getSetting } from "./repo.ts";
 // 擁有者沿用開放註冊前的 key（WATCHLIST_KEY），其他使用者用 `watchlist:<user id>`，見 src/server/account.ts。
 export const WATCHLIST_KEY = "watchlist";
 export const USER_WATCHLIST_PREFIX = "watchlist:";
+/** Prefix of a user's per-day counters of newly tracked companies (`watch-new:<user id>:<eastern date>`); account deletion removes every row under it. */
+export const newTrackedQuotaPrefix = (userId: string) => `watch-new:${userId}:`;
 
 /** 一份名單（預設是擁有者的）；還沒存過就是預設的七巨頭。 */
 export async function loadWatchlist(db: Db, key = WATCHLIST_KEY): Promise<WatchMember[]> {

@@ -30,7 +30,7 @@ Preconditions:
 - **跨介面。** 跑 iOS walkthrough：`04-watchlist.png` 有 8 家、最後一家 AVGO、「8/30 家」。
 - **錯誤代號。** 輸入 `ZZZZ` 按加入：`[role=status]` 是「ZZZZ 不在最新的 S&P 500 成分股（SPY 持股）裡」，名單不變（D4）。
 - **移除（還原基準）。** 先用 `evaluate` 找到含 AVGO 的 `li`、把它的「移除」按鈕標上 `data-verify-target="remove"`，再 `click('[data-verify-target="remove"]')`。會跳 confirm「從名單移除 Broadcom？股價資料會保留，之後可以再加回來。」：先 `page.dismissDialog()`，AVGO 要還在（網頁版的 D7）；再點一次、`page.acceptDialog()`，等 AVGO 從列表消失；`members` 讀回 7 家、總覽不再有 Broadcom（D8）。
-- **App 加入、移除、點公司。** 名單是七巨頭時跑 `ios-test.sh … VerifyInteractionTests/test04_Watchlist`（test 寫死了「7/30 家 · 合計權重 34.01%」）：`D5-search-nvda.txt`（已在名單的不出現）、`D4-search-zzzz.txt`、`D2-added.txt`（第一次加入全站沒人追蹤的公司時是「已加入 Broadcom（AVGO），補了 2514 筆日線」；「8/30 家 · 合計權重 …」對 API `totalWeight`）、`D6-full-swipe.png`（整列快速左滑後仍 8 家）、`D7-confirm.png`、`D8-removed.png`、`D9-tsla.png`。
+- **App 加入、移除、點公司。** 名單是七巨頭時跑 `ios-test.sh … VerifyInteractionTests/test04_Watchlist`（只斷言「7/30 家」開頭；`D1-before.txt`、`D8-removed.txt` 的合計權重對 API `totalWeight`）：`D5-search-nvda.txt`（已在名單的不出現）、`D4-search-zzzz.txt`、`D2-added.txt`（第一次加入全站沒人追蹤的公司時是「已加入 Broadcom（AVGO），補了 2514 筆日線」；「8/30 家 · 合計權重 …」對 API `totalWeight`）、`D6-full-swipe.png`（整列快速左滑後仍 8 家）、`D7-confirm.png`、`D8-removed.png`、`D9-tsla.png`。
 - **Proof。** `watchlist-before.png`、`watchlist-add.png`、`watchlist-add-overview.png`、`watchlist-add.api.json`、`ios/04-watchlist.png`、test04 的截圖與 `.txt`、移除後的 API JSON。
 
 ## Gotchas

@@ -104,6 +104,16 @@ final class VerifyInteractionTests: XCTestCase {
         f.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: n + 2) + v)
     }
 
+    /// "2026-09-04" -> "9/4（", the start of the app's `Fmt.dateWithWeekday`; the trailing "（" keeps 9/1 from matching 9/14.
+    private func dayPrefix(_ iso: String) -> String {
+        "\(Int(iso.dropFirst(5).prefix(2)) ?? 0)/\(Int(iso.dropFirst(8).prefix(2)) ?? 0)（"
+    }
+
+    /// A date injected by ios-test.sh (read from this run's API), e.g. MO_PUSH_DATE.
+    private func injectedDate(_ key: String) throws -> String {
+        try XCTUnwrap(env[key], "ios-test.sh 沒有傳 \(key)")
+    }
+
     private func back(_ app: XCUIApplication) {
         let b = app.navigationBars.buttons["BackButton"]
         if b.exists { b.tap() } else { app.buttons["BackButton"].firstMatch.tap() }
@@ -123,16 +133,19 @@ final class VerifyInteractionTests: XCTestCase {
 
         app.buttons["其他交易日"].tap()
         XCTAssertTrue(app.navigationBars["交易日"].waitForExistence(timeout: 5))
-        let older = app.buttons.matching(NSPredicate(format: "label BEGINSWITH '2026-10-22'")).firstMatch
-        XCTAssertTrue(older.waitForExistence(timeout: 5), "交易日清單裡找不到 10/22")
-        older.tap()
-        XCTAssertTrue(app.navigationBars.matching(NSPredicate(format: "identifier CONTAINS '10/22'")).firstMatch.waitForExistence(timeout: 15), "標題沒換成 10/22")
-        sleep(1); snap("B5-older"); note("B5-older", texts(app) + "\n" + app.buttons.allElementsBoundByIndex.map(\.label).joined(separator: "\n"))
+        // Rows are newest first and labelled with the trade date: row 0 is the latest, row 1 the older day we open.
+        let rows = app.buttons.matching(NSPredicate(format: "label MATCHES '^[0-9]{4}-[0-9]{2}-[0-9]{2}.*'"))
+        XCTAssertTrue(rows.element(boundBy: 1).waitForExistence(timeout: 5), "交易日清單不到兩天")
+        let latest = String(rows.element(boundBy: 0).label.prefix(10)), older = String(rows.element(boundBy: 1).label.prefix(10))
+        note("B5-dates", "latest=\(latest) older=\(older)")
+        rows.element(boundBy: 1).tap()
+        XCTAssertTrue(app.navigationBars.matching(NSPredicate(format: "identifier CONTAINS %@", dayPrefix(older))).firstMatch.waitForExistence(timeout: 15), "標題沒換成 \(older)")
+        sleep(1); snap("B5-older"); note("B5-older", "date=\(older)\n" + texts(app) + "\n" + app.buttons.allElementsBoundByIndex.map(\.label).joined(separator: "\n"))
         app.buttons["其他交易日"].tap()
         XCTAssertTrue(app.buttons["回到最新"].waitForExistence(timeout: 5))
         app.buttons["回到最新"].tap()
         if app.buttons["完成"].waitForExistence(timeout: 2) { app.buttons["完成"].tap() }
-        XCTAssertTrue(app.navigationBars.matching(NSPredicate(format: "identifier CONTAINS '10/23'")).firstMatch.waitForExistence(timeout: 15), "回不到最新一天")
+        XCTAssertTrue(app.navigationBars.matching(NSPredicate(format: "identifier CONTAINS %@", dayPrefix(latest))).firstMatch.waitForExistence(timeout: 15), "回不到最新一天 \(latest)")
         snap("B5-latest")
 
         let nvda = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'NVDA、'")).firstMatch
@@ -182,7 +195,10 @@ final class VerifyInteractionTests: XCTestCase {
     func test04_Watchlist() throws {
         let app = try signedIn()
         app.buttons["觀察名單"].tap()
-        XCTAssertTrue(app.staticTexts["7/30 家 · 合計權重 34.01%"].waitForExistence(timeout: 10), texts(app))
+        // The total weight moves with every holdings update: assert only the count, keep the full label for reconciling with /api/v1/watchlist.
+        let seven = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH '7/30 家'")).firstMatch
+        XCTAssertTrue(seven.waitForExistence(timeout: 10), texts(app))
+        note("D1-before", seven.label)
         app.buttons["加入"].tap()
         let search = app.searchFields.firstMatch
         XCTAssertTrue(search.waitForExistence(timeout: 5))
@@ -216,7 +232,8 @@ final class VerifyInteractionTests: XCTestCase {
         let confirm = app.buttons.matching(NSPredicate(format: "label == '移除'"))
         XCTAssertTrue(confirm.element(boundBy: 0).waitForExistence(timeout: 5))
         confirm.allElementsBoundByIndex.last!.tap()
-        XCTAssertTrue(app.staticTexts["7/30 家 · 合計權重 34.01%"].waitForExistence(timeout: 30), "移除後沒回到 7 家")
+        XCTAssertTrue(seven.waitForExistence(timeout: 30), "移除後沒回到 7 家")
+        note("D8-removed", seven.label)
         snap("D8-removed")
         let tsla = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'TSLA'")).firstMatch
         tsla.tap(); sleep(3)
@@ -237,10 +254,15 @@ final class VerifyInteractionTests: XCTestCase {
         snap("E4-rapid"); note("E4-rapid", texts(app))
         app.buttons["全部"].tap(); sleep(2)
         app.buttons["日曆"].tap(); sleep(1)
-        let day = app.buttons.matching(NSPredicate(format: "label CONTAINS '10/28' OR label CONTAINS '10月28日'")).firstMatch
-        XCTAssertTrue(day.waitForExistence(timeout: 5)); note("E5-day-label", day.label)
+        let eventDate = try injectedDate("MO_EVENT_DATE"), today = try injectedDate("MO_TODAY")
+        // The calendar opens on today's month; near month end the next event can be in a later month.
+        let months = (Int(eventDate.prefix(4))! * 12 + Int(eventDate.dropFirst(5).prefix(2))!) - (Int(today.prefix(4))! * 12 + Int(today.dropFirst(5).prefix(2))!)
+        for _ in 0 ..< months { app.buttons["下個月"].tap(); sleep(1) }
+        // Day cells read "10/28（三），有總經事件"; the 接下來 rows start the same but use "、", so exclude those.
+        let day = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@ AND NOT (label CONTAINS '、')", dayPrefix(eventDate))).firstMatch
+        XCTAssertTrue(day.waitForExistence(timeout: 5), "日曆找不到事件日 \(eventDate)"); note("E5-day-label", "date=\(eventDate)\n" + day.label)
         day.tap(); sleep(1)
-        snap("E5-day28"); note("E5-day28", texts(app))
+        snap("E5-day"); note("E5-day", "date=\(eventDate)\n" + texts(app))
         app.buttons["下個月"].tap(); sleep(1); snap("E5-next-month")
         XCTAssertTrue(app.buttons["今天"].waitForExistence(timeout: 3), "換月後沒有「今天」")
         app.buttons["今天"].tap(); sleep(1); snap("E5-today")
@@ -317,8 +339,9 @@ final class VerifyInteractionTests: XCTestCase {
         note("F8-restored", "daily=\(app.switches["每日收盤摘要"].value ?? "nil")\n" + texts(app))
     }
 
-    // G1、G2：/verify 在背景每幾秒送一次 daily.json（date 2026-10-22），這裡等橫幅、點開。
+    // G1、G2：ios-test.sh 在背景每 8 秒送一次 daily.json（date＝MO_PUSH_DATE），這裡等橫幅、點開。
     func test08_PushOpenDaily() throws {
+        let pushDate = try injectedDate("MO_PUSH_DATE")
         let app = try signedIn()
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
         let banner = springboard.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS '收盤'")).firstMatch
@@ -330,11 +353,11 @@ final class VerifyInteractionTests: XCTestCase {
         XCTAssertTrue(banner2.waitForExistence(timeout: 60), "背景沒有看到推播橫幅")
         banner2.tap()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
-        XCTAssertTrue(app.navigationBars.matching(NSPredicate(format: "identifier CONTAINS '10/22'")).firstMatch.waitForExistence(timeout: 15), "點推播沒有打開 10/22 的總覽")
+        XCTAssertTrue(app.navigationBars.matching(NSPredicate(format: "identifier CONTAINS %@", dayPrefix(pushDate))).firstMatch.waitForExistence(timeout: 15), "點推播沒有打開 \(pushDate) 的總覽")
         snap("G2-opened-daily")
     }
 
-    // G3：/verify 在背景送 events.json。
+    // G3：ios-test.sh 在背景送 events.json。
     func test09_PushOpenEvents() throws {
         let app = try signedIn()
         XCUIDevice.shared.press(.home)

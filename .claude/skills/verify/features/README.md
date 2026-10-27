@@ -24,6 +24,7 @@
 - **顏色**：紅＝上漲／正值、綠＝下跌／負值，0 或無資料灰色。
 - **數字**：等於同一帳號 `/api/v1/*` 的值，只容許顯示位數的四捨五入；正負號要對。
 - **版面**：文字不重疊、不被裁掉一半，關鍵數字不能被「…」截斷。
+- **網頁窄螢幕與配色**：登入、走勢（至少 9 家名單）、ETF、展望分別在 320px、360px 與深淺模式截圖；`document.documentElement.scrollWidth === document.documentElement.clientWidth`。深色主要按鈕為深字，secondary 與 chip 仍保留各自覆寫；提示、徽章文字對比至少 4.5:1。走勢 tooltip 用一般字色並附線色小色塊。
 - **反應**：每個操作 15 秒內有可見結果，載入中要有提示。
 - **穩定**：不閃退；每個功能做完 App 仍在前景可操作（`ls ~/Library/Logs/DiagnosticReports | grep -i MarketObservatory` 沒有新檔）。
 - **iOS 深色與大字（H1、H2）**：`simctl ui <UDID> appearance dark` 看五個分頁、`content_size accessibility-large` 看總覽／名單／日曆／ETF；看完改回 `light`、`large`。

@@ -16,5 +16,5 @@ export default defineAuth(({ defaults, env }) => ({
       }
     : {}),
   // App 不常登入：60 天沒用才要重新登入，每天用到時自動延長。
-  session: { ...defaults.session, expiresIn: 60 * 60 * 24 * 60, updateAge: 60 * 60 * 24 },
+  session: { ...defaults.session, expiresIn: 60 * 60 * 24 * 60, updateAge: 60 * 60 * 24, cookieCache: { enabled: true, maxAge: 300 } },
 }));

@@ -2,17 +2,11 @@ import { Link } from "@void/react";
 import type { ReactNode } from "react";
 import { Delta } from "../src/ui/bits.tsx";
 import { dateWithWeekday, num, pctText } from "../src/ui/format.ts";
-import { LIVE_MIN_N, NO_INCREMENTAL_SKILL, PROPORTION_INTERVAL, SKILL_INTERVAL, dd5Definition, dd5ShortLabel, upTargetLabel } from "../src/lib/communication.ts";
+import { FORECAST_CALL, LIVE_MIN_N, NO_INCREMENTAL_SKILL, PROPORTION_INTERVAL, SKILL_INTERVAL, dd5Definition, dd5ShortLabel, upTargetLabel } from "../src/lib/communication.ts";
 import type { Assessments, Evaluation } from "../src/lib/forecast.ts";
 import type { Props } from "./outlook.server";
 
 const pct = (v: number | null | undefined, d = 0) => (v === null || v === undefined || !Number.isFinite(v) ? "—" : `${(v * 100).toFixed(d)}%`);
-
-const CALL: Record<string, [string, string, string]> = {
-  up: ["ok", "高於平常", "目前條件下的上漲機率明顯高於歷史基準（平常），且滾動驗證勝過基準"],
-  down: ["bad", "低於平常", "目前條件下的上漲機率明顯低於歷史基準（平常），且滾動驗證勝過基準"],
-  inconclusive: ["warn", "偵測不到預測力", "目前的訊號不足以把機率拉離歷史基準"],
-};
 
 const BASIS: Record<string, string> = {
   base: "歷史基準率",
@@ -88,7 +82,7 @@ function WalkForwardPanel({ title, target, ev, horizon }: { title: string; targe
 
 function ForecastBlock({ outlook, cells, horizon, minN, minEpisodes, trackPanel, frequency }: { outlook: OutlookData; cells: Props["cells"]; horizon: number; minN: number; minEpisodes: number; trackPanel: ReactNode; frequency: Props["frequency"] }) {
   const { pick, evaluation: ev } = outlook;
-  const [cls, baseLabel, why] = CALL[outlook.call];
+  const [cls, baseLabel, why] = FORECAST_CALL[outlook.call];
   // G08：沒有方向時註明最小可偵測 BSS（標準差為 0 則不寫數字）。
   const label = outlook.call === "inconclusive" && ev.mde !== null ? `偵測不到預測力（最小可偵測 BSS 約 ${ev.mde.toFixed(2)}）` : baseLabel;
   return (
@@ -151,6 +145,12 @@ function ForecastBlock({ outlook, cells, horizon, minN, minEpisodes, trackPanel,
       <span>0%</span>
       <span>50%</span>
       <span>100%</span>
+    </div>
+    <div className="prob-legend prob-key sub">
+      <span><i className="prob-mark now" aria-hidden />目前機率</span>
+      <span><i className="prob-mark base" aria-hidden />歷史基準</span>
+      <span><i className="prob-mid" aria-hidden />50% 中線</span>
+      <span><i className="prob-ci" aria-hidden />歷史比例 95% 區間</span>
     </div>
   </div>
 
@@ -224,7 +224,7 @@ export default function OutlookPage({ outlook, cells, liveTrack, frequency, rece
           <li key={f.date} style={{ display: "flex", gap: ".6rem", alignItems: "center" }}>
             <span style={{ minWidth: "6.5rem" }}>{f.date}</span>
             <span className="num">{pct(f.p)}</span>
-            <span className={`badge ${CALL[f.call]?.[0] ?? ""}`}>{CALL[f.call]?.[1] ?? f.call}</span>
+            <span className={`badge ${FORECAST_CALL[f.call]?.[0] ?? ""}`}>{FORECAST_CALL[f.call]?.[1] ?? f.call}</span>
             <span className="meta" title={f.historyStart ? `樣本起點 ${f.historyStart}` : undefined}>{f.modelVersion ?? "舊版紀錄"}</span>
             <span className="meta" style={{ marginLeft: "auto" }}>{f.up === null ? "待到期" : f.up ? "後來上漲" : "後來下跌"}</span>
           </li>

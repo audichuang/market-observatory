@@ -1,0 +1,56 @@
+{
+  "symbol": null,
+  "keys": [
+    "NVDA",
+    "AAPL",
+    "MSFT",
+    "AMZN",
+    "GOOGL",
+    "META",
+    "TSLA",
+    "SPY"
+  ],
+  "today": "2026-10-28",
+  "news": [
+    {
+      "id": "contract-news",
+      "symbols": "NVDA",
+      "title": "NVIDIA earnings",
+      "url": "https://example.test/news",
+      "publisher": "合成新聞",
+      "published_at": "2026-10-28T23:00:00.000Z",
+      "fetched_at": "2026-10-28T23:00:00.000Z",
+      "title_zh": "NVIDIA 財報更新",
+      "tone": "positive",
+      "category": "earnings",
+      "focus": "company",
+      "points_zh": [
+        "營收成長",
+        "展望更新"
+      ],
+      "important": false
+    }
+  ],
+  "digests": [
+    {
+      "symbol": "NVDA",
+      "date": "2026-10-28",
+      "summary": "合成公司重點",
+      "tone": "positive",
+      "company": "NVIDIA"
+    }
+  ],
+  "events": [
+    {
+      "id": "contract-event",
+      "date": "2026-10-28",
+      "kind": "earnings",
+      "symbol": "NVDA",
+      "title": "NVIDIA 財報",
+      "detail": null,
+      "status": "scheduled",
+      "source_url": "https://example.test/event",
+      "fetched_at": "2026-10-28T23:00:00.000Z"
+    }
+  ]
+}

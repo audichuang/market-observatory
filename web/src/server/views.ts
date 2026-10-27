@@ -80,19 +80,22 @@ export async function overviewView(c: ViewCtx, v: Viewer) {
   });
   const mine = new Set(members.map((m) => m.key));
   // 新聞的 AI 欄位會在使用者點開時才補上、全站共用：不放進頁面快取（快取只在資料版本變時更新），每次讀最新的。
-  const newsRows = await c.env.DB.prepare(`SELECT ${NEWS_COLS} FROM news WHERE symbols != 'SPY' ORDER BY published_at DESC, fetched_at DESC LIMIT 120`).all<NewsRow>();
   const snapshot = shared.snapshot ? { ...shared.snapshot, data: viewForMembers(shared.snapshot.data, members) } : null;
   // 「其他成分股」幾檔：用快照所依據那天的 SPY 持股實算。持股檔偶爾夾帶非股票列（例如 2602335D、權重近 0），含數字的代號不算。
   // 持股檔與這一天相差超過 7 天（看舊日期、權重是從後來的持股推回去的）就不寫檔數，當時的名單不一定一樣。
   const s = snapshot?.data;
   const tickers = s ? s.mag7.flatMap((m) => m.tickers) : [];
-  const rest =
+  const [newsRows, rest, digests, market] = await Promise.all([
+    c.env.DB.prepare(`SELECT ${NEWS_COLS} FROM news WHERE symbols != 'SPY' ORDER BY published_at DESC, fetched_at DESC LIMIT 120`).all<NewsRow>(),
     s?.weights.asOf && Math.abs(Date.parse(s.weights.asOf) - Date.parse(s.tradeDate)) <= 7 * 86400000
-      ? await db
+      ? db
           .prepare(`SELECT COUNT(*) AS n FROM weights WHERE as_of = ? AND weight_pct > 0 AND ticker NOT GLOB '*[0-9]*'${tickers.length ? ` AND ticker NOT IN (${tickers.map(() => "?").join(",")})` : ""}`)
           .bind(s.weights.asOf, ...tickers)
           .first<{ n: number }>()
-      : null;
+      : Promise.resolve(null),
+    s ? latestDigests(c.env.DB, members, s.tradeDate, addDays(s.tradeDate, 1)) : Promise.resolve([]),
+    s ? marketDigest(c.env.DB, s.tradeDate) : Promise.resolve(null),
+  ]);
   return {
     snapshot,
     revisions: shared.revisions,
@@ -107,8 +110,8 @@ export async function overviewView(c: ViewCtx, v: Viewer) {
     restCount: rest?.n ?? null,
     viewingLatest: !date,
     // 名單公司在這個交易日（或之後一天，盤後新聞）的 AI 新聞重點
-    digests: s ? await latestDigests(c.env.DB, members, s.tradeDate, addDays(s.tradeDate, 1)) : [],
-    market: s ? await marketDigest(c.env.DB, s.tradeDate) : null,
+    digests,
+    market,
   };
 }
 
@@ -239,7 +242,7 @@ const twd = (label: string, max: number, maxText: string) =>
     .max(max, `${label}最多 ${maxText}`);
 
 export const PlanSchema = z.object({
-  monthlyTwd: twd("每月金額", PLAN_LIMITS.monthlyMaxTwd, "1000 萬"),
+  monthlyTwd: twd("每月金額", PLAN_LIMITS.monthlyMaxTwd, "1000 萬").min(1, "每月金額至少 1 元"),
   etf: z.string({ error: "請選擇 ETF" }).refine((t) => ETFS.some((e) => e.ticker === t), "未知的 ETF"),
   years: z.number({ error: "期間要是數字" }).int("期間要是 1、2、3 或 5 年").refine((n) => [1, 2, 3, 5].includes(n), "期間要是 1、2、3 或 5 年"),
   researchBudgetTwd: twd("加碼研究預算", PLAN_LIMITS.amountMaxTwd, "10 億"),
@@ -267,10 +270,12 @@ const PERIODS = [
 export async function etfsView(c: ViewCtx, v: Viewer) {
   const db = readDb(c.env);
   // 定投規劃每人一份，存檔後要立刻看到：讀主庫，不走快取。
-  const plan = await getViewerSetting<Plan>(c.env.DB, v, PLAN_KEY, DEFAULT_PLAN);
+  const savedPlan = await getViewerSetting<Plan>(c.env.DB, v, PLAN_KEY, DEFAULT_PLAN);
+  // Earlier versions accepted zero monthly contributions; keep the rest of that saved plan intact.
+  const plan = savedPlan.monthlyTwd === 0 ? { ...savedPlan, monthlyTwd: DEFAULT_PLAN.monthlyTwd } : savedPlan;
   const etf = ETFS.some((e) => e.ticker === c.req.query("etf")) ? (c.req.query("etf") as string) : plan.etf;
   const years = [1, 2, 3, 5].includes(Number(c.req.query("years"))) ? Number(c.req.query("years")) : plan.years;
-  const monthlyTwd = Number(c.req.query("monthly")) > 0 ? Math.min(Number(c.req.query("monthly")), PLAN_LIMITS.monthlyMaxTwd) : plan.monthlyTwd;
+  const monthlyTwd = Number(c.req.query("monthly")) > 0 ? Math.max(1, Math.round(Math.min(Number(c.req.query("monthly")), PLAN_LIMITS.monthlyMaxTwd))) : plan.monthlyTwd;
   const computed = await cachedPage(cacheCtx(c), db, `etfs?etf=${etf}&years=${years}&monthly=${monthlyTwd}`, async () => {
     const last = await db.prepare("SELECT MAX(date) AS d FROM prices WHERE symbol = ?").bind(INDEX_SYMBOL).first<{ d: string | null }>();
     const end = last?.d ?? new Date().toISOString().slice(0, 10);
@@ -349,7 +354,7 @@ export async function newsView(c: ViewCtx, v: Viewer) {
   const symbol = keys.includes(c.req.query("symbol") ?? "") ? (c.req.query("symbol") as string) : null;
   const today = new Date().toISOString().slice(0, 10);
   // 事件日曆是全站共用、依資料版本快取；新聞的 AI 欄位會在使用者點開時才補上，不進快取，每次讀最新的。
-  const events = await cachedPage(cacheCtx(c), db, `news-events?today=${today}`, async () =>
+  const eventsTask = cachedPage(cacheCtx(c), db, `news-events?today=${today}`, async () =>
     (
       await db
         .prepare("SELECT * FROM events WHERE date >= ? AND date <= ? ORDER BY date, kind")
@@ -359,18 +364,19 @@ export async function newsView(c: ViewCtx, v: Viewer) {
   );
   // 不指定代號時只列自己名單上（與大盤 SPY）的新聞。
   const like = keys.map(() => "',' || symbols || ',' LIKE ?").join(" OR ");
-  const news = symbol
-    ? await c.env.DB.prepare(`SELECT ${NEWS_COLS} FROM news WHERE ',' || symbols || ',' LIKE ? ORDER BY published_at DESC, fetched_at DESC LIMIT 60`).bind(`%,${symbol},%`).all<NewsRow>()
-    : await c.env.DB.prepare(`SELECT ${NEWS_COLS} FROM news WHERE ${like} ORDER BY published_at DESC, fetched_at DESC LIMIT 120`).bind(...keys.map((k) => `%,${k},%`)).all<NewsRow>();
+  const newsTask = symbol
+    ? c.env.DB.prepare(`SELECT ${NEWS_COLS} FROM news WHERE ',' || symbols || ',' LIKE ? ORDER BY published_at DESC, fetched_at DESC LIMIT 60`).bind(`%,${symbol},%`).all<NewsRow>()
+    : c.env.DB.prepare(`SELECT ${NEWS_COLS} FROM news WHERE ${like} ORDER BY published_at DESC, fetched_at DESC LIMIT 120`).bind(...keys.map((k) => `%,${k},%`)).all<NewsRow>();
   // 指定代號時，「重要」是這則真的在講那家公司
   const important = importanceFor(members, symbol);
   const digestMembers = symbol ? members.filter((m) => m.key === symbol) : members;
+  const [events, news, digests] = await Promise.all([eventsTask, newsTask, latestDigests(c.env.DB, digestMembers, addDays(today, -3))]);
   return {
     symbol,
     keys,
     today,
     news: news.results.map((n) => newsOut(n, important(n))),
-    digests: await latestDigests(c.env.DB, digestMembers, addDays(today, -3)),
+    digests,
     events: events.filter((e) => e.kind !== "earnings" || (e.symbol !== null && keys.includes(e.symbol))),
   };
 }

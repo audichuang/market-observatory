@@ -1,4 +1,5 @@
 import XCTest
+import Vision
 
 /// /verify 技能用的互動測試：walkthrough 只逐頁截圖，這裡實際操作（切換、輸入、左滑、對話框、存設定再讀回）。
 /// 環境變數同 WalkthroughTests（TEST_RUNNER_MO_BASE_URL／EMAIL／PASSWORD／SHOTS）。每個 test 把看到的值寫成
@@ -20,20 +21,33 @@ final class VerifyInteractionTests: XCTestCase {
         try? text.write(to: shots.appendingPathComponent("\(name).txt"), atomically: true, encoding: .utf8)
     }
 
+    private func assertVisibleMarketTitle(_ size: String) throws {
+        // Accessibility labels retain truncated text; recognize the pixels the user actually sees.
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.recognitionLanguages = ["zh-Hant", "en-US"]
+        try VNImageRequestHandler(data: XCUIScreen.main.screenshot().pngRepresentation).perform([request])
+        let visible = (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }
+            .joined().filter { !$0.isWhitespace }
+        note("B12-title-ocr-\(size)", visible)
+        XCTAssertTrue(visible.contains("今天為什麼漲跌"), "市場摘要標題在實際畫面中不完整：\(visible)")
+    }
+
     /// 畫面上所有文字（staticTexts 的 label），給對帳用。
     private func texts(_ app: XCUIApplication) -> String {
         app.staticTexts.allElementsBoundByIndex.map(\.label).filter { !$0.isEmpty }.joined(separator: "\n")
     }
 
-    private func launch() -> XCUIApplication {
+    private func launch(arguments: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
+        app.launchArguments += arguments
         if let base = env["MO_BASE_URL"], !base.isEmpty { app.launchArguments += ["-debugBaseURL", base] }
         app.launch()
         return app
     }
 
-    private func signedIn() throws -> XCUIApplication {
-        let app = launch()
+    private func signedIn(arguments: [String] = []) throws -> XCUIApplication {
+        let app = launch(arguments: arguments)
         let email = app.textFields["email"]
         if email.waitForExistence(timeout: 5) {
             email.tap(); email.typeText(try XCTUnwrap(env["MO_EMAIL"]))
@@ -369,6 +383,114 @@ final class VerifyInteractionTests: XCTestCase {
         XCTAssertTrue(app.buttons["日曆"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.buttons["日曆"].isSelected, "點事件推播沒切到日曆")
         snap("G3-opened-events")
+    }
+
+    // G4: Run alone; ios-test.sh sends daily.json while the watchlist sheet is open.
+    func test13_PushDismissesWatchlist() throws {
+        let pushDate = try injectedDate("MO_PUSH_DATE")
+        let app = try signedIn()
+        tab(app, "總覽")
+        XCTAssertTrue(app.buttons["其他交易日"].waitForExistence(timeout: 15))
+        app.buttons["其他交易日"].tap()
+        let latestRow = app.buttons.matching(NSPredicate(format: "label MATCHES '^[0-9]{4}-[0-9]{2}-[0-9]{2}.*'")).firstMatch
+        XCTAssertTrue(latestRow.waitForExistence(timeout: 5))
+        let latestDate = String(latestRow.label.prefix(10))
+        XCTAssertNotEqual(latestDate, pushDate, "推播必須指向不同日期")
+        let latest = app.buttons["回到最新"]
+        XCTAssertTrue(latest.waitForExistence(timeout: 5))
+        if latest.isEnabled { latest.tap() } else { app.buttons["完成"].tap() }
+        XCTAssertTrue(app.navigationBars.matching(NSPredicate(format: "identifier CONTAINS %@", dayPrefix(latestDate))).firstMatch.waitForExistence(timeout: 15))
+        let oldTitle = app.navigationBars.matching(NSPredicate(format: "identifier CONTAINS %@", dayPrefix(pushDate))).firstMatch
+        XCTAssertFalse(oldTitle.exists, "推播日期必須不同於目前最新日期，否則驗不到切換")
+        XCTAssertTrue(app.buttons["觀察名單"].waitForExistence(timeout: 15))
+        app.buttons["觀察名單"].tap()
+        let sheet = app.navigationBars["觀察名單"]
+        XCTAssertTrue(sheet.waitForExistence(timeout: 10), "觀察名單 sheet 沒有打開")
+        snap("G4-sheet-before-push")
+        try "sheet-open\n".write(to: shots.appendingPathComponent("G4-push-ready.txt"), atomically: true, encoding: .utf8)
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        let banner = springboard.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS '收盤'")).firstMatch
+        XCTAssertTrue(banner.waitForExistence(timeout: 60), "沒有收到 daily 推播；請單獨跑 test13")
+        XCTAssertTrue(sheet.exists, "點推播前 sheet 已關閉，沒有測到遮擋情境")
+        banner.tap()
+        XCTAssertTrue(oldTitle.waitForExistence(timeout: 15), "點推播沒有打開 \(pushDate) 的總覽")
+        XCTAssertTrue(sheet.waitForNonExistence(timeout: 10), "點推播後觀察名單 sheet 仍擋住總覽")
+        snap("G4-sheet-dismissed"); note("G4-sheet-dismissed", "date=\(pushDate)\n" + texts(app))
+    }
+
+    // B11: While the app is on Home, the verifier backfills a newer day on this local site.
+    // The test fails if no genuinely newer API snapshot arrives within 120 seconds.
+    func test14_ForegroundLoadsNewTradingDay() async throws {
+        let app = try signedIn(arguments: ["-verifyOverviewRefreshInterval", "0"])
+        tab(app, "總覽")
+        let base = try XCTUnwrap(env["MO_BASE_URL"].flatMap(URL.init(string:)))
+        XCTAssertTrue(["localhost", "127.0.0.1"].contains(base.host ?? ""), "只能對本機驗證站回補，禁止正式站")
+        let probe = URLSession(configuration: .ephemeral)
+        defer { probe.invalidateAndCancel() }
+        var signIn = URLRequest(url: base.appendingPathComponent("api/auth/sign-in/email"))
+        signIn.httpMethod = "POST"
+        signIn.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        signIn.setValue(base.absoluteString, forHTTPHeaderField: "Origin")
+        signIn.httpBody = try JSONSerialization.data(withJSONObject: [
+            "email": try XCTUnwrap(env["MO_EMAIL"]), "password": try XCTUnwrap(env["MO_PASSWORD"])
+        ])
+        let (_, response) = try await probe.data(for: signIn)
+        XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200, "測試 probe 登入失敗")
+        let before = try await overviewDate(probe, base: base)
+        XCTAssertTrue(app.navigationBars.matching(NSPredicate(format: "identifier CONTAINS %@", dayPrefix(before))).firstMatch.waitForExistence(timeout: 15))
+        XCUIDevice.shared.press(.home)
+        XCTAssertTrue(app.wait(for: .runningBackground, timeout: 10))
+        note("B11-ready", "before=\(before)\n請現在回補本機站的新交易日；test 最多等 120 秒。")
+        snap("B11-background")
+        let deadline = Date().addingTimeInterval(120)
+        var after = before
+        while after <= before && Date() < deadline {
+            try await Task.sleep(for: .seconds(1))
+            after = try await overviewDate(probe, base: base)
+        }
+        XCTAssertGreaterThan(after, before, "本機站未在 120 秒內回補新交易日；不算通過")
+        app.activate()
+        XCTAssertTrue(app.navigationBars.matching(NSPredicate(format: "identifier CONTAINS %@", dayPrefix(after))).firstMatch.waitForExistence(timeout: 15), "回前景後沒有自動更新到 \(after)")
+        snap("B11-foreground-updated"); note("B11-foreground-updated", "before=\(before) after=\(after)\n" + texts(app))
+    }
+
+    // T8: The local fixture must contain market and company digests with positive/negative tones.
+    func test15_DigestToneLabels() throws {
+        for (size, arguments) in [
+            ("normal", [String]()),
+            ("largest", ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
+        ] {
+            let app = try signedIn(arguments: arguments)
+            tab(app, "總覽")
+            let market = app.descendants(matching: .any)["market-digest"].firstMatch
+            reveal(app, market)
+            XCTAssertTrue(market.waitForExistence(timeout: 10), "缺少市場摘要 fixture")
+            XCTAssertTrue(market.label.contains("利多") || market.label.contains("利空"), "市場摘要沒有可朗讀的利多／利空標示")
+            snap("B12-tone-\(size)"); note("B12-tone-\(size)", market.label)
+            try assertVisibleMarketTitle(size)
+            tab(app, "新聞")
+            let digest = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'news-digest-' AND (label CONTAINS '利多' OR label CONTAINS '利空')")).firstMatch
+            reveal(app, digest)
+            XCTAssertTrue(digest.waitForExistence(timeout: 10), "缺少帶利多／利空的公司摘要 fixture，或摘要沒有標示")
+            XCTAssertTrue(app.staticTexts["利多"].firstMatch.exists || app.staticTexts["利空"].firstMatch.exists, "畫面上找不到利多／利空文字標籤")
+            snap("E9-tone-\(size)"); note("E9-tone-\(size)", digest.label)
+            XCTAssertTrue(app.buttons["全部"].isSelected, "全部 chip 沒有 selected trait")
+            let symbol = String(digest.identifier.dropFirst("news-digest-".count))
+            let chip = app.buttons[symbol]
+            reveal(app, chip, up: false).tap()
+            XCTAssertTrue(chip.isSelected, "股票 chip 選取後沒有 selected trait")
+            app.terminate()
+        }
+    }
+
+    private func overviewDate(_ session: URLSession, base: URL) async throws -> String {
+        struct ProbeOverview: Decodable {
+            struct Snapshot: Decodable { let tradeDate: String }
+            let snapshot: Snapshot
+        }
+        let (data, response) = try await session.data(from: base.appendingPathComponent("api/v1/overview"))
+        XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200, "讀本機總覽失敗")
+        return try JSONDecoder().decode(ProbeOverview.self, from: data).snapshot.tradeDate
     }
 
     // Z1、A5、A2：登出、錯誤密碼、短密碼，最後用正確密碼登入回來。

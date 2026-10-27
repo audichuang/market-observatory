@@ -12,13 +12,22 @@ export const POST = defineHandler.withValidator({
   const v = requireViewer(c);
   const now = nowIso();
   // 同一台裝置換了帳號：token 一樣、改掛到新帳號。
-  await c.env.DB.prepare(
-    `INSERT INTO devices (token, user_id, list_key, environment, app_version, created_at, updated_at, last_error) VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
+  const db = c.env.DB;
+  const token = body.token.toLowerCase();
+  await db.batch([
+    db.prepare(
+      `INSERT INTO devices (token, user_id, list_key, environment, app_version, created_at, updated_at, last_error) VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
      ON CONFLICT(token) DO UPDATE SET user_id = excluded.user_id, list_key = excluded.list_key, environment = excluded.environment,
-       app_version = excluded.app_version, updated_at = excluded.updated_at, last_error = NULL`,
-  )
-    .bind(body.token.toLowerCase(), v.id, watchlistKey(v), body.environment, body.appVersion ?? null, now, now)
-    .run();
+       app_version = excluded.app_version, updated_at = excluded.updated_at,
+       last_error = CASE WHEN devices.environment = excluded.environment AND devices.user_id = excluded.user_id THEN devices.last_error ELSE NULL END`,
+    )
+      .bind(token, v.id, watchlistKey(v), body.environment, body.appVersion ?? null, now, now),
+    db.prepare(
+      `DELETE FROM devices WHERE user_id = ? AND token NOT IN (
+        SELECT token FROM devices WHERE user_id = ? ORDER BY updated_at DESC, token = ? DESC, rowid DESC LIMIT 10
+      )`,
+    ).bind(v.id, v.id, token),
+  ]);
   return { registered: true };
 });
 

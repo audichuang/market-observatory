@@ -1,0 +1,489 @@
+{
+  "outlook": {
+    "modelVersion": "2026-10-l01",
+    "asOf": "2026-10-28",
+    "horizonDays": 21,
+    "regime": {
+      "aboveSma200": true,
+      "vixStress": false
+    },
+    "close": 2843.087531502697,
+    "sma200": 2598.4367398129452,
+    "vix": 21.71131155710019,
+    "historyStart": "2024-02-21",
+    "pick": {
+      "p": 0.65,
+      "basis": "base",
+      "cell": "base",
+      "base": {
+        "p": 0.65,
+        "days": 680,
+        "nEff": 32.38095238095238,
+        "episodes": 1,
+        "low": 0.47794849042835175,
+        "high": 0.790234867059012
+      },
+      "conditional": null,
+      "distinct": false,
+      "shrinkWeight": 0
+    },
+    "evaluation": {
+      "points": 8,
+      "hitRate": null,
+      "baseHitRate": null,
+      "brier": null,
+      "brierBase": null,
+      "bss": null,
+      "bssLow": null,
+      "bssHigh": null,
+      "firstDate": null,
+      "lastDate": null,
+      "mde": null,
+      "byCell": []
+    },
+    "cellGate": {
+      "rows": 0,
+      "runs": 0,
+      "bssLow": null,
+      "validReplicates": 0,
+      "passed": false
+    },
+    "drawdown": {
+      "pick": {
+        "p": 0,
+        "basis": "base",
+        "cell": "base",
+        "base": {
+          "p": 0,
+          "days": 680,
+          "nEff": 32.38095238095238,
+          "episodes": 1,
+          "low": 0,
+          "high": 0.10605547504212057
+        },
+        "conditional": null,
+        "distinct": false,
+        "shrinkWeight": 0
+      },
+      "evaluation": {
+        "points": 8,
+        "hitRate": null,
+        "baseHitRate": null,
+        "brier": null,
+        "brierBase": null,
+        "bss": null,
+        "bssLow": null,
+        "bssHigh": null,
+        "firstDate": null,
+        "lastDate": null,
+        "mde": null,
+        "byCell": []
+      },
+      "cellGate": {
+        "rows": 0,
+        "runs": 0,
+        "bssLow": null,
+        "validReplicates": 0,
+        "passed": false
+      },
+      "scored": false
+    },
+    "returnQuantiles": {
+      "cell": {
+        "p10": -0.026073578416828058,
+        "p50": 0.022860720833812076,
+        "p90": 0.07319579166333355,
+        "n": 680
+      },
+      "all": {
+        "p10": -0.026073578416828058,
+        "p50": 0.022860720833812076,
+        "p90": 0.07319579166333355,
+        "n": 680
+      }
+    },
+    "call": "inconclusive",
+    "assessments": {
+      "difference": {
+        "status": "fail",
+        "condP": null,
+        "baseP": 0.65,
+        "low": null,
+        "high": null
+      },
+      "sampleAdequacy": {
+        "status": "na",
+        "nEff": null,
+        "episodes": null,
+        "rows": 0,
+        "runs": 0
+      },
+      "trackRecord": {
+        "status": "na",
+        "cellBssLow": null,
+        "cellMde": null,
+        "globalBss": null,
+        "globalBssLow": null
+      },
+      "dataFreshness": {
+        "status": "pass",
+        "spxDate": "2026-10-28",
+        "vixDate": "2026-10-28",
+        "staleSessions": 0
+      }
+    },
+    "globalCaveat": "整體滾動驗證的預測次數不足 12 次",
+    "reasons": [
+      "目前條件下的上漲比例，信賴區間包含歷史基準率（或樣本不足），看不出差別"
+    ]
+  },
+  "cells": [
+    {
+      "label": "全部（基準率）",
+      "current": true,
+      "rate": {
+        "p": 0.65,
+        "low": 0.47794849042835175,
+        "high": 0.790234867059012,
+        "nEff": 32.38095238095238,
+        "episodes": 1,
+        "days": 680
+      }
+    },
+    {
+      "label": "站上 200 日線",
+      "current": true,
+      "rate": {
+        "p": 0.65,
+        "low": 0.47794849042835175,
+        "high": 0.790234867059012,
+        "nEff": 32.38095238095238,
+        "episodes": 1,
+        "days": 680
+      }
+    },
+    {
+      "label": "跌破 200 日線",
+      "current": false,
+      "rate": null
+    },
+    {
+      "label": "VIX < 30",
+      "current": true,
+      "rate": {
+        "p": 0.5714285714285714,
+        "low": 0.36690727596057304,
+        "high": 0.7541504049979616,
+        "nEff": 21.333333333333332,
+        "episodes": 6,
+        "days": 448
+      }
+    },
+    {
+      "label": "VIX ≥ 30",
+      "current": false,
+      "rate": {
+        "p": 0.8017241379310345,
+        "low": 0.5069086676335239,
+        "high": 0.9408425975836225,
+        "nEff": 11.047619047619047,
+        "episodes": 6,
+        "days": 232
+      }
+    },
+    {
+      "label": "站上 200 日線，VIX < 30",
+      "current": true,
+      "rate": {
+        "p": 0.5714285714285714,
+        "low": 0.36690727596057304,
+        "high": 0.7541504049979616,
+        "nEff": 21.333333333333332,
+        "episodes": 6,
+        "days": 448
+      }
+    },
+    {
+      "label": "站上 200 日線，VIX ≥ 30",
+      "current": false,
+      "rate": {
+        "p": 0.8017241379310345,
+        "low": 0.5069086676335239,
+        "high": 0.9408425975836225,
+        "nEff": 11.047619047619047,
+        "episodes": 6,
+        "days": 232
+      }
+    },
+    {
+      "label": "跌破 200 日線，VIX < 30",
+      "current": false,
+      "rate": null
+    },
+    {
+      "label": "跌破 200 日線，VIX ≥ 30",
+      "current": false,
+      "rate": null
+    }
+  ],
+  "track": {
+    "n": 1,
+    "brier": 0.09000000000000002,
+    "brierBase": 0.16000000000000003,
+    "upShare": 1
+  },
+  "liveTrack": {
+    "n": 1,
+    "resolvedAll": 1,
+    "tooFew": true,
+    "bss": null,
+    "brier": 0.09000000000000002,
+    "brierBase": 0.16000000000000003,
+    "upShare": 1
+  },
+  "frequency": {
+    "up": "尚未偵測到增額預測力；平常是每 100 次有 65 次 21 個交易日後收高",
+    "dd5": "尚未偵測到條件與平常的差別；平常是每 100 次有 0 次 21 個交易日內至少有一天收盤比起點低 5% 以上"
+  },
+  "recent": [
+    {
+      "date": "2026-09-17",
+      "p": 0.7,
+      "base": 0.6,
+      "call": "up",
+      "close": 1000,
+      "modelVersion": "2026-10-l01",
+      "historyStart": "2023-05-18",
+      "resolvedOn": "2026-10-16",
+      "up": true
+    }
+  ],
+  "consensus": {
+    "symbols": 1,
+    "coveredWeightPct": 6,
+    "impliedUpsidePct": 19.999999999999996,
+    "buyPct": 76.92307692307692,
+    "revisionBreadth": 0.6,
+    "oldest": "2026-10-28",
+    "newest": "2026-10-28",
+    "top": [
+      {
+        "symbol": "NVDA",
+        "asOf": "2026-10-28",
+        "price": 100,
+        "targetMean": 120,
+        "buy": 10,
+        "hold": 2,
+        "sell": 1,
+        "epsUp": 4,
+        "epsDown": 1,
+        "weightPct": 6,
+        "upsidePct": 19.999999999999996
+      }
+    ],
+    "impliedIndexTarget": 3411.7050378032363
+  },
+  "factset": [],
+  "strategists": {
+    "list": [
+      {
+        "firm": "Yardeni Research",
+        "institution": "Yardeni Research",
+        "department": "research",
+        "target": 7900,
+        "horizon": "2026 年底",
+        "asOf": "2026-09-15",
+        "sourceUrl": "https://www.yardeniquicktakes.com/proceed-with-caution/",
+        "verified": true,
+        "verifiedOn": "2026-10-27",
+        "note": "由 8,400 下調；8,400 移到 2027 年中",
+        "horizonType": "year_end",
+        "inMedian": true,
+        "stale": false
+      },
+      {
+        "firm": "Citi",
+        "institution": "Citi",
+        "department": "research",
+        "target": 8100,
+        "horizon": "2026 年底",
+        "asOf": "2026-09",
+        "sourceUrl": "https://finance.yahoo.com/markets/stocks/articles/where-p-500-end-2026-042351442.html",
+        "verified": false,
+        "horizonType": "year_end",
+        "inMedian": true,
+        "stale": false
+      },
+      {
+        "firm": "HSBC",
+        "institution": "HSBC",
+        "department": "research",
+        "target": 8100,
+        "horizon": "2026 年底",
+        "asOf": "2026-09",
+        "sourceUrl": "https://finance.yahoo.com/markets/stocks/articles/hsbc-raises-2026-p-500-154300501.html",
+        "verified": false,
+        "horizonType": "year_end",
+        "inMedian": true,
+        "stale": false
+      },
+      {
+        "firm": "Goldman Sachs",
+        "institution": "Goldman Sachs",
+        "department": "research",
+        "target": 8000,
+        "horizon": "2026 年底",
+        "asOf": "2026-08",
+        "sourceUrl": "https://www.galvnews.com/news_reuters/business/factbox-major-brokerages-forecasts-for-s-p-500-index-in-2026/article_7275084d-b0f7-55d9-b162-d22b116e17fd.html",
+        "verified": false,
+        "horizonType": "year_end",
+        "inMedian": true,
+        "stale": true
+      },
+      {
+        "firm": "Deutsche Bank",
+        "institution": "Deutsche Bank",
+        "department": "research",
+        "target": 8000,
+        "horizon": "2026 年底",
+        "asOf": "2026-08",
+        "sourceUrl": "https://www.galvnews.com/news_reuters/business/factbox-major-brokerages-forecasts-for-s-p-500-index-in-2026/article_7275084d-b0f7-55d9-b162-d22b116e17fd.html",
+        "verified": false,
+        "horizonType": "year_end",
+        "inMedian": true,
+        "stale": true
+      },
+      {
+        "firm": "JPMorgan",
+        "institution": "JPMorgan",
+        "department": "research",
+        "target": 8000,
+        "horizon": "2026 年底",
+        "asOf": "2026-09",
+        "sourceUrl": "https://www.cnbc.com/2026/06/24/jpmorgan-hikes-2026-sp-500-target-but-sees-hurdles-ahead-for-stocks.html",
+        "verified": false,
+        "note": "6 月由 7,200 調到 7,800，之後再到 8,000",
+        "horizonType": "year_end",
+        "inMedian": true,
+        "stale": false
+      },
+      {
+        "firm": "Barclays",
+        "institution": "Barclays",
+        "department": "research",
+        "target": 7950,
+        "horizon": "2026 年底",
+        "asOf": "2026-09-09",
+        "sourceUrl": "https://www.cnbc.com/2026/09/09/barclays-raises-sp-500-year-end-target-citing-standout-earnings-driven-by-ai.html",
+        "verified": false,
+        "note": "由 7,800 上調",
+        "horizonType": "year_end",
+        "inMedian": true,
+        "stale": true
+      },
+      {
+        "firm": "Wells Fargo Securities",
+        "institution": "Wells Fargo",
+        "department": "research",
+        "target": 7950,
+        "horizon": "2026 年底",
+        "asOf": "2026-08",
+        "sourceUrl": "https://www.galvnews.com/news_reuters/business/factbox-major-brokerages-forecasts-for-s-p-500-index-in-2026/article_7275084d-b0f7-55d9-b162-d22b116e17fd.html",
+        "verified": false,
+        "horizonType": "year_end",
+        "inMedian": true,
+        "stale": true
+      },
+      {
+        "firm": "Wells Fargo Investment Institute",
+        "institution": "Wells Fargo",
+        "department": "wealth_management",
+        "target": 7900,
+        "targetLow": 7800,
+        "targetHigh": 8000,
+        "targetIsMidpoint": true,
+        "horizon": "2026 年底",
+        "asOf": "2026-06-15",
+        "sourceUrl": "https://fa.wellsfargoadvisors.com/michele-kief/mediahandler/media/813828/institute_alert_061526.pdf",
+        "verified": true,
+        "verifiedOn": "2026-10-27",
+        "note": "公布區間 7,800–8,000；7,900 為區間中點，不是點估計",
+        "horizonType": "year_end",
+        "inMedian": false,
+        "stale": true
+      },
+      {
+        "firm": "UBS GWM",
+        "institution": "UBS",
+        "department": "wealth_management",
+        "target": 8100,
+        "horizon": "2026 年底",
+        "asOf": "2026-09-16",
+        "sourceUrl": "https://www.ubs.com/global/en/wealthmanagement/insights/chief-investment-office/house-view/daily/2026/latest-16092026.html",
+        "verified": true,
+        "verifiedOn": "2026-10-27",
+        "note": "9/16 為發布／重申日，不一定是首次調整日",
+        "horizonType": "year_end",
+        "inMedian": false,
+        "stale": false
+      },
+      {
+        "firm": "Evercore ISI",
+        "institution": "Evercore ISI",
+        "department": "research",
+        "target": 7750,
+        "horizon": "2026 年底",
+        "asOf": "2026-08",
+        "sourceUrl": "https://www.galvnews.com/news_reuters/business/factbox-major-brokerages-forecasts-for-s-p-500-index-in-2026/article_7275084d-b0f7-55d9-b162-d22b116e17fd.html",
+        "verified": false,
+        "horizonType": "year_end",
+        "inMedian": true,
+        "stale": true
+      },
+      {
+        "firm": "UBS Global Research",
+        "institution": "UBS",
+        "department": "research",
+        "target": 7500,
+        "horizon": "2026 年底",
+        "asOf": "2026-08",
+        "sourceUrl": "https://www.galvnews.com/news_reuters/business/factbox-major-brokerages-forecasts-for-s-p-500-index-in-2026/article_7275084d-b0f7-55d9-b162-d22b116e17fd.html",
+        "verified": false,
+        "horizonType": "year_end",
+        "inMedian": true,
+        "stale": true
+      },
+      {
+        "firm": "BofA",
+        "institution": "BofA",
+        "department": "research",
+        "target": 7100,
+        "horizon": "2026 年底",
+        "asOf": "2026-09",
+        "sourceUrl": "https://finance.yahoo.com/markets/stocks/articles/where-p-500-end-2026-042351442.html",
+        "verified": false,
+        "note": "目前最保守",
+        "horizonType": "year_end",
+        "inMedian": true,
+        "stale": false
+      }
+    ],
+    "median": 7950,
+    "medianCount": 11,
+    "medianRule": "中位數只算年底目標，一家一票：同一家同時有研究部門與財富管理部門時以研究部門為準，財富管理的數字照列但不計入；沒有研究部門才用財富管理的數字。",
+    "staleAfterDays": 45,
+    "checked": "2026-10-25",
+    "medianUpsidePct": 179.62558000449866,
+    "close": 2843.087531502697,
+    "poll": {
+      "median": 7900,
+      "respondents": 46,
+      "surveyed": "2026-08-12～08-25",
+      "sourceUrl": "https://www.roic.ai/news/wall-streets-2026-target-sp-500-seen-hitting-7900-08-26-2026"
+    },
+    "factsetUrl": "https://www.factset.com/earningsinsight"
+  },
+  "horizon": 21,
+  "minN": 30,
+  "minEpisodes": 8
+}

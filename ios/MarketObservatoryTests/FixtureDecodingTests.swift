@@ -13,6 +13,24 @@ private func decodeFixture<T: Decodable>(_ name: String, as type: T.Type) throws
 }
 
 struct FixtureDecodingTests {
+    @Test func generatedOverview() throws {
+        let p = try decodeFixture("generated-overview", as: Overview.self)
+        #expect(p.snapshot != nil && p.forecast?.drawdown != nil)
+    }
+    @Test func generatedHistory() throws { _ = try decodeFixture("generated-history", as: History.self) }
+    @Test func generatedNews() throws { _ = try decodeFixture("generated-news", as: NewsPage.self) }
+    @Test func generatedWatchlist() throws { _ = try decodeFixture("generated-watchlist", as: Watchlist.self) }
+    @Test func generatedEtfs() throws {
+        let p = try decodeFixture("generated-etfs", as: Etfs.self)
+        #expect(p.dca != nil)
+        #expect(p.rows.first { $0.ticker == "SSO" }?.drift1y != nil)
+    }
+    @Test func generatedOutlook() throws {
+        let p = try decodeFixture("generated-outlook", as: OutlookPage.self)
+        #expect(p.outlook?.drawdown != nil)
+        #expect(p.strategists?.staleAfterDays == 45)
+        #expect(p.strategists?.list.contains { $0.targetLow != nil && $0.verifiedOn != nil } == true)
+    }
     @Test func me() throws { _ = try decodeFixture("me", as: Me.self) }
     @Test func overview() throws { _ = try decodeFixture("overview", as: Overview.self) }
     @Test func history() throws { _ = try decodeFixture("history", as: History.self) }

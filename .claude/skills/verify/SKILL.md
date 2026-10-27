@@ -119,6 +119,7 @@ printf '%s' 'verify-<run-id>-pw' > "$RUN/user.pw"; chmod 600 "$RUN/user.pw"
 | `test06_EtfsPlan` | F2 期間、F3 試算、F3b 設為預設再讀回、F4 出場漲幅 150、F5 每批投入 |
 | `test07_PushPrefs` | F8 關每日摘要、門檻 ±6.0%，離開再進來讀回，再改回 |
 | `test08_PushOpenDaily`、`test09_PushOpenEvents` | G1 前景橫幅、G2／G3 背景點開推播（要 shell 送推播，見下） |
+| `test12_Outlook` | H1 展望頁從上捲到底逐段截圖（`H1-outlook-NN.png`），斷言 dd5 與上漲兩個驗證區塊都在；文字存 `H1-outlook.txt` |
 | `test10_SignOutAndErrors` | Z1 登出、A5 錯誤密碼、A2 短密碼，最後用正確密碼登回 |
 
 每個 test 把看到的畫面文字寫成 `<ID>.txt`（例如 `B5-older.txt`、`D2-added.txt`），拿去跟同帳號的 `/api/v1/*` 對帳。這些 test 寫死了寫測試當時本機站的資料（`2026-10-22`／`10/23` 交易日、`7/30 家 · 合計權重 34.01%`、事件日 10/28）；資料日期不同時先改 test 裡的字串，否則會 fail 在找不到元素。

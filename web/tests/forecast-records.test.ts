@@ -1,11 +1,11 @@
 // G02：預測紀錄寫入後不可改、可追溯；VIX 過期時頁面仍要有不依賴預測的區塊，排程回報 partial。
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { after, before, test } from "node:test";
 import { Series } from "../src/lib/analytics.ts";
 import { DEFAULT_MODEL, buildOutlook } from "../src/lib/forecast.ts";
 import { forecastNeedsAttention, recordForecast, runJob } from "../src/server/jobs.ts";
 import { outlookView } from "../src/server/outlook.ts";
-import { migratedDb, weekdays } from "./helpers/fake-cloudflare.ts";
+import { FakeUpstream, fakeClose, migratedDb, weekdays } from "./helpers/fake-cloudflare.ts";
 
 const N = 900;
 
@@ -171,4 +171,78 @@ test("(d) 第二次呼叫什麼都不做", async () => {
   assert.deepEqual(r.recorded, []);
   assert.equal(r.outcome, "exists");
   assert.deepEqual(sql.prepare("SELECT * FROM forecasts ORDER BY trade_date").all(), before);
+});
+
+// F16: an SPX close left unchecked past the catch-up window can never be recorded, so it must surface as an anomaly.
+const uncheck = (sql: { prepare: (q: string) => { run: (...a: never[]) => unknown } }, dates: string[]) => {
+  for (const d of dates) sql.prepare("UPDATE prices SET check_status = NULL WHERE symbol = 'SPX' AND date = ?").run(d as never);
+};
+
+test("(e) Cboe SPX 連續 3 個交易日沒核對：attention，原因是 spx-unchecked；forecast 工作標 partial", async () => {
+  const { db, sql, days } = await seed();
+  uncheck(sql, days.slice(-3));
+  const r = await recordForecast(db);
+  assert.equal(r.attention, true);
+  assert.equal(r.reason, "spx-unchecked");
+  assert.match(r.message, new RegExp(`${days.at(-3)} 的 SPX 收盤 2 個交易日後仍未核對`));
+  assert.doesNotMatch(r.message, /[a-z]+-[a-z]+/);
+  const job = await runJob(db, "forecast", "test");
+  assert.equal(job.status, "partial");
+  assert.equal((job.detail as Record<string, unknown>).reasonCode, "spx-unchecked");
+});
+
+test("(f) 只缺最新 1 天的核對（正常的發布延遲）：不算異常", async () => {
+  const { db, sql, days } = await seed();
+  uncheck(sql, days.slice(-1));
+  const r = await recordForecast(db);
+  assert.equal(r.reason, "spx-unchecked");
+  assert.equal(r.attention, false);
+});
+
+const upstream = new FakeUpstream();
+let restore: () => void;
+before(() => {
+  restore = upstream.install();
+});
+after(() => restore());
+
+/** SPX equals the fake upstream's close (so Yahoo upserts do not reset check status), unchecked; forecasts already exist except for the last 3 sessions. */
+async function pricesJobDb() {
+  const { db, sql, days } = await seed();
+  sql.prepare("UPDATE prices SET check_status = NULL WHERE symbol = 'SPX'").run();
+  const upd = sql.prepare("UPDATE prices SET close = ? WHERE symbol = 'SPX' AND date = ?");
+  for (const d of days) upd.run(fakeClose("SPX", d), d);
+  const ins = sql.prepare("INSERT INTO forecasts (trade_date, probability, base_rate, basis, call, close, created_at) VALUES (?, 0.6, 0.6, 'test', 'inconclusive', 1, 'x')");
+  for (const d of days.slice(0, -3)) ins.run(d);
+  return { db, sql, days };
+}
+
+test("(g) Cboe SPX 的 CSV 回 200 但缺最近 3 天：抓價工作 partial，預測原因 spx-unchecked", async () => {
+  const { db, sql, days } = await pricesJobDb();
+  const mdy = (d: string) => `${d.slice(5, 7)}/${d.slice(8, 10)}/${d.slice(0, 4)}`;
+  const csv = ["DATE,SPX", ...days.slice(-60, -3).map((d) => `${mdy(d)},${fakeClose("SPX", d)}`)].join("\n");
+  upstream.rules = [(u) => (u.host === "cdn-api.cboe.com" && u.pathname.includes("SPX") ? new Response(csv, { status: 200 }) : null)];
+  try {
+    const r = await runJob(db, "prices", "test");
+    const detail = r.detail as Record<string, unknown>;
+    assert.equal(detail.forecastReason, "spx-unchecked", r.summary);
+    assert.equal(r.status, "partial", r.summary);
+    const unchecked = sql.prepare("SELECT date FROM prices WHERE symbol = 'SPX' AND check_status IS NULL AND date >= ? ORDER BY date").all(days.at(-5)! as never) as { date: string }[];
+    assert.deepEqual(unchecked.map((x) => x.date), days.slice(-3));
+  } finally {
+    upstream.rules = [];
+  }
+});
+
+test("(h) Cboe SPX 抓取失敗：抓價摘要寫出 SPX 核對失敗的原因", async () => {
+  const { db } = await pricesJobDb();
+  upstream.rules = [(u) => (u.host === "cdn-api.cboe.com" && u.pathname.includes("SPX") ? new Response("down", { status: 500 }) : null)];
+  try {
+    const r = await runJob(db, "prices", "test");
+    assert.match(r.summary, /SPX 核對失敗 .+/);
+    assert.equal((r.detail as Record<string, unknown>).forecastReason, "spx-unchecked");
+    assert.equal(r.status, "partial", r.summary);
+  } finally {
+    upstream.rules = [];
+  }
 });

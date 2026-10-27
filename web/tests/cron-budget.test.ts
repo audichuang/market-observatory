@@ -291,3 +291,17 @@ test("財報日曆沒排到時改查推估日期：股類代號（BRK-B）也查
     upstream.rules = [];
   }
 });
+
+test("新聞已掛 MSFT 再掛 MS：MS 不會被當成 MSFT 的子字串吞掉，AI 判斷要重跑", async () => {
+  const { db, sql } = await migratedDb();
+  const { NEWS_UPSERT_SQL } = await import("../src/server/jobs.ts");
+  const upsert = (symbol: string) => db.prepare(NEWS_UPSERT_SQL).bind("n1", symbol, "t", "u", "p", "2026-10-23", "nasdaq", "x", null, null).run();
+  await upsert("MSFT");
+  sql.prepare("UPDATE news SET enriched_at = 'x' WHERE id = 'n1'").run();
+  await upsert("MS");
+  assert.deepEqual({ ...(sql.prepare("SELECT symbols, enriched_at FROM news WHERE id = 'n1'").get() as object) }, { symbols: "MSFT,MS", enriched_at: null });
+  // The same symbol again is a no-op: symbols unchanged and the AI result kept.
+  sql.prepare("UPDATE news SET enriched_at = 'y' WHERE id = 'n1'").run();
+  await upsert("MS");
+  assert.deepEqual({ ...(sql.prepare("SELECT symbols, enriched_at FROM news WHERE id = 'n1'").get() as object) }, { symbols: "MSFT,MS", enriched_at: "y" });
+});

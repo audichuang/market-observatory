@@ -431,7 +431,7 @@ struct OutlookView: View {
                         }
                     }
                 } footer: {
-                    // 標題說明已經寫了「看不出差別」時，不再重複同一句理由；項目符號用懸掛縮排。
+                    // 主數字下方已寫「採歷史基準率…包含基準率」時，不再重複「看不出差別」那條理由；項目符號用懸掛縮排。
                     let reasons = o.reasons.filter { !(o.pick.distinct != true && o.pick.conditional != nil && $0.contains("看不出差別") && (o.pick.shrinkWeight ?? 0) == 0) }
                     VStack(alignment: .leading, spacing: 4) {
                         ForEach(reasons, id: \.self) { r in

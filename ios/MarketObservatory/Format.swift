@@ -1,5 +1,13 @@
 import SwiftUI
 
+/// Label for the residual (index move minus the watchlist's contributions): the other constituents
+/// plus weight/price approximation error. Same wording as the web (REST_LABEL in web/src/lib/snapshot.ts).
+enum RestLabel {
+    static let full = "其他成分股（含近似誤差）"
+    /// For tight spots (chart legends, row titles); pair it with `full` in nearby copy.
+    static let short = "其他成分股"
+}
+
 // 數字格式與漲跌顏色，跟網頁一致（src/ui/format.ts、styles.css）：台股習慣紅漲綠跌。
 enum Fmt {
     static func num(_ v: Double?, _ digits: Int = 2) -> String {

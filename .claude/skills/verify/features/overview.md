@@ -1,12 +1,12 @@
 # 總覽
 
-登入後的首頁：最新交易日的 S&P 500 收盤、VIX、等權重對照、名單合計貢獻、下月展望摘要、近一週到近一年報酬、距 52 週高、收盤 vs 均線，以及名單每家公司對指數的貢獻點數（名單合計＋其餘＝指數漲跌）。可以切到更早的交易日。
+登入後的首頁：最新交易日的 S&P 500 收盤、VIX、等權重對照、名單合計貢獻、下月展望摘要、近一週到近一年報酬、距 52 週高、收盤 vs 均線，以及名單每家公司對指數的貢獻點數（名單合計＋其他成分股（含近似誤差）＝指數漲跌）。可以切到更早的交易日。
 
 ## Sub-features
 
 - `overview-title`（B1）：標題「S&P 500 收盤 YYYY-MM-DD（週X）」（網頁）／「S&P 500 M/D（週X）」（App），日期＝API `snapshot.tradeDate`。
 - `overview-kpi`（B2）：KPI 卡片等於 API `snapshot.data`；App 的「市場指標」是可展開的按鈕（label 以「市場指標」開頭，value「已收合／已展開」），預設收起只顯示 VIX、距高、200 日線一行，展開後全部。只有 `index.check.status` 為 mismatch 才出現「來源不一致」。
-- `overview-attribution`（B3）：名單每家的收盤、漲跌 %、權重、貢獻點數＝API；順序同 API `mag7`；「其餘 N 檔（推算）」列存在；名單合計＋其餘＝指數漲跌點數（差 ≤ 0.02）。
+- `overview-attribution`（B3）：名單每家的收盤、漲跌 %、權重、貢獻點數＝API；順序同 API `mag7`；「其他成分股 N 檔（推算）」列存在（App 列標題「其他成分股」、副標「N 檔（推算）」）；表格上方說明句寫「其他成分股（含近似誤差）＝指數漲跌減掉名單合計…」；名單合計＋其他成分股＝指數漲跌點數（差 ≤ 0.02）。
 - `overview-symbol-link`（B4）：點公司 → 走勢頁、標的是那家。
 - `overview-date`（B5）：選其他交易日 → 標題與數字換成 `?date=` 的值；能回到最新。
 - `overview-events`（B7、B8）：未來三週事件只列名單公司財報與總經事件（FOMC、CPI、非農），由近到遠；「完整日曆 →」到新聞的日曆。
@@ -26,7 +26,7 @@ Preconditions:
 
 - **讀 API。** `page.fetch("/api/v1/overview")`，記下 `snapshot.tradeDate`、`snapshot.data` 的 index、vix、rsp、名單合計與 `mag7`。
 - **標題與 KPI。** `goto("/")`，等 `text=S&P 500 收盤`。`evaluate` 讀 `h1` 與卡片文字，跟 API 比（B1、B2）。截圖 `overview-kpi.png`。
-- **名單拆解。** 在「觀察名單，拆開來看」表格用 `evaluate` 讀每列的儲存格，逐欄比 API `snapshot.data.mag7`、`rest`、`index`（實測 54 項全對）（B3）；每列的貢獻點數加總＋「其餘」列＝最下面 S&P 500 列的點數。
+- **名單拆解。** 在「觀察名單，拆開來看」表格用 `evaluate` 讀每列的儲存格，逐欄比 API `snapshot.data.mag7`、`rest`、`index`（實測 54 項全對）（B3）；每列的貢獻點數加總＋「其他成分股」列＝最下面 S&P 500 列的點數。
 - **其他交易日。** `page.selectOption("select", { index: 1 })`（「查看其他交易日」的第二天；也可直接給選項值 `"2026-10-22"`），等網址出現 `?date=`、`h1` 換日期；`fetch("/api/v1/overview?date=<那天>")` 比數字；再選回第一項，標題回到最新（B5）。
 - **公司連結。** 點 `loc=href:/history?symbol=NVDA`（`text=NVIDIA` 也會對到新聞標題），網址變 `/history?symbol=NVDA`（B4）。
 - **App。** walkthrough 的 `02-overview.png`、`02b-overview-attribution.png`、`02c-overview-events.png`；`ios-test.sh … VerifyInteractionTests/test02_Overview` 的 `B2-before.txt`（value＝已收合）、`B2-kpi-expanded.png`／`.txt`（已展開，全部指標的數字對 API）、`B5-older.png`／`.txt`（10/22 的數字對 `?date=2026-10-22`）、`B5-latest.png`、`B4-nvda-history.png`、`B8-calendar.png`。逐張看數字與 API 一致、顏色紅漲綠跌、沒有被切掉的字，`B2-kpi-expanded.png` 要真的看到展開的指標。

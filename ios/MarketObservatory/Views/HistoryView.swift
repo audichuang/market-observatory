@@ -182,6 +182,9 @@ struct HistoryView: View {
                             VStack(alignment: .leading, spacing: 4) { contributionLegend }
                         }
                         .font(.caption2)
+                        Text("\(RestLabel.full)＝指數漲跌減掉名單合計。")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
                     } else {
                         ContentUnavailableView("尚無貢獻資料", systemImage: "chart.bar", description: Text("名單上有公司那幾天還沒有資料，或目前還沒有快照。"))
                     }
@@ -204,7 +207,7 @@ struct HistoryView: View {
 
     @ViewBuilder private var contributionLegend: some View {
         LegendDot(color: ContributionChart.watchColor, text: "觀察名單貢獻")
-        LegendDot(color: ContributionChart.restColor, text: "其餘成分股")
+        LegendDot(color: ContributionChart.restColor, text: RestLabel.short)
         LegendDot(color: ContributionChart.indexColor, text: "指數漲跌")
     }
 
@@ -363,7 +366,7 @@ private struct ContributionChart: View {
                     }
                     if let rest = r.rest {
                         BarMark(x: .value("日期", d, unit: .day), y: .value("點數", rest))
-                            .foregroundStyle(by: .value("系列", "其餘成分股"))
+                            .foregroundStyle(by: .value("系列", RestLabel.short))
                     }
                 }
             }
@@ -380,7 +383,7 @@ private struct ContributionChart: View {
             }
             RuleMark(y: .value("0", 0)).foregroundStyle(.secondary.opacity(0.4))
         }
-        .chartForegroundStyleScale(["觀察名單貢獻": Self.watchColor, "其餘成分股": Self.restColor])
+        .chartForegroundStyleScale(["觀察名單貢獻": Self.watchColor, RestLabel.short: Self.restColor])
         .chartLegend(.hidden)
         .readableAxes()
     }

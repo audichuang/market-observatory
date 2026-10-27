@@ -1,6 +1,6 @@
 import { Link, useRouter } from "@void/react";
 import { NO_INCREMENTAL_SKILL, dd5Definition } from "../src/lib/communication.ts";
-import type { Mag7Row } from "../src/lib/snapshot.ts";
+import { REST_LABEL, REST_LABEL_SHORT, type Mag7Row } from "../src/lib/snapshot.ts";
 import { CenteredBar, CheckBadge, Delta } from "../src/ui/bits.tsx";
 import { dateWithWeekday, num, pctText, signed, taipeiTime } from "../src/ui/format.ts";
 import { NewsFeed, ToneBadge } from "../src/ui/NewsFeed.tsx";
@@ -136,7 +136,7 @@ export default function Overview({ snapshot, dates, expectedClose, news, digests
           <Link href="/watchlist" className="button secondary small">編輯名單</Link>
         </div>
         <p className="sub">
-          貢獻點數 = 前一交易日指數 × 前一交易日權重 × 當日報酬。{s.weights.method === "rolled" ? `權重由 ${s.weights.asOf} SPY 持股依價格推算。` : s.weights.asOf ? `權重來自 ${s.weights.asOf} SPY 持股。` : ""}
+          貢獻點數 = 前一交易日指數 × 前一交易日權重 × 當日報酬。{REST_LABEL}＝指數漲跌減掉名單合計，含權重與價格口徑的近似誤差。{s.weights.method === "rolled" ? `權重由 ${s.weights.asOf} SPY 持股依價格推算。` : s.weights.asOf ? `權重來自 ${s.weights.asOf} SPY 持股。` : ""}
         </p>
         <div className="table-wrap">
           <table>
@@ -154,7 +154,7 @@ export default function Overview({ snapshot, dates, expectedClose, news, digests
             <tbody>
               {s.mag7.map((r) => <Mag7Line key={r.key} r={r} max={maxContribution} />)}
               <tr>
-                <td>其餘{restCount ? ` ${restCount} 檔` : "成分股"} <span className="meta">（推算）</span></td>
+                <td>{REST_LABEL_SHORT}{restCount ? ` ${restCount} 檔` : ""} <span className="meta">（推算）</span></td>
                 <td className="num hide-sm">—</td>
                 <td className="num"><Delta value={s.rest.impliedReturnPct} percent /></td>
                 <td className="num">{s.mag7Total.weightPct === null ? "—" : `${num(100 - s.mag7Total.weightPct, 1)}%`}</td>

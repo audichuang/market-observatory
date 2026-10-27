@@ -1,5 +1,6 @@
 import { Link, useRouter } from "@void/react";
 import LineChart from "../src/ui/LineChart.tsx";
+import { REST_LABEL, REST_LABEL_SHORT } from "../src/lib/snapshot.ts";
 import { Delta } from "../src/ui/bits.tsx";
 import { num } from "../src/ui/format.ts";
 import type { Props } from "./history.server";
@@ -88,14 +89,14 @@ export default function HistoryPage({ symbol, watch, months, ranges, symbols, pr
 
       <div className="panel section">
         <h2>近 {contribution.length} 個交易日：指數漲跌點數拆解</h2>
-        <p className="sub">觀察名單（{watch.join("、")}）貢獻 vs 其餘成分股；取每天最新版快照（名單改過時，改之前的日子是當時名單的數字）。</p>
+        <p className="sub">觀察名單（{watch.join("、")}）貢獻 vs {REST_LABEL}（指數漲跌減掉名單合計）；取每天最新版快照（名單改過時，改之前的日子是當時名單的數字）。</p>
         <LineChart
           zeroLine
           digits={1}
           lines={[
             { name: "指數漲跌", color: "#5c6b7a", points: contribution.map((c) => ({ date: c.date, value: c.index })) },
             { name: "觀察名單貢獻", color: "#d1343b", points: contribution.map((c) => ({ date: c.date, value: c.mag7 })) },
-            { name: "其餘成分股", color: "#2456d6", dashed: true, points: contribution.map((c) => ({ date: c.date, value: c.rest })) },
+            { name: REST_LABEL_SHORT, color: "#2456d6", dashed: true, points: contribution.map((c) => ({ date: c.date, value: c.rest })) },
           ]}
         />
       </div>

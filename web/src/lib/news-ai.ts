@@ -3,6 +3,8 @@
 // 並判斷「這則真正在講誰」（focus），沒在講名單公司也不是大盤總經的就當雜訊收起來。
 // 呼叫由本機排程的 agent 執行（scripts/ai-batch.ts 撈待辦、產生提示詞，結果經 /api/admin/ai 寫回，見 src/server/ai-batch.ts）。
 
+import { REST_LABEL } from "./snapshot.ts";
+
 export const NEWS_CATEGORIES = ["財報", "分析師", "產品與業務", "法規與訴訟", "總經與市場", "投資觀點"] as const;
 export type NewsTone = "positive" | "negative" | "neutral";
 
@@ -183,7 +185,7 @@ export function marketPrompt(m: MarketInput): Prompt {
 VIX ${m.vix === null ? "無資料" : m.vix.toFixed(2)}（${signedNum(m.vixChange, 2)}）；等權重減市值加權 ${signedNum(m.spreadPct, 2, " 個百分點")}（負值代表等權重指數落後市值加權指數，也就是較小的成分股平均表現不如大型權值股；不代表多數股票下跌或較弱）。
 追蹤公司的點數貢獻：
 ${movers.join("\n") || "（無資料）"}
-其他成分股（含近似誤差）合計 ${signedNum(m.restPts, 1, " 點")}。${m.restPts === null ? "" : "\n以上各項加總約等於指數漲跌點數。"}
+${REST_LABEL}合計 ${signedNum(m.restPts, 1, " 點")}。${m.restPts === null ? "" : "\n以上各項加總約等於指數漲跌點數。"}
 這天的大盤與總經新聞：
 ${m.news.map((t, i) => `${i + 1}. ${t}`).join("\n") || "（沒有）"}
 

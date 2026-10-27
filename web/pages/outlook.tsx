@@ -322,19 +322,25 @@ export default function OutlookPage({ outlook, cells, liveTrack, frequency, rece
           {strategists && (
             <>
               <p className="sub">
-                中位數 {num(strategists.median, 0)}，相對目前 {num(close, 0)} 為 {pctText(strategists.medianUpsidePct, 1)}；Reuters 民調（{strategists.poll.respondents} 人，{strategists.poll.surveyed}）中位數 {num(strategists.poll.median, 0)}。
+                中位數 {num(strategists.median, 0)}（{strategists.medianCount} 家），相對目前 {num(close, 0)} 為 {pctText(strategists.medianUpsidePct, 1)}；Reuters 民調（{strategists.poll.respondents} 人，{strategists.poll.surveyed} 調查）中位數 {num(strategists.poll.median, 0)}。
               </p>
               <ul className="list">
                 {strategists.list.map((t) => (
                   <li key={t.firm} style={{ display: "flex", gap: ".6rem", alignItems: "baseline", flexWrap: "wrap" }}>
                     <a href={t.sourceUrl} target="_blank" rel="noreferrer" style={{ minWidth: "8.5rem" }}>{t.firm}</a>
                     <strong className="num">{num(t.target, 0)}</strong>
-                    <span className="meta">{t.horizon} · {t.asOf}{t.note ? ` · ${t.note}` : ""}</span>
+                    {t.targetIsMidpoint && t.targetLow != null && t.targetHigh != null && (
+                      <span className="meta">區間 {num(t.targetLow, 0)}–{num(t.targetHigh, 0)} 的中點</span>
+                    )}
+                    <span className="meta">{t.horizon} · 資料日期 {t.asOf}{t.note ? ` · ${t.note}` : ""}</span>
+                    <span className="badge" title={t.verifiedOn ? `${t.verifiedOn} 對過原文` : undefined}>{t.verified ? "已核對原文" : "媒體轉述，待原文核對"}</span>
+                    {!t.inMedian && <span className="badge">不計入中位數</span>}
+                    {t.stale && <span className="badge">待重新核對</span>}
                   </li>
                 ))}
               </ul>
               <p className="meta" style={{ marginTop: ".5rem" }}>
-                人工整理自新聞轉述（{strategists.checked} 核對），未必是券商原文。由下而上的指數目標價與預估本益比見 <a href={strategists.factsetUrl} target="_blank" rel="noreferrer">FactSet Earnings Insight</a>（每週五更新）。
+                {strategists.medianRule}資料日期超過 {strategists.staleAfterDays} 天的列標「待重新核對」（維護提醒，不代表數字有誤）。全表 {strategists.checked} 核對；標「已核對原文」的列對過機構官方原文，其餘取自新聞轉述。由下而上的指數目標價與預估本益比見 <a href={strategists.factsetUrl} target="_blank" rel="noreferrer">FactSet Earnings Insight</a>（每週五更新）。
               </p>
             </>
           )}

@@ -18,7 +18,9 @@ xcodebuild -project MarketObservatory.xcodeproj -scheme MarketObservatory \
 
 ## 單元測試
 
-`MarketObservatoryTests` 用 `MarketObservatoryTests/Fixtures/*.json` 驗證模型解得開；fixture 是用測試帳號從正式站 `/api/v1/*` 存下來的回應，改了 API 欄位要重抓。
+`MarketObservatoryTests` 同時解碼舊正式站回應（`Fixtures/*.json`）與真正 view 函式產生的合成回應（`Fixtures/generated/*.json`）。後者由 `web/tests/api-contract.test.ts` 在完整 migration 的記憶體 D1 上、固定時間 `2026-10-28T23:00:00Z` 產生，涵蓋總覽、走勢、ETF、新聞、名單與展望。
+
+`cd web && node --test tests/api-contract.test.ts` 比對目前 view 與已提交 fixture；差異一律失敗。API 有意變更時，先檢查 `Models.swift` 的 Codable 相容性，再從 `web/` 執行 `MO_UPDATE_API_FIXTURES=1 node --test tests/api-contract.test.ts`，審查 JSON diff，最後跑下列 iOS 測試。舊 fixture 保留，確保新增 optional 欄位仍可解開舊回應。這個流程不連正式站、不讀憑證。
 
 ```sh
 xcodebuild -project MarketObservatory.xcodeproj -scheme MarketObservatory \

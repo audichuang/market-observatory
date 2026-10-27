@@ -9,6 +9,8 @@ description: 像使用者一樣實際操作市場觀測室（網站 web/ 與 iOS
 
 ## 怎樣才算交付
 
+改到 view 回應時，先在 `web/` 跑 `node --test tests/api-contract.test.ts`。它用固定時間與合成 D1 資料呼叫六個真正 view，比對 `ios/MarketObservatoryTests/Fixtures/generated/`；差異需先檢查 Codable，再用 `MO_UPDATE_API_FIXTURES=1 node --test tests/api-contract.test.ts` 更新、審查 JSON diff，並跑 `MarketObservatoryTests`（同時解碼舊與 generated fixture）。這項契約檢查不能取代下列畫面操作。
+
 改動碰到哪個介面，就照 [功能地圖](features/README.md) 把**被改到的功能**實際操作一遍，並在 PR 或回報裡附上證據位置。少一項就不能說「完成」，只能說「已寫好、未驗證：缺 X」。
 
 | 改了什麼 | 交付前要有的證據 |

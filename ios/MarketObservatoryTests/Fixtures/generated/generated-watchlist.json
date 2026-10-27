@@ -1,0 +1,79 @@
+{
+  "members": [
+    {
+      "key": "NVDA",
+      "company": "NVIDIA",
+      "tickers": [
+        "NVDA"
+      ],
+      "weightPct": 6,
+      "outOfIndex": []
+    },
+    {
+      "key": "AAPL",
+      "company": "Apple",
+      "tickers": [
+        "AAPL"
+      ],
+      "weightPct": 5.5,
+      "outOfIndex": []
+    },
+    {
+      "key": "MSFT",
+      "company": "Microsoft",
+      "tickers": [
+        "MSFT"
+      ],
+      "weightPct": 5,
+      "outOfIndex": []
+    },
+    {
+      "key": "AMZN",
+      "company": "Amazon",
+      "tickers": [
+        "AMZN"
+      ],
+      "weightPct": 4.5,
+      "outOfIndex": []
+    },
+    {
+      "key": "GOOGL",
+      "company": "Alphabet",
+      "tickers": [
+        "GOOGL",
+        "GOOG"
+      ],
+      "weightPct": 7.5,
+      "outOfIndex": []
+    },
+    {
+      "key": "META",
+      "company": "Meta",
+      "tickers": [
+        "META"
+      ],
+      "weightPct": 3,
+      "outOfIndex": []
+    },
+    {
+      "key": "TSLA",
+      "company": "Tesla",
+      "tickers": [
+        "TSLA"
+      ],
+      "weightPct": 2.5,
+      "outOfIndex": []
+    }
+  ],
+  "candidates": [
+    {
+      "ticker": "AVGO",
+      "name": "Broadcom",
+      "weightPct": 2,
+      "tracked": false
+    }
+  ],
+  "asOf": "2026-10-28",
+  "totalWeight": 34,
+  "max": 30
+}

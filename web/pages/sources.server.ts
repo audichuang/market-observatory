@@ -4,6 +4,7 @@ import { NYSE_CALENDAR, addDays, latestScheduledClose } from "../src/lib/calenda
 import { CBOE_URLS } from "../src/lib/sources/cboe.ts";
 import { SSGA_DISPLAY_URL } from "../src/lib/sources/ssga.ts";
 import { VIX_SYMBOL, yahooSymbols } from "../src/lib/universe.ts";
+import { weightsStaleNote } from "../src/lib/weights-age.ts";
 import { loadTrackedMembers } from "../src/server/watchlist.ts";
 import { yahooDisplayUrl } from "../src/lib/sources/yahoo.ts";
 import { JOB_NAMES } from "../src/server/jobs.ts";
@@ -45,6 +46,7 @@ export const loader = defineHandler(async (c) => {
       mismatches: mismatches.results,
       runs: runs.results,
       weights: weights.results,
+      weightsStale: weightsStaleNote(weights.results[0]?.as_of, expected),
       counts,
       jobs: JOB_NAMES,
       tolerance: { abs: CHECK_ABS_TOLERANCE, rel: CHECK_REL_TOLERANCE },

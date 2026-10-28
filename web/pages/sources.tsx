@@ -44,7 +44,7 @@ const DATA_NOTES = [
   "投行策略師年底目標表是人工維護的背景資訊，不進方向預測模型：標「已核對原文」的列對過機構官方原文，其餘取自媒體報導。",
 ];
 
-export default function SourcesPage({ expected, freshness, mismatches, runs, weights, counts, jobs, tolerance, calendar, links }: Props) {
+export default function SourcesPage({ expected, freshness, mismatches, runs, weights, weightsStale, counts, jobs, tolerance, calendar, links }: Props) {
   const router = useRouter();
   const { isOwner } = useShared();
   const [busy, setBusy] = useState<string | null>(null);
@@ -113,6 +113,7 @@ export default function SourcesPage({ expected, freshness, mismatches, runs, wei
         </div>
         <div className="panel">
           <h2>SPY 持股檔</h2>
+          {weightsStale && <div className="notice warn">{weightsStale}</div>}
           <p className="sub">來源：<a href={links.ssga} target="_blank" rel="noreferrer">State Street SPY 每日持股</a>。通常落後 1～2 個交易日，歸因時依價格推算到前一交易日。</p>
           <table>
             <thead><tr><th>持股日期</th><th className="num">檔數</th><th className="num">權重合計</th><th>抓取時間</th></tr></thead>

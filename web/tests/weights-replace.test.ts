@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { strToU8, zipSync } from "fflate";
+import { NYSE_CALENDAR, expectedSessions, inCalendarCoverage, latestExpectedClose } from "../src/lib/calendar.ts";
 import { runJob } from "../src/server/jobs.ts";
 import { replaceWeights } from "../src/server/repo.ts";
 import { FakeUpstream, migratedDb } from "./helpers/fake-cloudflare.ts";
@@ -12,9 +13,10 @@ const holding = (ticker: string, weightPct = 0.2) => ({ ticker, name: `Company $
 const holdings505 = () => Array.from({ length: 505 }, (_, i) => holding(`SYN${i + 1}`));
 const FINAL_URL = "https://www.ssga.com/library-content/products/fund-data/etfs/us/holdings-daily-us-en-spy.xlsx";
 
-function holdingsXlsx(holdings: ReturnType<typeof holding>[]) {
+function holdingsXlsx(holdings: ReturnType<typeof holding>[], asOf = AS_OF) {
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   const rows = [
-    ["Holdings: As of 27-Oct-2026"],
+    [`Holdings: As of ${asOf.slice(8)}-${months[Number(asOf.slice(5, 7)) - 1]}-${asOf.slice(0, 4)}`],
     ["Name", "Ticker", "Weight", "Shares Held"],
     ...holdings.map((h) => [h.name, h.ticker, h.weightPct, h.shares]),
   ];
@@ -102,6 +104,7 @@ test("505 檔替換只用一次 batch，INSERT 每句最多 16 列、全部查�
 });
 
 test("weights 工作直接請求最終網址一次，同日更正與相同內容都記入 runs", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: Date.parse(NEXT_FETCH) });
   const { db, sql } = await migratedDb();
   t.after(() => sql.close());
   const fresh = Array.from({ length: 500 }, (_, i) => holding(`SYN${i + 1}`));
@@ -152,4 +155,19 @@ test("weights 工作直接請求最終網址一次，同日更正與相同內容
   assert.equal(sql.prepare("SELECT summary FROM runs WHERE id = ?").get(same.id)?.summary, same.summary);
   assert.equal(sql.prepare("SELECT COUNT(*) AS n FROM runs WHERE job = 'weights'").get()?.n, 2);
   t.diagnostic(`相同內容紀錄：${same.summary}；subrequests=${same.detail.subrequests}`);
+});
+
+test("weights 工作收到落後 5 個交易日的合法持股檔時，記為 partial 並在摘要開頭警示", async (t) => {
+  const expected = latestExpectedClose();
+  if (!inCalendarCoverage(expected)) return t.skip("NYSE 日曆覆蓋外");
+  const asOf = expectedSessions(NYSE_CALENDAR.coverageStart, expected).at(-6)!;
+  const { db, sql } = await migratedDb();
+  t.after(() => sql.close());
+  const upstream = new FakeUpstream();
+  upstream.rules = [(url) => url.href === FINAL_URL ? new Response(holdingsXlsx(holdings505(), asOf)) : null];
+  t.after(upstream.install());
+  const result = await runJob(db, "weights", "test");
+  assert.equal(result.status, "partial", result.summary);
+  assert.ok(result.summary.startsWith(`權重未更新：最新 SPY 持股停在 ${asOf}，到 ${expected} 已落後 5 個交易日（通常落後 1～2 個），成分與股數變動沒有反映；持股日期 ${asOf}`), result.summary);
+  t.diagnostic(`過期持股工作：status=${result.status}；${result.summary}`);
 });

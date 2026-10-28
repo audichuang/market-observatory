@@ -1,6 +1,7 @@
 import { Series, pct, periodReturn, range52w, rollWeight, round, smaAt } from "./analytics.ts";
 import { addDays, isNyseSession, previousExpectedSession } from "./calendar.ts";
 import { EQUAL_WEIGHT_SYMBOL, INDEX_SYMBOL, VIX_SYMBOL, type WatchMember } from "./universe.ts";
+import { weightsStaleNote } from "./weights-age.ts";
 
 export const SNAPSHOT_VERSION = 1;
 
@@ -212,6 +213,8 @@ export function buildSnapshot(input: SnapshotInput): Snapshot | null {
   else if (weightMethod === "rolled") {
     quality.notes.push(`權重由 ${input.weights.asOf} 的 SPY 持股依價格變動推算到 ${weightTarget}（假設期間股數不變）`);
   }
+  const staleNote = weightsStaleNote(input.weights?.asOf, weightTarget);
+  if (staleNote) quality.notes.push(staleNote);
   if (quality.expectedSession === false) quality.notes.push("依 NYSE 日曆這天不是交易日，但來源有資料，請留意");
   if (gap) {
     quality.missing.push(`${INDEX_SYMBOL} ${expectedPrev}`);

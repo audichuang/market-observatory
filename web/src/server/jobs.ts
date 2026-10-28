@@ -1,5 +1,6 @@
 import { addDays, latestExpectedClose, MACRO_EVENTS, macroEventsSummary } from "../lib/calendar.ts";
 import { type Snapshot, buildSnapshot, snapshotLoadWindow } from "../lib/snapshot.ts";
+import { weightsStaleNote } from "../lib/weights-age.ts";
 import { CBOE_SOURCE, fetchCboeDaily } from "../lib/sources/cboe.ts";
 import { type EarningsDate, NASDAQ_SOURCE, fetchAnalystView, fetchEarningsCalendar, fetchEarningsDate, fetchNasdaqHistorical, fetchNasdaqNews } from "../lib/sources/nasdaq.ts";
 import { nextPendingRebase, refetchCoverage } from "../lib/rebase.ts";
@@ -265,9 +266,10 @@ async function jobWeights(db: D1Database, _opts: JobOptions, budget: Budget): Pr
   const note = correction.unchanged ? "；已存在、內容相同" : correction.previous
     ? `；同日更正：移除 ${correction.removed.join("、") || "無"}；新增 ${correction.added.join("、") || "無"}；權重變動 ${correction.changed} 檔（上一版取得於 ${correction.previousFetchedAt}）`
     : "";
+  const staleNote = weightsStaleNote(file.asOf, latestExpectedClose());
   return {
-    status: "ok",
-    summary: `持股日期 ${file.asOf}（${file.holdings.length} 檔）${note}；${mag.join("、")}`,
+    status: staleNote ? "partial" : "ok",
+    summary: `${staleNote ? `${staleNote}；` : ""}持股日期 ${file.asOf}（${file.holdings.length} 檔）${note}；${mag.join("、")}`,
     detail: { asOf: file.asOf, count: file.holdings.length, snapshots: snaps.created, correction },
   };
 }

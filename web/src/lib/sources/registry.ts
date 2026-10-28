@@ -99,7 +99,7 @@ export const SOURCE_REGISTRY: readonly SourceRegistryEntry[] = [
   {
     ...RESEARCH, id: "nasdaq-quote", name: "Nasdaq 歷史行情核對", runtime: "worker",
     patterns: [/^https:\/\/api\.nasdaq\.com\/api\/quote\/[^/?#]+\/historical(?:[?#]|$)/],
-    jobs: ["crosscheck", "backfill-checks"], screens: ["總覽", "走勢", "資料來源"],
+    jobs: ["crosscheck", "backfill-checks", "addWatchSymbol"], screens: ["總覽", "走勢", "資料來源"],
     fields: [{ name: "date／close", usage: "個股與 ETF 收盤交叉核對，寫入 prices.check_*，不替換主價。" }],
     disableImpact: "Nasdaq 交叉核對停止更新；個股與 ETF 的主價仍由 Yahoo 取得，核對狀態可能待核對。",
     rights: NASDAQ_RIGHTS, terms: NASDAQ_TERMS,

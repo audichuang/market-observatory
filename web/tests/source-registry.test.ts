@@ -13,6 +13,8 @@ test("五支排程與加入全站新公司的每個上游網址都列在 worker 
     const { db, sql } = await seededDb();
     for (const cron of FIVE) assertInvocation(cron, await invokeCron(upstream, cron, db, sql));
     upstream.reset();
+    const addedUrls = new Set<string>();
+    upstream.rules.unshift((url) => { addedUrls.add(url.href); return null; });
     const { addWatchSymbol } = await import("../src/server/jobs.ts");
     const added = await addWatchSymbol(db, FILLERS[20]);
     assert.ok(added.ok, JSON.stringify(added));
@@ -29,6 +31,11 @@ test("五支排程與加入全站新公司的每個上游網址都列在 worker 
       covered.add(source.id);
     }
     assert.deepEqual([...covered].sort(), SOURCE_REGISTRY.filter((s) => s.runtime === "worker").map((s) => s.id).sort());
+    for (const url of addedUrls) {
+      const source = sourceForUrl(url)!;
+      assert.ok(source.jobs.includes("addWatchSymbol"), `${source.id} 未列出 addWatchSymbol：${url}`);
+    }
+    t.diagnostic(`addWatchSymbol 已核對工作用途：${[...new Set([...addedUrls].map((url) => sourceForUrl(url)!.id))].join("、")}`);
     t.diagnostic(`已檢查 ${urls.size} 個不同請求網址、${covered.size} 個 worker 來源`);
   } finally {
     restore();

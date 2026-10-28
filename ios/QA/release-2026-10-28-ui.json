@@ -1,0 +1,27 @@
+{
+  "appId": "6826800828",
+  "build": "202610280704",
+  "version": "1.0.0",
+  "sourceCommit": "2cf19293aaadda18d13575caf4f0d8e52a261b18",
+  "route": "ios/scripts/testflight.sh 本機 archive 與上傳",
+  "internalGroup": "自己",
+  "result": "READY",
+  "actions": [
+    "推送main",
+    "本機封存並上傳；未送外部Beta群組、未讓舊build過期"
+  ],
+  "verification": [
+    "[1/5] build        PASS  202610280704 uploaded 2026-10-27T18:10:41-07:00",
+    "[2/5] processing   PASS  VALID",
+    "[3/5] beta state   PASS  IN_BETA_TESTING",
+    "[4/5] groups       PASS  自己",
+    "[5/5] ordering     PASS  no unexpired build above 202610280704",
+    "RESULT READY build=202610280704"
+  ],
+  "evidenceRoot": "/Users/audichuang/.cache/mo-verify/ui20261028/evidence",
+  "devices": [
+    "MO iPhone 16 Plus",
+    "MO iPhone 18 Pro Max"
+  ],
+  "deviceCleanup": "兩台既有指定機型已關機保留；本次額外建立的SE與18Pro已刪除"
+}

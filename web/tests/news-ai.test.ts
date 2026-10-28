@@ -2,9 +2,12 @@
 // 翻譯與重點由本機排程寫入，見 tests/ai-batch.test.ts。
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { Series } from "../src/lib/analytics.ts";
 import { easternDate } from "../src/lib/calendar.ts";
 import { digestPrompt, enrichPrompt, marketPrompt, extractArticleText, isImportant, matchYahooArticle, newsFingerprint, parseDigest, parseEnrich, parsePoints, pointsPrompt } from "../src/lib/news-ai.ts";
 import type { Viewer } from "../src/server/account.ts";
+import { buildSnapshot } from "../src/lib/snapshot.ts";
+import { saveSnapshots } from "../src/server/repo.ts";
 import { migratedDb } from "./helpers/fake-cloudflare.ts";
 
 const items = [
@@ -161,6 +164,87 @@ test("newsView：每則帶 AI 欄位與免費 important、points 轉成陣列、
   assert.ok(!("primary_symbol" in byId.n1));
   assert.deepEqual(out.digests.map((d) => [d.symbol, d.company, d.summary]), [["NVDA", "NVIDIA", "輝達財報優於預期。"]]);
   assert.ok(!("ai" in out) && !("needs_ai" in byId.n1));
+});
+
+test("newsView：摘要列出原始新聞來源，已清除的新聞計入缺少數量", async (t) => {
+  const { db, sql, today } = await seeded();
+  t.after(() => sql.close());
+  const { newsView } = await import("../src/server/views.ts");
+  sql.exec("UPDATE news SET title_zh = '輝達財報優於預期' WHERE id = 'n1'");
+  sql.prepare("INSERT INTO news_digests (symbol, date, summary, tone, news_ids, digest, model, created_at) VALUES ('NVDA', ?, '輝達財報優於預期。', 'positive', 'n1,gone', 'f', 'm', 'x')").run(today);
+  const out = await newsView({ env: { DB: db }, req: { query: () => undefined, url: "https://x/api/v1/news" } }, user("viewer"));
+  assert.deepEqual(out.digests[0].sources.map((source) => ({ ...source })), [{
+    id: "n1", title: "Nvidia beats estimates", title_zh: "輝達財報優於預期", url: "https://example.com/n1", publisher: "p", published_at: today,
+  }]);
+  assert.equal(out.digests[0].sourcesMissing, 1);
+  assert.ok(!("news_ids" in out.digests[0]));
+});
+
+test("newsView：舊合成來源 [] 與空字串都當空，逗號清單會 trim 並去掉空項目", async (t) => {
+  const { db, sql, today } = await seeded();
+  t.after(() => sql.close());
+  const { newsView } = await import("../src/server/views.ts");
+  sql.prepare("INSERT INTO settings (key, value, updated_at) VALUES ('watchlist:viewer', ?, 'x')").run(JSON.stringify([NVDA, AAPL, GOOG]));
+  const insert = sql.prepare("INSERT INTO news_digests (symbol, date, summary, tone, news_ids, digest, model, created_at) VALUES (?, ?, '公司重點', 'neutral', ?, 'f', 'm', 'x')");
+  insert.run("NVDA", today, "[]");
+  insert.run("AAPL", today, "");
+  insert.run("GOOG", today, " , n3, n1, , ");
+  const out = await newsView({ env: { DB: db }, req: { query: () => undefined, url: "https://x/api/v1/news" } }, user("viewer"));
+  const bySymbol = Object.fromEntries(out.digests.map((d) => [d.symbol, d]));
+  for (const symbol of ["NVDA", "AAPL"]) {
+    assert.deepEqual(bySymbol[symbol].sources, []);
+    assert.equal(bySymbol[symbol].sourcesMissing, 0);
+  }
+  assert.deepEqual(bySymbol.GOOG.sources.map((s) => s.id), ["n3", "n1"]);
+  assert.equal(bySymbol.GOOG.sourcesMissing, 0);
+});
+
+test("newsView：三筆摘要合計 150 則來源完整回傳，順序依各自 news_ids 而非新聞排序", async (t) => {
+  const { db, sql, today } = await seeded();
+  t.after(() => sql.close());
+  const { newsView } = await import("../src/server/views.ts");
+  const members = [NVDA, AAPL, GOOG];
+  sql.prepare("INSERT INTO settings (key, value, updated_at) VALUES ('watchlist:viewer', ?, 'x')").run(JSON.stringify(members));
+  const insertNews = sql.prepare("INSERT INTO news (id, symbols, title, url, source, fetched_at, published_at) VALUES (?, ?, ?, ?, 'test', 'x', ?)");
+  const insertDigest = sql.prepare("INSERT INTO news_digests (symbol, date, summary, tone, news_ids, digest, model, created_at) VALUES (?, ?, '公司重點', 'neutral', ?, 'f', 'm', 'x')");
+  const expected = new Map<string, string[]>();
+  for (const member of members) {
+    const ids = Array.from({ length: 50 }, (_, i) => `${member.key}-${i}`);
+    for (const id of ids) insertNews.run(id, member.key, `Title ${id}`, `https://example.com/${id}`, today);
+    ids.reverse();
+    expected.set(member.key, ids);
+    insertDigest.run(member.key, today, ids.join(","));
+  }
+  const out = await newsView({ env: { DB: db }, req: { query: () => undefined, url: "https://x/api/v1/news" } }, user("viewer"));
+  assert.equal(out.digests.length, 3);
+  for (const digest of out.digests) {
+    assert.deepEqual(digest.sources.map((s) => s.id), expected.get(digest.symbol));
+    assert.equal(digest.sourcesMissing, 0);
+  }
+});
+
+test("overviewView：大盤與公司摘要帶來源及缺少數量，大盤空引用仍保留摘要", async (t) => {
+  const { db, sql, today } = await seeded();
+  t.after(() => sql.close());
+  const { overviewView } = await import("../src/server/views.ts");
+  sql.prepare("INSERT INTO settings (key, value, updated_at) VALUES ('watchlist:viewer', ?, 'x')").run(JSON.stringify([NVDA]));
+  const snapshot = buildSnapshot({ tradeDate: today, series: { SPX: new Series([{ date: today, close: 100 }]), NVDA: new Series([{ date: today, close: 200 }]) }, checks: {}, weights: null, members: [NVDA] });
+  assert.ok(snapshot);
+  await saveSnapshots(db, [snapshot], "摘要來源測試");
+  sql.prepare("INSERT INTO news_digests (symbol, date, summary, tone, news_ids, digest, model, created_at) VALUES ('SPX', ?, '市場重點', 'neutral', ' n3, gone, n1, ', 'f', 'm', 'x'), ('NVDA', ?, '公司重點', 'positive', 'n1', 'f', 'm', 'x')").run(today, today);
+  const ctx = { env: { DB: db }, req: { query: () => undefined, url: "https://x/api/v1/overview" } };
+  const out = await overviewView(ctx, user("viewer"));
+  assert.deepEqual(out.market?.sources.map((s) => [s.id, s.title, s.title_zh, s.url, s.publisher, s.published_at]), [
+    ["n3", "Fed holds rates", null, "https://example.com/n3", "p", today],
+    ["n1", "Nvidia beats estimates", null, "https://example.com/n1", "p", today],
+  ]);
+  assert.equal(out.market?.sourcesMissing, 1);
+  assert.ok(out.market && !("news_ids" in out.market));
+  assert.deepEqual(out.digests[0].sources.map((s) => s.id), ["n1"]);
+  assert.equal(out.digests[0].sourcesMissing, 0);
+  sql.exec("UPDATE news_digests SET news_ids = '[]' WHERE symbol = 'SPX'");
+  const empty = await overviewView(ctx, user("viewer"));
+  assert.deepEqual(empty.market, { date: today, summary: "市場重點", tone: "neutral", sources: [], sourcesMissing: 0 });
 });
 
 // ── 審查後修正 ──

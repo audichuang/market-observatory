@@ -5,6 +5,7 @@
 ## Sub-features
 
 - `overview-digest-date`（L2-T5）：網頁與 App 的名單公司摘要只取所選快照交易日，`/api/v1/overview?date=<日期>` 的每筆 `digests[].date` 都等於 `snapshot.tradeDate`；沒有該日摘要就不顯示，不配隔日摘要。
+- `overview-digest-sources`（L2-T8，網頁）：「今天為什麼漲跌」與公司摘要可展開「參考來源（整篇，非逐句）· N 則」，來源及缺少數量分別等於 API 的 `market`、`digests[]`。大盤沒有任何引用且沒有缺來源時，展開後顯示「這段只根據行情數字，沒有引用新聞」。
 - `overview-title`（B1）：標題「S&P 500 收盤 YYYY-MM-DD（週X）」（網頁）／「S&P 500 M/D（週X）」（App），日期＝API `snapshot.tradeDate`。
 - `overview-kpi`（B2）：KPI 卡片等於 API `snapshot.data`；App 的「市場指標」是可展開的按鈕（label 以「市場指標」開頭，value「已收合／已展開」），預設收起只顯示 VIX、距高、200 日線一行，展開後全部。只有 `index.check.status` 為 mismatch 才出現「來源不一致」。
 - `overview-attribution`（B3）：名單每家的收盤、漲跌 %、權重、貢獻點數＝API；順序同 API `mag7`；「其他成分股 N 檔（推算）」列存在（App 列標題「其他成分股」、副標「N 檔（推算）」）；說明句寫「其他成分股（含近似誤差）＝指數漲跌減掉名單合計（權重與價格口徑不同造成的誤差也算在這裡）。」（「近似誤差」只出現一次）（網頁在表格上方；App 在表格下方的「說明」展開區）；名單合計＋其他成分股＝指數漲跌點數（差 ≤ 0.02）。
@@ -38,6 +39,7 @@ Preconditions:
 - **下拉與回前景（App）。** walkthrough 下拉期間截圖確認內容沒有半透明、日期與名單按鈕保留。`test14_ForegroundLoadsNewTradingDay` 用 DEBUG launch argument `-verifyOverviewRefreshInterval 0` 避免等 10 分鐘；本機站初始須停在上一交易日，測試寫出 `B11-ready.txt` 後，在這個 worktree 的 `web/` 用站長登入跑 `MO_URL=<BASE> MO_EMAIL=<owner> MO_PASSWORD=<從 owner.pw 讀入> node scripts/backfill.ts --sessions 60`。必須有真正更新的收盤可回補；測試以獨立 API 讀到更新日期後才回前景，最多等 120 秒，日期未增加會明確失敗。證據 `B11-background`／`B11-foreground-updated` 與日期文字。
 - **重點語氣（App）。** `test15_DigestToneLabels` 一般與最大字級檢查 `market-digest` 卡片含「利多」或「利空」，截圖 `B12-tone-normal`／`B12-tone-largest`；最大字級的畫面必須完整看得到「今天為什麼漲跌」，不能只靠 AX label（SwiftUI 截斷時 AX 仍會回傳全文），以畫面 OCR 與實看截圖確認。先在本機 news_digests 準備當日 SPX 的 positive/negative 重點，缺資料明確失敗。
 - **公司摘要同日（L2-T5）。** 本機用站長 `POST /api/admin/ai` 為同一名單公司寫相鄰兩個交易日、內容可區辨的摘要。網頁與 App 總覽切到前一交易日，比對 `/api/v1/overview?date=<前一日>`：`digests[].date` 全等於 `snapshot.tradeDate`，名單公司旁是前一日的摘要。留 `overview-digest-date.png`、App 截圖及該日期 API JSON；驗完還原本輪資料。
+- **摘要參考來源（L2-T8，網頁）。** 用本機站長 `POST /api/admin/ai` 準備與快照同日、有真實新聞 ID 的市場及公司摘要；缺來源案例直接寫入本機 D1。到 `/` 展開「今天為什麼漲跌」及公司卡的來源，逐列標題、網址、出處、日期、順序等於 `/api/v1/overview` 的 `market.sources`、`digests[].sources`，標題連得到原文；缺來源顯示「另有 N 則來源已不在資料庫，無法列出」，N 等於 `sourcesMissing`。大盤改成空引用再展開，應顯示「這段只根據行情數字，沒有引用新聞」；只有缺來源時不可顯示這句。全文沒有「已驗證」，320px 寬展開後不水平溢出。留 `overview-digest-sources.png`、`overview-digest-sources-320.png` 與 API JSON，驗完還原本輪資料。
 - **Proof。** `overview-kpi.png`、`overview.api.json`、`overview-date.png`；App 的 walkthrough 三張與 test02 的截圖、`.txt`。
 
 ## Gotchas

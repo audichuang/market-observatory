@@ -7,6 +7,7 @@
 - `news-digest-tone`（E9）：公司每日重點在公司名稱旁顯示「利多／利空／中性」，色條不朗讀；新聞篩選 chip 選中時帶 isSelected trait。
 - `news-digest-dates`（L2-T5）：App 每列公司重點顯示資料日。全部代號時，「今日重點 · M/D（週）」只列 `/api/v1/news.latestTradeDate` 當天的摘要，前 3 家直接顯示，其餘收在「其餘 N 家」；其他日期收在預設收合的「較早的重點」。後端沒給 `latestTradeDate` 時，全部改列單一「公司重點」中性段落；單股段落保留原結構並顯示日期。
 - `news-digest-import`（L2-T6）：摘要匯入日期必須有交易日快照，每個來源新聞 ID 都必須存在且發布日等於摘要日；不符者逐筆回傳 `rejected`，不寫入摘要。大盤摘要可沒有新聞來源；只檢查格式、來源與日期，不判斷語意。
+- `news-digest-sources`（L2-T8，網頁）：每張公司摘要可展開「參考來源（整篇，非逐句）· N 則」，依原始引用順序列中文標題（無則英文）、出處與日期，點標題開原文。缺來源時另列缺少數量；舊 `[]` 來源顯示 0 則。頁首說明 AI 由本機約每 4 小時排程整理、全站共用、可能出錯，以原文為準。
 
 - `news-list`（E1）：標題、來源、時間。網頁與 App 都把 `important: true` 的新聞排前面，其餘收在「其他 N 則」：第一筆＝API `/api/v1/news` 的 `news` 裡**第一個 `important` 為 true** 的 `title`（不是 `news[0]`）。
 - `news-open`（E2）：點新聞開原文，回來時列表位置合理。
@@ -35,6 +36,7 @@ Preconditions:
 - **語氣與篩選無障礙（App）。** `test15_DigestToneLabels` 一般與最大字級各檢查 `news-digest-<symbol>` 的文字與利多／利空 staticTexts，並確認選中篩選 chip 的 `isSelected`；截圖 `E9-tone-normal`／`E9-tone-largest`。本機需有 `latestTradeDate` 當天、依 `keys` 排序的前 3 家名單公司 positive/negative 重點，日期須落在 API 近三天的摘要範圍，缺資料測試明確失敗。
 - **摘要資料日（L2-T5，App）。** 在本機用站長 `POST /api/admin/ai` 準備最新快照交易日 2 家、前一交易日另一家摘要；兩日都須在本機 `snapshots.trade_date` 存在，`newsIds` 使用本機 `news` 實際存在且 `published_at` 等於摘要日的新聞 ID，日期須落在 API 近三天的摘要範圍。讀 `/api/v1/news`，逐筆對照 `latestTradeDate` 與 `digests[].date`：「今日重點 · M/D（週）」只有最新日的 2 家；「較早的重點」初始收合，展開後只有前一日那家。每列（含單股篩選）有 `M/D（週）` 日期，最大字級不裁切，identifier 保持 `news-digest-<symbol>` 且 label 含利多／利空。另驗最新日沒有摘要時沒有今日段、全部在較早段；舊回應缺 `latestTradeDate` 時只有「公司重點」。留 `news-digest-dates-normal.png`／`news-digest-dates-largest.png`、展開較早段截圖及 API JSON；驗完還原本輪資料。
 - **摘要匯入拒收（L2-T6）。** 本機站長送 `POST /api/admin/ai`：用存在的快照交易日搭配 `newsIds: ["nonexistent-source"]`，確認 `digests === 0`、`accepted` 為空，`rejected` 含 `digest:<key>:<date>` 與「來源新聞不存在或日期不符：nonexistent-source」；來源有異日新聞也拒收。日期格式合法卻沒有快照時回「日期不是交易日快照」。再驗同日有效來源可接受、大盤空 `newsIds` 可接受；讀 `/api/v1/news` 並看網頁與 App 新聞頁，拒收的摘要不能出現。保留請求、回執與讀回的 API JSON；成功案例驗完還原本輪資料。
+- **摘要參考來源（L2-T8，網頁）。** 在本機用站長 `POST /api/admin/ai` 寫入同日真實新聞 ID 的公司摘要，再直接在本機 D1 準備含不存在 ID 的舊摘要（匯入 API 會拒收）。到 `/news` 展開每張摘要的參考來源，逐列核對標題、網址、出處、日期與 `/api/v1/news` 的 `digests[].sources`，順序相同；點來源標題開原文。缺來源卡顯示「另有 N 則來源已不在資料庫，無法列出」，N 等於 `sourcesMissing`；零來源卡顯示 0 則。核對頁首排程與 AI 可能出錯的說明，全文沒有「已驗證」。320px 寬展開清單後不得水平溢出；留 `news-digest-sources.png`、`news-digest-sources-320.png` 與 API JSON，驗完還原本輪資料。
 
 - App 一般及最大字級檢查新聞標題與事件列完整換行、摘要展開後可讀；大字月曆用「選擇日期」開啟原生 sheet，以單欄日期與事件標記選取，選完自動關閉並在原位置呈現當日事件。`test16_Readability` 檢查換月、回今天、選取事件日與關閉狀態；實看 `UI-<variant>-calendar-selected.png`，確認不用再捲過整月才能看到結果。
 - 新聞詳情使用大型原生 sheet 閱讀；`test16_Readability` 點一則新聞、捲到「開啟原文」、關閉回列表。截圖 `UI-<variant>-news-detail*.png` 檢查標題、段落、來源與原文入口。

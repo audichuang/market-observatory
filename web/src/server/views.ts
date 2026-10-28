@@ -12,7 +12,7 @@ import { z } from "zod";
 import { type Viewer, getViewerSetting, settingKey, viewerWatchlist } from "./account.ts";
 import { rebuildSnapshots, WATCHLIST_REBUILD_SESSIONS } from "./jobs.ts";
 import { MARKET_KEY } from "./ai-batch.ts";
-import { latestDigests } from "./news-ai.ts";
+import { latestDigests, withDigestSources } from "./news-ai.ts";
 import { bumpDataVersion, cachedPage, readDb } from "./page-cache.ts";
 import { getSnapshot, listRevisions, listSnapshotDates, loadPrices, putSetting } from "./repo.ts";
 import { latestHoldings, loadTrackedMembers } from "./watchlist.ts";
@@ -117,7 +117,8 @@ export async function overviewView(c: ViewCtx, v: Viewer) {
 
 /** 總覽最上面那段「今天為什麼漲跌」：排程寫在 news_digests（代號 SPX），沒寫到就不顯示。 */
 async function marketDigest(db: D1Database, date: string) {
-  return db.prepare("SELECT date, summary, tone FROM news_digests WHERE symbol = ? AND date = ?").bind(MARKET_KEY, date).first<{ date: string; summary: string; tone: string }>();
+  const digest = await db.prepare("SELECT date, summary, tone, news_ids FROM news_digests WHERE symbol = ? AND date = ?").bind(MARKET_KEY, date).first<{ date: string; summary: string; tone: string; news_ids: string }>();
+  return digest ? (await withDigestSources(db, [digest]))[0] : null;
 }
 
 // ── 走勢 ───────────────────────────────────────────────

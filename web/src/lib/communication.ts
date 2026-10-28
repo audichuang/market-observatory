@@ -1,6 +1,7 @@
 // 溝通與對帳層（L09／L11）：純函式，不碰 D1。頁面三種分數（樣本內、滾動驗證、上線後實際紀錄）各自獨立，永不合併。
 
 import { HORIZON, type Rate } from "./forecast.ts";
+import { easternDate, inCalendarCoverage, latestExpectedClose } from "./calendar.ts";
 
 /** 上線後實際紀錄至少要有幾個獨立月份才報分數。 */
 export const LIVE_MIN_N = 12;
@@ -31,6 +32,9 @@ export interface LiveTrack {
   brier: number | null;
   brierBase: number | null;
   upShare: number | null;
+  realtime?: number;
+  delayed?: number;
+  unknown?: number;
 }
 
 /**
@@ -106,8 +110,34 @@ export function frequencySentences(o: { pick: PickLike; drawdown: { pick: PickLi
 }
 
 // --- L4: forecast live tracks ---
-export const DD5_LIVE_NOTE = "依 R2-6：只計寫入時就是資料庫最新 SPX 交易日（延遲 0 個交易日）、且存有 dd5 模型版本的列；尚未比對排程當時應有的收盤日，資料來源停更後才補寫的列仍可能被算入。";
-export const UP_LIVE_NOTE = "合併所有已寫入的紀錄，包含延遲補記的列；尚未依發布時間區分即時與補記。";
+export function liveNoteOf(counts: { delayed: number; unknown: number }, target: "up" | "dd5"): string {
+  return `只計即時發布的列（寫入時是最新交易日，且在下一個交易日美東 16:30 前寫入）；延遲補記 ${counts.delayed} 列、資格不明 ${counts.unknown} 列另列、不計分。${target === "up" ? "合併所有已發布的模型版本。" : "依模型版本分開計分。"}`;
+}
+
+/** PUB-1: calendar coverage is required before using the scheduled close comparison. */
+export function publishStatusOf(tradeDate: string, createdAt: string): "on-time" | "late" | "unknown" {
+  const at = new Date(createdAt);
+  if (!Number.isFinite(at.getTime()) || !inCalendarCoverage(tradeDate) || !inCalendarCoverage(easternDate(at))) return "unknown";
+  const expected = latestExpectedClose(at);
+  return expected < tradeDate ? "unknown" : expected > tradeDate ? "late" : "on-time";
+}
+
+function publishClassOf(lag: unknown, tradeDate: string, createdAt: string): "realtime" | "delayed" | "unknown" {
+  const status = publishStatusOf(tradeDate, createdAt);
+  if (typeof lag !== "number" || !Number.isFinite(lag) || status === "unknown") return "unknown";
+  return lag >= 1 || status === "late" ? "delayed" : "realtime";
+}
+
+/** L09 addendum: P(up) needs its own stored values and lag, but no dd5 metadata. */
+export function upClassOf(row: LiveRow & { detail: string | null; created_at: string }): "realtime" | "delayed" | "unknown" {
+  if (![row.p, row.base, row.close].every(Number.isFinite)) return "unknown";
+  try {
+    const detail = JSON.parse(row.detail ?? "null");
+    return publishClassOf(detail?.recordedLagSessions, row.date, row.created_at);
+  } catch {
+    return "unknown";
+  }
+}
 
 interface Dd5Detail {
   recordedLagSessions: number;
@@ -125,17 +155,17 @@ function dd5DetailOf(detail: string | null): Dd5Detail | null {
   }
 }
 
-export function dd5ClassOf(detail: string | null): "realtime" | "delayed" | "unknown" {
+export function dd5ClassOf(detail: string | null, tradeDate: string, createdAt: string): "realtime" | "delayed" | "unknown" {
   const d = dd5DetailOf(detail);
-  return !d ? "unknown" : d.recordedLagSessions >= 1 ? "delayed" : "realtime";
+  return !d ? "unknown" : publishClassOf(d.recordedLagSessions, tradeDate, createdAt);
 }
 
 /** R2-6: one grid shared by all realtime rows, anchored at the first realtime SPX session; group only after selecting mature rows. */
-export function dd5LiveTrackOf(rows: { date: string; close: number; detail: string | null }[], points: { date: string; close: number }[]) {
+export function dd5LiveTrackOf(rows: { date: string; close: number; detail: string | null; created_at: string }[], points: { date: string; close: number }[]) {
   const counts = { realtime: 0, delayed: 0, unknown: 0 };
   const idx = new Map(points.map((p, i) => [p.date, i]));
   const realtime = rows.filter((r) => {
-    const kind = dd5ClassOf(r.detail);
+    const kind = dd5ClassOf(r.detail, r.date, r.created_at);
     counts[kind]++;
     return kind === "realtime" && idx.has(r.date);
   }).sort((a, b) => idx.get(a.date)! - idx.get(b.date)!);
@@ -161,6 +191,6 @@ export function dd5LiveTrackOf(rows: { date: string; close: number; detail: stri
       const tooFew = g.n < LIVE_MIN_N;
       return { modelVersion, n: g.n, tooFew, brier, brierBase, bss: tooFew || brierBase === 0 ? null : 1 - brier / brierBase, eventShare: g.events / g.n };
     }),
-    note: DD5_LIVE_NOTE,
+    note: liveNoteOf(counts, "dd5"),
   };
 }

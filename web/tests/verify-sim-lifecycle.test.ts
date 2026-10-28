@@ -40,6 +40,12 @@ function fixture(t: TestContext, runId: string, list = devices()) {
     'printf "\\n" >> "$MO_TEST_LOG"',
     'if [ "${1:-}" = simctl ] && [ "${2:-}" = list ]; then',
     '  cat "$MO_TEST_DEVICES"',
+    'elif [ "${1:-}" = simctl ] && [ "${2:-}" = shutdown ]; then',
+    '  state=$(/usr/bin/jq -r --arg udid "$3" \'.devices[][] | select(.udid == $udid) | .state\' "$MO_TEST_DEVICES")',
+    '  if [ "$state" != Booted ]; then',
+    '    printf "%s\\n" "An error was encountered processing the command (domain=com.apple.CoreSimulator.SimError, code=405):" "Unable to shutdown device in current state: $state" >&2',
+    '    exit 149',
+    '  fi',
     "fi",
     "exit 0",
     "",
@@ -90,6 +96,20 @@ test("同 run 換成 Plus 時先關 Pro Max，再開 Plus 並更新狀態", (t) 
   const shutdown = r.log.indexOf(`xcrun simctl shutdown ${proMax}\n`);
   const boot = r.log.indexOf(`xcrun simctl bootstatus ${plus} -b\n`);
   assert.ok(shutdown >= 0 && boot > shutdown, r.log);
+  assert.equal(readFileSync(join(f.run, "sim.udid"), "utf8").trim(), plus);
+  assert.equal(readFileSync(join(f.run, "sim.device"), "utf8").trim(), "16-plus");
+  assert.doesNotMatch(r.log, new RegExp(oki));
+});
+
+test("同 run 的 Pro Max 已關機時直接開 Plus 並更新狀態", (t) => {
+  const f = fixture(t, "r1");
+  writeFileSync(join(f.run, "sim.udid"), proMax);
+  writeFileSync(join(f.run, "sim.device"), "18-pro-max");
+  const r = f.invoke("ios-up.sh", "16-plus");
+  assert.equal(r.status, 0, r.output);
+  assert.doesNotMatch(r.log, /simctl shutdown /);
+  assert.ok(r.log.includes(`xcrun simctl bootstatus ${plus} -b\n`), r.log);
+  assert.ok(r.log.includes(`xcrun simctl install ${plus} `), r.log);
   assert.equal(readFileSync(join(f.run, "sim.udid"), "utf8").trim(), plus);
   assert.equal(readFileSync(join(f.run, "sim.device"), "utf8").trim(), "16-plus");
   assert.doesNotMatch(r.log, new RegExp(oki));

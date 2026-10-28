@@ -40,7 +40,7 @@ const server = createServer((req, res) => {
   } : v).map((v) => ({ ...v, upsidePct: v.targetMean === null ? null : (v.targetMean / v.price - 1) * 100 }));
   const consensus = { ...aggregateConsensus(top, weights, "2026-10-28"), top, weightsAsOf: "2026-10-27" };
   const markup = renderToStaticMarkup(createElement(OutlookPage, {
-    outlook: null, cells: [], liveTrack: { n: 0 }, recent: [], factset: [], strategists: null, horizon: 21, consensus,
+    outlook: null, cells: [], liveTrack: { n: 0 }, liveTrackDd5: { groups: [], delayed: 0, unknown: 0 }, recent: [], factset: [], strategists: null, horizon: 21, consensus,
   }));
   res.setHeader("content-type", "text/html; charset=utf-8");
   res.end(`<!doctype html><html lang="zh-Hant-TW"><meta name="viewport" content="width=device-width, initial-scale=1"><style>${css}</style><main>${markup}</main></html>`);
@@ -50,13 +50,13 @@ const base = `http://127.0.0.1:${server.address().port}`;
 const script = `
 const { default: assert } = await import("node:assert/strict");
 const fs = await import("node:fs/promises");
-const task = await taskSpace("mo-verify-l6t3-review-20261028");
+const task = await taskSpace("mo-verify-fx-u1-20261029");
 console.log({ spaceId: task.spaceId });
 const page = task.page("p1");
 const results = [];
 for (const scenario of ["complete", "missing"]) {
   await page.goto(${JSON.stringify(base)} + "/" + scenario);
-  for (const width of [1024, 1100, 1280, 1440, 390]) {
+  for (const width of [1280, 1100, 1024, 960, 768, 728, 720, 390]) {
     await page.cdp("Emulation.setDeviceMetricsOverride", { width, height: 1000, deviceScaleFactor: 1, mobile: false });
     const metrics = await page.evaluate(() => {
       const panel = [...document.querySelectorAll(".panel")].find(p => p.querySelector("h2")?.textContent === "成分股分析師共識");
@@ -64,6 +64,7 @@ for (const scenario of ["complete", "missing"]) {
       const wrap = panel.querySelector(".table-wrap");
       const eps = [...wrap.querySelectorAll("tr")].map(tr => tr.lastElementChild);
       return { clientWidth: wrap.clientWidth, scrollWidth: wrap.scrollWidth, scrollLeft: wrap.scrollLeft,
+        pageClientWidth: document.documentElement.clientWidth, pageScrollWidth: document.documentElement.scrollWidth,
         epsVisible: eps.every(cell => getComputedStyle(cell).display !== "none"),
         epsInside: eps.every(cell => cell.getBoundingClientRect().right <= wrap.getBoundingClientRect().right + 1),
         rows: wrap.querySelectorAll("tbody tr").length };
@@ -80,10 +81,11 @@ for (const result of results) {
   assert.equal(result.rows, 12);
   assert.equal(result.scrollLeft, 0);
   assert.equal(result.scrollWidth, result.clientWidth, JSON.stringify(result));
+  assert.ok(result.pageScrollWidth <= result.pageClientWidth, JSON.stringify(result));
   assert.equal(result.epsVisible, result.width > 390, JSON.stringify(result));
   if (result.epsVisible) assert.equal(result.epsInside, true, JSON.stringify(result));
 }
-console.log("PASS: 共識表在 1024／1100／1280／1440 不溢出，390 隱藏 EPS 欄，含 Nasdaq 無資料列。");
+console.log("PASS: 共識表在 1280／1100／1024／960／768／728／720／390 不溢出，390 隱藏 EPS 欄，含 Nasdaq 無資料列。");
 `;
 try {
   const child = spawn("ego-browser", ["nodejs"], { stdio: ["pipe", "inherit", "inherit"] });

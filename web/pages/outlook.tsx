@@ -219,7 +219,7 @@ export default function OutlookPage({ outlook, outlookUnavailable, cells, liveTr
         <p className="sub">每天收盤後記錄一次，{horizon} 個交易日後才能對帳；目前還沒有到期的預測。</p>
       ) : liveTrack.tooFew ? (
         <p className="sub">
-          <span className="badge warn">樣本太少</span> 只有 {liveTrack.n} 個獨立月份（少於 {LIVE_MIN_N}），不報分數。只取不重疊的列：從第一筆紀錄起每 {horizon} 個交易日一列。
+          <span className="badge warn">樣本太少</span> 只有 {liveTrack.n} 個獨立月份（少於 {LIVE_MIN_N}），不報分數。只取不重疊的列：從第一筆即時發布的紀錄起每 {horizon} 個交易日一列。
         </p>
       ) : (
         <p className="sub">
@@ -324,7 +324,7 @@ export default function OutlookPage({ outlook, outlookUnavailable, cells, liveTr
         </p>
       </div>
 
-      <div className="grid two">
+      <div className="grid two outlook-views">
         <div className="panel">
           <h2>成分股分析師共識</h2>
           {!consensus ? (

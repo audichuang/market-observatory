@@ -85,13 +85,13 @@ export interface EventRow {
   status: string;
 }
 
-/** 當天（美東日期）的事件：名單上的公司財報與總經事件；推估日期加註「（推估）」。 */
+/** Events for the NY date: tracked earnings and macro events, labeled 推估, 預期 or 暫定 by status. */
 export function eventReminder(date: string, events: EventRow[], keys: string[]): PushMessage | null {
   const mine = events.filter((e) => e.date === date && (e.kind !== "earnings" || (e.symbol !== null && keys.includes(e.symbol))));
   if (!mine.length) return null;
   const text = mine.map((e) => {
     const timing = e.detail && /盤前|盤後/.test(e.detail) ? `（${e.detail.match(/盤前|盤後/)![0]}）` : "";
-    return `${e.title}${timing}${e.status === "estimated" ? "（推估）" : e.status === "tentative" ? "（暫定）" : ""}`;
+    return `${e.title}${timing}${e.status === "estimated" ? "（推估）" : e.status === "expected" ? "（預期）" : e.status === "tentative" ? "（暫定）" : ""}`;
   });
   return {
     kind: "events",

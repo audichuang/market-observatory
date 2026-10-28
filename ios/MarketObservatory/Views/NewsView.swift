@@ -319,6 +319,7 @@ private struct EventStatusBadge: View {
         case "confirmed": ("公司已公布", .down)
         case "scheduled": ("官方日程", .down)
         case "estimated": ("Zacks 推估", .orange)
+        case "expected": ("預期", .orange)
         case "tentative": ("官方暫定", .orange)
         default: (status, .secondary)
         }

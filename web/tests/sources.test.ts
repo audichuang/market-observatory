@@ -30,7 +30,7 @@ test("Cboe：VIX 五欄與 SPX 兩欄都能解析，since 之前的列不讀", (
   assert.throws(() => parseCboeCsv("<html>"), /表頭/);
 });
 
-test("Nasdaq：歷史行情、Zacks 推估與財報日曆", () => {
+test("Nasdaq：歷史行情、Zacks 推估、預期財報日與財報日曆", () => {
   const bars = parseNasdaqHistorical({ tradesTable: { rows: [{ date: "10/23/2026", close: "$216.54", volume: "6,317,269" }, { date: "10/22/2026", close: "218.22" }] } });
   assert.deepEqual(bars.map((b) => [b.date, b.close]), [["2026-10-22", 218.22], ["2026-10-23", 216.54]]);
   assert.equal(bars[1].volume, 6317269);
@@ -39,7 +39,10 @@ test("Nasdaq：歷史行情、Zacks 推估與財報日曆", () => {
   assert.equal(est.date, "2026-11-18");
   assert.equal(est.status, "estimated");
   assert.equal(est.detail, "市場預估 EPS $2.49");
+  const expected = parseEarningsDate("AAPL", { announcement: "Earnings announcement* for AAPL: Nov 2, 2026", reportText: "Apple Inc. is expected* to report earnings on 11/02/2026 after market close. According to Zacks Investment Research, based on 9 analysts' forecasts, the consensus EPS forecast for the quarter is $1.77." })!;
+  assert.equal(expected.status, "expected");
   const both = parseEarningsDate("NVDA", { announcement: "Earnings announcement* for NVDA: Nov 18, 2026", reportText: "the consensus EPS forecast for the quarter is $2.49. The reported EPS for the same quarter last year was $1.24." })!;
+  assert.equal(both.status, "expected");
   assert.equal(both.detail, "市場預估 EPS $2.49，去年同季 $1.24");
   assert.equal(parseEarningsDate("META", { announcement: "Earnings announcement* for META: ", reportText: "hasn't provided" }), null);
 

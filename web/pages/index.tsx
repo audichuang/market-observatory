@@ -210,6 +210,7 @@ export default function Overview({ snapshot, dates, expectedClose, news, digests
                 <li key={`${e.date}-${e.title}`}>
                   <strong>{dateWithWeekday(e.date)}</strong> {e.title}
                   {e.status === "estimated" && <span className="badge warn" style={{ marginLeft: ".4rem" }}>推估日期</span>}
+                  {e.status === "expected" && <span className="badge warn" style={{ marginLeft: ".4rem" }}>預期</span>}
                   {e.status === "tentative" && <span className="badge warn" style={{ marginLeft: ".4rem" }}>暫定</span>}
                 </li>
               ))}

@@ -446,7 +446,7 @@ async function jobEvents(db: D1Database, _opts: JobOptions, budget: Budget): Pro
     stmts.push(clearFuture.bind(m.key, fetchedAt.slice(0, 10)));
     // 同一季只留一筆：id 用「代號＋年月」，日期改了就覆蓋。
     const id = `earnings-${m.key}-${e.date.slice(0, 7)}`;
-    found.push(`${m.key} ${e.date}${e.status === "estimated" ? "（估）" : ""}`);
+    found.push(`${m.key} ${e.date}${e.status === "estimated" ? "（估）" : e.status === "expected" ? "（預期）" : ""}`);
     stmts.push(stmt.bind(id, e.date, "earnings", m.key, `${m.company} 財報`, e.detail, e.status, e.sourceUrl, fetchedAt));
   }
   await db.batch(stmts);

@@ -57,16 +57,17 @@ test("大漲大跌：只列超過門檻的，依幅度排序", () => {
   assert.equal(bigMoves(snap(), 10), null);
 });
 
-test("事件提醒：只提名單上的財報與總經事件，標出盤前盤後與推估", () => {
+test("事件提醒：只提名單上的財報與總經事件，標出盤前盤後、推估與預期", () => {
   const events = [
     { date: "2026-10-28", kind: "earnings", symbol: "MSFT", title: "Microsoft 財報", detail: "盤後，財季 Sep/2026", status: "scheduled" },
     { date: "2026-10-28", kind: "earnings", symbol: "XOM", title: "Exxon 財報", detail: "盤前", status: "scheduled" },
     { date: "2026-10-28", kind: "macro", symbol: null, title: "FOMC 利率決議（10/27–28）", detail: "美東 14:00", status: "scheduled" },
     { date: "2026-10-28", kind: "earnings", symbol: "META", title: "Meta 財報", detail: null, status: "estimated" },
+    { date: "2026-10-28", kind: "earnings", symbol: "AAPL", title: "Apple 財報", detail: null, status: "expected" },
     { date: "2026-10-29", kind: "earnings", symbol: "AAPL", title: "Apple 財報", detail: null, status: "scheduled" },
   ];
   const m = eventReminder("2026-10-28", events, ["MSFT", "META", "AAPL"])!;
-  assert.equal(m.body, "Microsoft 財報（盤後）、FOMC 利率決議（10/27–28）、Meta 財報（推估）");
+  assert.equal(m.body, "Microsoft 財報（盤後）、FOMC 利率決議（10/27–28）、Meta 財報（推估）、Apple 財報（預期）");
   assert.equal(eventReminder("2026-10-30", events, ["MSFT"]), null);
 });
 

@@ -565,6 +565,7 @@ private struct EventStatusBadge: View {
     var body: some View {
         switch status {
         case "estimated": Text("推估日期").font(.caption2).foregroundStyle(.orange)
+        case "expected": Text("預期").font(.caption2).foregroundStyle(.orange)
         case "tentative": Text("暫定").font(.caption2).foregroundStyle(.orange)
         default: EmptyView()
         }

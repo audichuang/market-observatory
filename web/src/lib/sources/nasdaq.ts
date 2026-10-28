@@ -52,8 +52,8 @@ export async function fetchNasdaqHistorical(symbol: string, assetClass: "stocks"
 export interface EarningsDate {
   symbol: string;
   date: string;
-  /** Zacks 演算法推估（estimated）或公司已公布（confirmed） */
-  status: "estimated" | "confirmed";
+  /** estimated: Zacks algorithm; expected: earnings-date fallback; confirmed: earnings calendar only. */
+  status: "estimated" | "expected" | "confirmed";
   detail: string;
   sourceUrl: string;
 }
@@ -70,7 +70,7 @@ export function parseEarningsDate(symbol: string, data: { announcement?: string;
   return {
     symbol,
     date: `${m[3]}-${MONTHS[m[1]]}-${m[2].padStart(2, "0")}`,
-    status: /estimated|derived from an algorithm/i.test(text) ? "estimated" : "confirmed",
+    status: /estimated|derived from an algorithm/i.test(text) ? "estimated" : "expected",
     detail: parts.join("，"),
     sourceUrl: `https://www.nasdaq.com/market-activity/stocks/${symbol.toLowerCase()}/earnings`,
   };

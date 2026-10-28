@@ -85,6 +85,21 @@ test("VIX 過期：outlookView 的 outlook 為 null，但共識、策略師、�
   assert.ok(v.recent.length >= 1);
   for (const k of ["track", "consensus", "factset", "horizon", "minN"]) assert.ok(k in v, k);
   assert.ok("modelVersion" in v.recent[0] && "historyStart" in v.recent[0]);
+  assert.ok(v.liveTrackDd5);
+  assert.equal(v.liveTrackDd5.realtime, 1);
+  assert.equal(v.liveTrackDd5.delayed, 4);
+});
+
+test("dd5 讀取端：新紀錄按 lag 分類，無 detail 舊列另計資格不明；P(up) 附暫時說明", async () => {
+  const { db, sql, days } = await seed();
+  const recorded = await recordForecast(db);
+  assert.equal(recorded.recorded.length, 5);
+  sql.prepare("INSERT INTO forecasts (trade_date, probability, base_rate, basis, call, close, created_at) VALUES (?, 0.6, 0.6, 'test', 'inconclusive', 1000, 'x')").run(days.at(-6)!);
+  const v = await outlookView({ env: { DB: db }, req: { query: () => undefined, url: "http://x/outlook" } });
+  assert.equal(v.liveTrackDd5.realtime, 1);
+  assert.equal(v.liveTrackDd5.delayed, 4);
+  assert.equal(v.liveTrackDd5.unknown, 1);
+  assert.equal(v.liveTrack.note, "合併所有已寫入的紀錄，包含延遲補記的列；尚未依發布時間區分即時與補記。");
 });
 
 test("forecast 工作遇到 VIX 過期：status partial，原因寫明 VIX", async () => {

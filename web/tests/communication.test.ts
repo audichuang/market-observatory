@@ -179,3 +179,80 @@ test("U-01 與 D-04 文案：不說與平常差不多；兩種區間分名", () 
   assert.match(PROPORTION_INTERVAL, /歷史比例/);
   assert.match(SKILL_INTERVAL, /預測力.*不是今天/);
 });
+
+// --- L4: forecast live tracks ---
+import { dd5ClassOf, dd5LiveTrackOf } from "../src/lib/communication.ts";
+
+const dd5Detail = (lag = 0, modelVersion = "dd5-v1", p = 0.8, base = 0.2) =>
+  JSON.stringify({ recordedLagSessions: lag, drawdown: { p, base, modelVersion } });
+
+test("dd5 分類：完整 lag 0 即時、lag 2 補記；缺資格欄位或壞 JSON 先歸不明", () => {
+  assert.equal(dd5ClassOf(dd5Detail()), "realtime");
+  assert.equal(dd5ClassOf(dd5Detail(2)), "delayed");
+  for (const detail of [null, "{", "null", JSON.stringify({ drawdown: { p: 0.1, base: 0.2, modelVersion: "v1" } }),
+    ...["p", "base", "modelVersion"].map((key) => {
+      const d = JSON.parse(dd5Detail(2));
+      delete d.drawdown[key];
+      return JSON.stringify(d);
+    }), dd5Detail(2, ""), dd5Detail(2, "v1", "0.1" as never)]) {
+    assert.equal(dd5ClassOf(detail), "unknown", String(detail));
+  }
+});
+
+const dd5Points = (n: number) => Array.from({ length: n }, (_, i) => ({ date: day(i), close: 100 }));
+const dd5Row = (i: number, detail: string | null = dd5Detail()) => ({ date: day(i), close: 100, detail });
+
+test("dd5 格線：從第一筆即時列起，全部版本共用；補記格點略過不遞補", () => {
+  const result = dd5LiveTrackOf([
+    dd5Row(64, dd5Detail(0, "v2")), dd5Row(0, null), dd5Row(1), dd5Row(2, dd5Detail(0, "off-grid")),
+    dd5Row(22, dd5Detail(0, "v2")), dd5Row(43, dd5Detail(2)), dd5Row(44, dd5Detail(0, "off-grid")),
+  ], dd5Points(86));
+  assert.equal(result.realtime, 5);
+  assert.equal(result.delayed, 1);
+  assert.equal(result.unknown, 1);
+  assert.deepEqual(result.groups.map((g) => [g.modelVersion, g.n]), [["dd5-v1", 1], ["v2", 2]]);
+  assert.match(result.note, /尚未比對排程當時應有的收盤日.*停更後才補寫的列仍可能被算入/);
+});
+
+test("dd5 標籤：21 日內含邊界 0.95，22 日才跌不算；21 日收盤存在才到期", () => {
+  for (const dropOn of [1, 21, 22]) {
+    const points = dd5Points(23);
+    points[dropOn].close = 95;
+    const track = dd5LiveTrackOf([dd5Row(0)], points);
+    assert.equal(track.groups[0].eventShare, dropOn <= 21 ? 1 : 0);
+  }
+  const immature = dd5Points(21);
+  immature[1].close = 90;
+  assert.deepEqual(dd5LiveTrackOf([dd5Row(0)], immature).groups, []);
+  assert.deepEqual(dd5LiveTrackOf([], dd5Points(23)).groups, []);
+});
+
+test("dd5 以存下的 p／base 計分：11 月不報 BSS，12 月符合手算值", () => {
+  const points = dd5Points(253);
+  const rows = Array.from({ length: 12 }, (_, k) => {
+    if (k % 2 === 0) points[k * 21 + 1].close = 95;
+    return dd5Row(k * 21, dd5Detail(0, "v1", k % 2 === 0 ? 0.8 : 0.2, k % 2 === 0 ? 0.4 : 0.2));
+  });
+  const small = dd5LiveTrackOf(rows.slice(0, 11), points).groups[0];
+  assert.equal(small.n, 11);
+  assert.equal(small.tooFew, true);
+  assert.equal(small.bss, null);
+  const full = dd5LiveTrackOf(rows, points).groups[0];
+  assert.equal(full.n, 12);
+  assert.equal(full.tooFew, false);
+  // Six events: model error .2 in both outcomes; base errors .6 and .2.
+  assert.ok(Math.abs(full.brier! - 0.04) < 1e-12);
+  assert.ok(Math.abs(full.brierBase! - 0.2) < 1e-12);
+  assert.ok(Math.abs(full.bss! - 0.8) < 1e-12);
+  assert.equal(full.eventShare, 0.5);
+});
+
+test("dd5 起始價用存下的 close，歷史起始價修訂不改結果", () => {
+  const points = dd5Points(22);
+  points[1].close = 95;
+  const before = dd5LiveTrackOf([dd5Row(0)], points);
+  points[0].close = 1000;
+  assert.deepEqual(dd5LiveTrackOf([dd5Row(0)], points), before);
+  assert.equal(before.groups[0].eventShare, 1);
+  assert.equal(dd5LiveTrackOf([{ ...dd5Row(0), close: 90 }], points).groups[0].eventShare, 0);
+});

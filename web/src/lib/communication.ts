@@ -104,3 +104,63 @@ type PickLike = { p: number; base: Rate; conditional: Rate | null; distinct: boo
 export function frequencySentences(o: { pick: PickLike; drawdown: { pick: PickLike; scored: boolean } }): { up: string; dd5: string } {
   return { up: naturalFrequency(o.pick, "up", o.pick.distinct), dd5: naturalFrequency(o.drawdown.pick, "dd5", o.drawdown.pick.distinct) };
 }
+
+// --- L4: forecast live tracks ---
+export const DD5_LIVE_NOTE = "依 R2-6：只計寫入時就是資料庫最新 SPX 交易日（延遲 0 個交易日）、且存有 dd5 模型版本的列；尚未比對排程當時應有的收盤日，資料來源停更後才補寫的列仍可能被算入。";
+export const UP_LIVE_NOTE = "合併所有已寫入的紀錄，包含延遲補記的列；尚未依發布時間區分即時與補記。";
+
+interface Dd5Detail {
+  recordedLagSessions: number;
+  drawdown: { p: number; base: number; modelVersion: string };
+}
+
+function dd5DetailOf(detail: string | null): Dd5Detail | null {
+  try {
+    const d = JSON.parse(detail ?? "null");
+    if (!Number.isFinite(d?.recordedLagSessions) || !Number.isFinite(d?.drawdown?.p) || !Number.isFinite(d?.drawdown?.base)
+      || typeof d?.drawdown?.modelVersion !== "string" || !d.drawdown.modelVersion.trim()) return null;
+    return d;
+  } catch {
+    return null;
+  }
+}
+
+export function dd5ClassOf(detail: string | null): "realtime" | "delayed" | "unknown" {
+  const d = dd5DetailOf(detail);
+  return !d ? "unknown" : d.recordedLagSessions >= 1 ? "delayed" : "realtime";
+}
+
+/** R2-6: one grid shared by all realtime rows, anchored at the first realtime SPX session; group only after selecting mature rows. */
+export function dd5LiveTrackOf(rows: { date: string; close: number; detail: string | null }[], points: { date: string; close: number }[]) {
+  const counts = { realtime: 0, delayed: 0, unknown: 0 };
+  const idx = new Map(points.map((p, i) => [p.date, i]));
+  const realtime = rows.filter((r) => {
+    const kind = dd5ClassOf(r.detail);
+    counts[kind]++;
+    return kind === "realtime" && idx.has(r.date);
+  }).sort((a, b) => idx.get(a.date)! - idx.get(b.date)!);
+  const groups = new Map<string, { n: number; error: number; baseError: number; events: number }>();
+  const start = realtime.length ? idx.get(realtime[0].date)! : 0;
+  for (const r of realtime) {
+    const i = idx.get(r.date)!;
+    if ((i - start) % HORIZON !== 0 || !points[i + HORIZON]) continue;
+    const y = points.slice(i + 1, i + HORIZON + 1).some((p) => p.close <= 0.95 * r.close) ? 1 : 0;
+    const d = dd5DetailOf(r.detail)!.drawdown;
+    const g = groups.get(d.modelVersion) ?? { n: 0, error: 0, baseError: 0, events: 0 };
+    g.n++;
+    g.error += (d.p - y) ** 2;
+    g.baseError += (d.base - y) ** 2;
+    g.events += y;
+    groups.set(d.modelVersion, g);
+  }
+  return {
+    ...counts,
+    groups: [...groups].map(([modelVersion, g]) => {
+      const brier = g.error / g.n;
+      const brierBase = g.baseError / g.n;
+      const tooFew = g.n < LIVE_MIN_N;
+      return { modelVersion, n: g.n, tooFew, brier, brierBase, bss: tooFew || brierBase === 0 ? null : 1 - brier / brierBase, eventShare: g.events / g.n };
+    }),
+    note: DD5_LIVE_NOTE,
+  };
+}

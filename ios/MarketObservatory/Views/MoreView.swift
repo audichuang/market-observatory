@@ -467,6 +467,8 @@ struct OutlookView: View {
                 Text("資料不足，還無法產生展望。").foregroundStyle(.secondary)
             }
 
+            dd5TrackSection(p)
+
             Section("機構觀點（背景資訊，不放進上面的機率）") {
                 DisclosureGroup("如何看待機構目標") {
                     Text("研究顯示分析師目標價系統性偏樂觀，策略師年底目標與實際報酬幾乎沒有相關；這裡列出來是讓你知道市場共識在哪，而不是當漲跌訊號。")
@@ -663,6 +665,32 @@ struct OutlookView: View {
             Text(p.liveTrack == nil ? "實際發出的預測" : "上線後實際紀錄：上漲機率")
         } footer: {
             if p.liveTrack != nil { Text("合併所有已發布的模型版本；每列以紀錄日收盤為起點。這是和樣本內、滾動驗證分開的第三種分數。") }
+            if let note = p.liveTrack?.note { Text(note) }
+        }
+    }
+
+    @ViewBuilder
+    private func dd5TrackSection(_ p: OutlookPage) -> some View {
+        if let lt = p.liveTrackDd5 {
+            Section {
+                if let groups = lt.groups, !groups.isEmpty {
+                    ForEach(Array(groups.enumerated()), id: \.offset) { _, g in
+                        if g.tooFew == true {
+                            Text("模型 \(g.modelVersion ?? "—")：樣本太少，只有 \(g.n.map { String($0) } ?? "—") 個獨立月份")
+                        } else {
+                            Text("模型 \(g.modelVersion ?? "—")：BSS \(Fmt.num(g.bss, 3))（對照紀錄當時存下的基準率）· n = \(g.n.map { String($0) } ?? "—") 個獨立月份 · 實際發生 \(ratio(g.eventShare))")
+                        }
+                    }
+                } else {
+                    Text("每天收盤後記錄一次，21 個交易日後才能對帳；目前還沒有到期的紀錄")
+                }
+                Text("延遲補記 \(lt.delayed.map { String($0) } ?? "—") 列、資格不明 \(lt.unknown.map { String($0) } ?? "—") 列，保留、不計分")
+            } header: {
+                Text("上線後實際紀錄：跌幅機率（dd5）")
+            } footer: {
+                if let note = lt.note { Text(note) }
+            }
+            .font(.footnote)
         }
     }
 

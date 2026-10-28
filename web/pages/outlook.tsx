@@ -209,10 +209,11 @@ function ForecastBlock({ outlook, cells, horizon, minN, minEpisodes, trackPanel,
   );
 }
 
-export default function OutlookPage({ outlook, cells, liveTrack, frequency, recent, consensus, strategists, factset, horizon, minN, minEpisodes, phaseSummary }: Props) {
+export default function OutlookPage({ outlook, cells, liveTrack, liveTrackDd5, frequency, recent, consensus, strategists, factset, horizon, minN, minEpisodes, phaseSummary }: Props) {
   const trackPanel = (
     <div className="panel">
       <h2>上線後實際紀錄：上漲機率 <span className="meta">（合併所有已發布的模型版本；每列以紀錄日收盤為起點）</span></h2>
+      <p className="sub">{liveTrack.note}</p>
       {liveTrack.n === 0 ? (
         <p className="sub">每天收盤後記錄一次，{horizon} 個交易日後才能對帳；目前還沒有到期的預測。</p>
       ) : liveTrack.tooFew ? (
@@ -237,6 +238,22 @@ export default function OutlookPage({ outlook, cells, liveTrack, frequency, rece
       </ul>
     </div>
   );
+  const dd5TrackPanel = (
+    <div className="panel section">
+      <h2>上線後實際紀錄：跌幅機率（dd5）</h2>
+      {liveTrackDd5.groups.length === 0 ? (
+        <p className="sub">每天收盤後記錄一次，21 個交易日後才能對帳；目前還沒有到期的紀錄</p>
+      ) : liveTrackDd5.groups.map((g) => (
+        <p className="sub" key={g.modelVersion}>
+          模型 {g.modelVersion}：{g.tooFew
+            ? `樣本太少，只有 ${g.n} 個獨立月份`
+            : `BSS ${f3(g.bss)}（對照紀錄當時存下的基準率）· n = ${g.n} 個獨立月份 · 實際發生 ${pct(g.eventShare)}`}
+        </p>
+      ))}
+      <p className="sub">延遲補記 {liveTrackDd5.delayed} 列、資格不明 {liveTrackDd5.unknown} 列，保留、不計分</p>
+      <p className="sub">{liveTrackDd5.note}</p>
+    </div>
+  );
   const close = outlook?.close ?? strategists?.close ?? null;
   return (
     <>
@@ -258,6 +275,7 @@ export default function OutlookPage({ outlook, cells, liveTrack, frequency, rece
           <ForecastBlock outlook={outlook} cells={cells} horizon={horizon} minN={minN} minEpisodes={minEpisodes} trackPanel={trackPanel} frequency={frequency} phaseSummary={phaseSummary} />
         </>
       )}
+      {dd5TrackPanel}
 
       <h2 className="section" style={{ marginTop: "1.5rem" }}>機構觀點（背景資訊，不放進上面的機率）</h2>
       <p className="sub" style={{ marginBottom: ".8rem" }}>

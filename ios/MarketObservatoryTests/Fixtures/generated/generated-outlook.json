@@ -281,7 +281,25 @@
     "bss": null,
     "brier": 0.09000000000000002,
     "brierBase": 0.16000000000000003,
-    "upShare": 1
+    "upShare": 1,
+    "note": "合併所有已寫入的紀錄，包含延遲補記的列；尚未依發布時間區分即時與補記。"
+  },
+  "liveTrackDd5": {
+    "realtime": 1,
+    "delayed": 0,
+    "unknown": 0,
+    "groups": [
+      {
+        "modelVersion": "2026-10-g09r1",
+        "n": 1,
+        "tooFew": true,
+        "brier": 0.0225,
+        "brierBase": 0.04000000000000001,
+        "bss": null,
+        "eventShare": 0
+      }
+    ],
+    "note": "依 R2-6：只計寫入時就是資料庫最新 SPX 交易日（延遲 0 個交易日）、且存有 dd5 模型版本的列；尚未比對排程當時應有的收盤日，資料來源停更後才補寫的列仍可能被算入。"
   },
   "frequency": {
     "up": "尚未偵測到增額預測力；平常是每 100 次有 65 次 21 個交易日後收高",

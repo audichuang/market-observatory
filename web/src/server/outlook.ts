@@ -1,6 +1,6 @@
 // 下月展望（跟使用者無關，整頁照資料版本快取）。網頁 loader 與 App 的 API 共用。
 import { addDays } from "../lib/calendar.ts";
-import { frequencySentences, liveTrackOf } from "../lib/communication.ts";
+import { UP_LIVE_NOTE, dd5LiveTrackOf, frequencySentences, liveTrackOf } from "../lib/communication.ts";
 import { aggregateConsensus, type ViewRow } from "../lib/consensus.ts";
 import { HORIZON, MIN_EFFECTIVE_N, MIN_EPISODES, buildObservations, buildOutlook, conditionalRate, type Rate, type Regime } from "../lib/forecast.ts";
 import type { PhaseSummary } from "../lib/forecast-eval.ts";
@@ -61,8 +61,9 @@ export async function outlookView(c: ViewCtx) {
       : null;
 
     // L09：上線後實際紀錄只用不重疊的已到期列（獨立月份），與樣本內、滾動驗證分開。
-    const allRows = await db.prepare("SELECT trade_date AS date, probability AS p, base_rate AS base, close FROM forecasts ORDER BY trade_date").all<{ date: string; p: number; base: number; close: number }>();
-    const liveTrack = liveTrackOf(allRows.results, spx.points);
+    const allRows = await db.prepare("SELECT trade_date AS date, probability AS p, base_rate AS base, close, detail FROM forecasts ORDER BY trade_date").all<{ date: string; p: number; base: number; close: number; detail: string | null }>();
+    const liveTrack = { ...liveTrackOf(allRows.results, spx.points), note: UP_LIVE_NOTE };
+    const liveTrackDd5 = dd5LiveTrackOf(allRows.results, spx.points);
     // L11：自然頻率句（up 與 drawdown）。
     const frequency = outlook ? frequencySentences(outlook) : null;
 
@@ -96,6 +97,7 @@ export async function outlookView(c: ViewCtx) {
       cells,
       track,
       liveTrack,
+      liveTrackDd5,
       frequency,
       recent: recent.slice(0, 30),
       consensus: consensus

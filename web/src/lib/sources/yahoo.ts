@@ -114,13 +114,13 @@ export async function fetchYahooSpark(providerSymbols: string[], range: string, 
   return { bars, errors };
 }
 
-/** 多檔的最後一筆收盤（替分析師目標價算隱含漲幅用）。 */
-export async function fetchYahooLastCloses(symbols: string[], budget?: Budget): Promise<Map<string, { date: string; close: number }>> {
+/** Last closes for analyst target upside, optionally capped at an inclusive date. */
+export async function fetchYahooLastCloses(symbols: string[], budget?: Budget, onOrBefore?: string): Promise<Map<string, { date: string; close: number }>> {
   const { bars, errors } = await fetchYahooSpark(symbols, "5d", budget);
   if (!bars.size && errors.length) throw new SourceError(YAHOO_SOURCE, errors[0]);
   const out = new Map<string, { date: string; close: number }>();
   for (const [s, b] of bars) {
-    const last = b.at(-1);
+    const last = (onOrBefore === undefined ? b : b.filter((bar) => bar.date <= onOrBefore)).at(-1);
     if (last) out.set(s, { date: last.date, close: last.close });
   }
   return out;

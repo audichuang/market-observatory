@@ -82,9 +82,9 @@ export const SOURCE_REGISTRY: readonly SourceRegistryEntry[] = [
   {
     ...RESEARCH, id: "cboe-index", name: "Cboe VIX／SPX 歷史指數", runtime: "worker",
     patterns: [/^https:\/\/cdn-api\.cboe\.com\/api\/global\/us_indices\/daily_prices\/(?:VIX|SPX)_History\.csv(?:[?#]|$)/],
-    jobs: ["prices", "backfill-index-history"], screens: ["總覽", "走勢", "下月展望", "資料來源"],
+    jobs: ["prices", "backfill-prices", "backfill-index-history"], screens: ["總覽", "走勢", "下月展望", "資料來源"],
     fields: [{ name: "DATE／SPX", usage: "SPX 收盤交叉核對與窗口前歷史。" }, { name: "DATE／OPEN／HIGH／LOW／CLOSE", usage: "VIX 主價與窗口前歷史。" }],
-    disableImpact: "VIX 主價、SPX 核對與更早指數歷史停止更新；影響總覽品質、走勢與展望輸入。",
+    disableImpact: "VIX 主價、SPX 核對與更早指數歷史停止更新；影響總覽品質、走勢與展望輸入。回補十年日線的最後一段（VIX／SPX）也會受影響。",
     rights: {
       automatedAcquisition: { status: "未取得（條款限制）", basis: "§2 只列個人非商業一份下載的有限用途，其他用途原則須書面同意。" },
       storage: { status: "未取得（條款限制）", basis: "§2 電子保存原則須事前書面同意，另有法定 fair-use 例外，本站不判定適用。" },

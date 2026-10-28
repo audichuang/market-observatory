@@ -35,6 +35,41 @@ test("五支排程與加入全站新公司的每個上游網址都列在 worker 
   }
 });
 
+test("回補十年日線的每個實際來源都列出 backfill-prices 工作", async (t) => {
+  const upstream = new FakeUpstream();
+  const urls = new Set<string>();
+  upstream.rules = [(url) => { urls.add(url.href); return null; }, consistentSpx];
+  const restore = upstream.install();
+  try {
+    const { db } = await seededDb();
+    const { runJob } = await import("../src/server/jobs.ts");
+    // The seeded default watchlist has seven backfill parts; the last fetches VIX/SPX.
+    for (let part = 0; part < 7; part++) {
+      upstream.reset();
+      const result = await runJob(db, "backfill-prices", "test", { part });
+      assert.equal(result.status, "ok", result.summary);
+      t.diagnostic(result.summary);
+    }
+    assert.deepEqual([...urls].filter((url) => sourceForUrl(url)?.id === "cboe-index").map((url) => new URL(url).pathname).sort(), [
+      "/api/global/us_indices/daily_prices/SPX_History.csv",
+      "/api/global/us_indices/daily_prices/VIX_History.csv",
+    ]);
+    for (const url of urls) {
+      const source = sourceForUrl(url);
+      assert.ok(source, `上游網址未列入清冊：${url}`);
+      assert.equal(source.runtime, "worker", url);
+      assert.ok(source.jobs.includes("backfill-prices"), `${source.id} 未列出 backfill-prices`);
+    }
+  } finally {
+    restore();
+  }
+});
+
+test("Cboe 停用影響明列回補十年日線最後一段的 VIX／SPX", () => {
+  const cboe = SOURCE_REGISTRY.find((s) => s.id === "cboe-index")!;
+  assert.match(cboe.disableImpact, /回補十年日線.*最後一段.*VIX.*SPX/);
+});
+
 test("Nasdaq 分析師逐欄揭露已保存、目前顯示與 L6 #10 預定顯示，版本日維持未核實", () => {
   const analyst = SOURCE_REGISTRY.find((s) => s.id === "nasdaq-analyst")!;
   const fields = new Map(analyst.fields.map((f) => [f.name, f.usage]));

@@ -6,6 +6,7 @@ import * as etfCopy from "../../src/lib/etf-copy.ts";
 import { planIssue } from "../../src/lib/plan.ts";
 import { DEFAULT_PLAN } from "../../src/server/views.ts";
 import { compactUsd, num, pctText } from "../../src/ui/format.ts";
+import { ETFS } from "../../src/lib/universe.ts";
 
 export interface Element { type: unknown; props: Record<string, unknown> & { children: unknown[] } }
 const h = (type: unknown, props: Record<string, unknown> | null, ...children: unknown[]): Element => ({ type, props: { ...props, children } });
@@ -46,7 +47,7 @@ export function pageWithAction(action: () => Promise<unknown> = async () => ({ o
     h, Fragment: Symbol("Fragment"), useState, useEffect: () => {},
     useRouter: () => ({ visit: (url: unknown) => visits.push(url) }),
     useForm: () => ({ data: currentProps.plan, pending: false, hasChanges: false }),
-    action, Form: "form", Link: "a", LineChart: "chart", Delta: "delta", num, compactUsd, pctText, planIssue,
+    action, Form: "form", Link: "a", LineChart: "chart", Delta: "delta", num, compactUsd, pctText, planIssue, ETFS,
     ...etfCopy,
   };
   const factory = new Function(...Object.keys(imports), `${code}\nreturn EtfPage;`);

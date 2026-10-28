@@ -25,6 +25,14 @@ export const DEFAULT_WATCHLIST: WatchMember[] = [
 
 export const watchTickers = (list: WatchMember[]) => list.flatMap((m) => m.tickers);
 
+export interface EtfFacts {
+  domicile: string;
+  distribution: string | null;
+  isin: string | null;
+  sourceUrl: string;
+  checkedAt: string;
+}
+
 export interface EtfProduct {
   ticker: string;
   name: string;
@@ -38,22 +46,57 @@ export interface EtfProduct {
   aumAsOf: string | null;
   sourceUrl: string;
   note: string;
+  facts: EtfFacts;
 }
 
 // 產品資料由人工查核發行商頁面維護（費率很少變動）；價格與報酬由每日排程自動計算。
 export const ETF_CATALOG_AS_OF = "2026-10-24";
+// 擴充台灣上市的 S&P 500 ETF 時注意 006205 是富邦上証，不是 S&P 500（研究 V-C 第 13 條）。
 export const ETFS: EtfProduct[] = [
-  { ticker: "VOO", name: "Vanguard S&P 500 ETF", issuer: "Vanguard", multiple: 1, grossFeePct: 0.03, netFeePct: 0.03, aumUsd: 1032260000000, aumAsOf: "2026-09-30", sourceUrl: "https://investor.vanguard.com/investment-products/etfs/profile/voo", note: "ETF 股類資產，非母基金全股類" },
-  { ticker: "IVV", name: "iShares Core S&P 500 ETF", issuer: "iShares", multiple: 1, grossFeePct: 0.03, netFeePct: 0.03, aumUsd: 873554553278, aumAsOf: "2026-10-23", sourceUrl: "https://www.ishares.com/us/products/239726/ishares-core-sp-500-etf", note: "" },
-  { ticker: "SPY", name: "SPDR S&P 500 ETF Trust", issuer: "State Street", multiple: 1, grossFeePct: 0.0945, netFeePct: 0.0945, aumUsd: 810519790000, aumAsOf: "2026-10-22", sourceUrl: "https://www.ssga.com/us/en/intermediary/etfs/state-street-spdr-sp-500-etf-trust-spy", note: "UIT 結構，股息不能再投資" },
-  { ticker: "SPYM", name: "SPDR Portfolio S&P 500 ETF", issuer: "State Street", multiple: 1, grossFeePct: 0.02, netFeePct: 0.02, aumUsd: 182490310000, aumAsOf: "2026-10-22", sourceUrl: "https://www.ssga.com/us/en/individual/etfs/state-street-spdr-portfolio-sp-500-etf-spym", note: "" },
-  { ticker: "SSO", name: "ProShares Ultra S&P500", issuer: "ProShares", multiple: 2, grossFeePct: 0.88, netFeePct: 0.84, aumUsd: 8536082121, aumAsOf: null, sourceUrl: "https://www.proshares.com/our-etfs/leveraged-and-inverse/sso", note: "費用減免至 2027-09-30" },
-  { ticker: "UPRO", name: "ProShares UltraPro S&P500", issuer: "ProShares", multiple: 3, grossFeePct: 0.88, netFeePct: 0.88, aumUsd: 5300921683, aumAsOf: null, sourceUrl: "https://www.proshares.com/our-etfs/leveraged-and-inverse/upro", note: "" },
-  { ticker: "SPXL", name: "Direxion Daily S&P 500 Bull 3X", issuer: "Direxion", multiple: 3, grossFeePct: 0.95, netFeePct: 0.84, aumUsd: null, aumAsOf: null, sourceUrl: "https://www.direxion.com/product/daily-sp-500-bull-bear-3x-etfs", note: "費用減免至 2027-09-01" },
-  { ticker: "SH", name: "ProShares Short S&P500", issuer: "ProShares", multiple: -1, grossFeePct: 0.88, netFeePct: 0.88, aumUsd: 932754206, aumAsOf: null, sourceUrl: "https://www.proshares.com/our-etfs/leveraged-and-inverse/sh", note: "" },
-  { ticker: "SDS", name: "ProShares UltraShort S&P500", issuer: "ProShares", multiple: -2, grossFeePct: 0.91, netFeePct: 0.91, aumUsd: 378965465, aumAsOf: null, sourceUrl: "https://www.proshares.com/our-etfs/leveraged-and-inverse/sds", note: "" },
-  { ticker: "SPXU", name: "ProShares UltraPro Short S&P500", issuer: "ProShares", multiple: -3, grossFeePct: 0.9, netFeePct: 0.9, aumUsd: 424445247, aumAsOf: null, sourceUrl: "https://www.proshares.com/our-etfs/leveraged-and-inverse/spxu", note: "費用減免至 2027-09-30" },
-  { ticker: "SPXS", name: "Direxion Daily S&P 500 Bear 3X", issuer: "Direxion", multiple: -3, grossFeePct: 1.04, netFeePct: 1.04, aumUsd: null, aumAsOf: null, sourceUrl: "https://www.direxion.com/product/daily-sp-500-bull-bear-3x-etfs", note: "" },
+  {
+    ticker: "VOO", name: "Vanguard S&P 500 ETF", issuer: "Vanguard", multiple: 1, grossFeePct: 0.03, netFeePct: 0.03, aumUsd: 1032260000000, aumAsOf: "2026-09-30", sourceUrl: "https://investor.vanguard.com/investment-products/etfs/profile/voo", note: "ETF 股類資產，非母基金全股類",
+    facts: { domicile: "美國", distribution: "配息（每季）", isin: null, sourceUrl: "https://investor.vanguard.com/investment-products/etfs/profile/voo", checkedAt: "2026-10-28" },
+  },
+  {
+    ticker: "IVV", name: "iShares Core S&P 500 ETF", issuer: "iShares", multiple: 1, grossFeePct: 0.03, netFeePct: 0.03, aumUsd: 873554553278, aumAsOf: "2026-10-23", sourceUrl: "https://www.ishares.com/us/products/239726/ishares-core-sp-500-etf", note: "",
+    facts: { domicile: "美國", distribution: "配息（每季）", isin: "US4642872000", sourceUrl: "https://www.ishares.com/us/products/239726/ishares-core-sp-500-etf", checkedAt: "2026-10-28" },
+  },
+  {
+    ticker: "SPY", name: "SPDR S&P 500 ETF Trust", issuer: "State Street", multiple: 1, grossFeePct: 0.0945, netFeePct: 0.0945, aumUsd: 810519790000, aumAsOf: "2026-10-22", sourceUrl: "https://www.ssga.com/us/en/intermediary/etfs/state-street-spdr-sp-500-etf-trust-spy", note: "UIT 結構，股息不能再投資",
+    facts: { domicile: "美國", distribution: "配息（每季）", isin: "US78462F1030", sourceUrl: "https://www.ssga.com/us/en/intermediary/etfs/state-street-spdr-sp-500-etf-trust-spy", checkedAt: "2026-10-28" },
+  },
+  {
+    ticker: "SPYM", name: "SPDR Portfolio S&P 500 ETF", issuer: "State Street", multiple: 1, grossFeePct: 0.02, netFeePct: 0.02, aumUsd: 182490310000, aumAsOf: "2026-10-22", sourceUrl: "https://www.ssga.com/us/en/individual/etfs/state-street-spdr-portfolio-sp-500-etf-spym", note: "",
+    facts: { domicile: "美國", distribution: "配息（每季）", isin: "US78464A8541", sourceUrl: "https://www.ssga.com/us/en/individual/etfs/state-street-spdr-portfolio-sp-500-etf-spym", checkedAt: "2026-10-28" },
+  },
+  {
+    ticker: "SSO", name: "ProShares Ultra S&P500", issuer: "ProShares", multiple: 2, grossFeePct: 0.88, netFeePct: 0.84, aumUsd: 8536082121, aumAsOf: null, sourceUrl: "https://www.proshares.com/our-etfs/leveraged-and-inverse/sso", note: "費用減免至 2027-09-30",
+    facts: { domicile: "美國", distribution: "配息（每季）", isin: null, sourceUrl: "https://www.proshares.com/our-etfs/leveraged-and-inverse/sso", checkedAt: "2026-10-28" },
+  },
+  {
+    ticker: "UPRO", name: "ProShares UltraPro S&P500", issuer: "ProShares", multiple: 3, grossFeePct: 0.88, netFeePct: 0.88, aumUsd: 5300921683, aumAsOf: null, sourceUrl: "https://www.proshares.com/our-etfs/leveraged-and-inverse/upro", note: "",
+    facts: { domicile: "美國", distribution: "配息（每季）", isin: null, sourceUrl: "https://www.proshares.com/our-etfs/leveraged-and-inverse/upro", checkedAt: "2026-10-28" },
+  },
+  {
+    ticker: "SPXL", name: "Direxion Daily S&P 500 Bull 3X", issuer: "Direxion", multiple: 3, grossFeePct: 0.95, netFeePct: 0.84, aumUsd: null, aumAsOf: null, sourceUrl: "https://www.direxion.com/product/daily-sp-500-bull-bear-3x-etfs", note: "費用減免至 2027-09-01",
+    facts: { domicile: "美國", distribution: null, isin: null, sourceUrl: "https://www.direxion.com/product/daily-sp-500-bull-bear-3x-etfs", checkedAt: "2026-10-28" },
+  },
+  {
+    ticker: "SH", name: "ProShares Short S&P500", issuer: "ProShares", multiple: -1, grossFeePct: 0.88, netFeePct: 0.88, aumUsd: 932754206, aumAsOf: null, sourceUrl: "https://www.proshares.com/our-etfs/leveraged-and-inverse/sh", note: "",
+    facts: { domicile: "美國", distribution: "配息（每季）", isin: null, sourceUrl: "https://www.proshares.com/our-etfs/leveraged-and-inverse/sh", checkedAt: "2026-10-28" },
+  },
+  {
+    ticker: "SDS", name: "ProShares UltraShort S&P500", issuer: "ProShares", multiple: -2, grossFeePct: 0.91, netFeePct: 0.91, aumUsd: 378965465, aumAsOf: null, sourceUrl: "https://www.proshares.com/our-etfs/leveraged-and-inverse/sds", note: "",
+    facts: { domicile: "美國", distribution: "配息（每季）", isin: null, sourceUrl: "https://www.proshares.com/our-etfs/leveraged-and-inverse/sds", checkedAt: "2026-10-28" },
+  },
+  {
+    ticker: "SPXU", name: "ProShares UltraPro Short S&P500", issuer: "ProShares", multiple: -3, grossFeePct: 0.9, netFeePct: 0.9, aumUsd: 424445247, aumAsOf: null, sourceUrl: "https://www.proshares.com/our-etfs/leveraged-and-inverse/spxu", note: "費用減免至 2027-09-30",
+    facts: { domicile: "美國", distribution: "配息（每季）", isin: null, sourceUrl: "https://www.proshares.com/our-etfs/leveraged-and-inverse/spxu", checkedAt: "2026-10-28" },
+  },
+  {
+    ticker: "SPXS", name: "Direxion Daily S&P 500 Bear 3X", issuer: "Direxion", multiple: -3, grossFeePct: 1.04, netFeePct: 1.04, aumUsd: null, aumAsOf: null, sourceUrl: "https://www.direxion.com/product/daily-sp-500-bull-bear-3x-etfs", note: "",
+    facts: { domicile: "美國", distribution: null, isin: null, sourceUrl: "https://www.direxion.com/product/daily-sp-500-bull-bear-3x-etfs", checkedAt: "2026-10-28" },
+  },
 ];
 
 /** 每日從 Yahoo chart 抓的標的（不含 VIX，VIX 走 Cboe）。成分股代號與 SSGA 持股檔同為 Yahoo 格式（BRK-B）。 */

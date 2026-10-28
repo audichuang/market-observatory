@@ -4,7 +4,8 @@ import LineChart from "../src/ui/LineChart.tsx";
 import { Delta } from "../src/ui/bits.tsx";
 import { compactUsd, num, pctText } from "../src/ui/format.ts";
 import { planIssue } from "../src/lib/plan.ts";
-import { DCA_BUY_RULE, DCA_FX_RULE, DCA_IDLE_CASH, DCA_LUMP_PREMISE, DCA_MONTHLY_NO_LUMP, FUNDING_LUMP_LABEL, FUNDING_MONTHLY_LABEL } from "../src/lib/etf-copy.ts";
+import { DCA_BUY_RULE, DCA_FX_RULE, DCA_IDLE_CASH, DCA_LUMP_PREMISE, DCA_MONTHLY_NO_LUMP, EVIDENCE_1X, EVIDENCE_LEVERAGED, FUNDING_LUMP_LABEL, FUNDING_MONTHLY_LABEL } from "../src/lib/etf-copy.ts";
+import { ETFS, type EtfProduct } from "../src/lib/universe.ts";
 import type { Props } from "./etfs.server";
 
 const errorText = (e: unknown) => {
@@ -76,6 +77,18 @@ export default function EtfPage({ asOf, catalogAsOf, rows, periods, plan, sim, d
                 {r.drift1y && <div><dt>1Y 偏離</dt><dd><Delta value={r.drift1y.drift} percent digits={1} /></dd></div>}
               </dl>
               {r.note && <div className="meta">{r.note}</div>}
+              <details className="etf-facts" style={{ marginTop: ".3rem" }}>
+                <summary>產品資料</summary>
+                <div className="meta" style={{ marginTop: ".3rem", lineHeight: 1.5 }}>
+                  <div>註冊地：{r.facts?.domicile ?? "未查核"}</div>
+                  <div>配息：{r.facts?.distribution ?? "未查核"}</div>
+                  <div>ISIN：{r.facts?.isin ?? "未查核"}</div>
+                  <div>費用率：{feeSummary(r, catalogAsOf)}</div>
+                  <div>倍數：{multipleText(r.multiple)}</div>
+                  <div>出處：<a href={r.facts?.sourceUrl ?? r.sourceUrl} target="_blank" rel="noreferrer">發行商頁面</a>（{r.facts?.checkedAt ?? "未查核"} 查閱）</div>
+                  <div style={{ marginTop: ".3rem" }}>{r.multiple === 1 ? EVIDENCE_1X : EVIDENCE_LEVERAGED}</div>
+                </div>
+              </details>
             </li>
           ))}
         </ul>
@@ -100,6 +113,18 @@ export default function EtfPage({ asOf, catalogAsOf, rows, periods, plan, sim, d
                     <a href={r.sourceUrl} target="_blank" rel="noreferrer"><strong>{r.ticker}</strong></a>
                     <div className="meta">{r.name}</div>
                     {r.note && <div className="meta">{r.note}</div>}
+                    <details className="etf-facts" style={{ marginTop: ".3rem" }}>
+                      <summary>產品資料</summary>
+                      <div className="meta" style={{ marginTop: ".3rem", lineHeight: 1.5 }}>
+                        <div>註冊地：{r.facts?.domicile ?? "未查核"}</div>
+                        <div>配息：{r.facts?.distribution ?? "未查核"}</div>
+                        <div>ISIN：{r.facts?.isin ?? "未查核"}</div>
+                        <div>費用率：{feeSummary(r, catalogAsOf)}</div>
+                        <div>倍數：{multipleText(r.multiple)}</div>
+                        <div>出處：<a href={r.facts?.sourceUrl ?? r.sourceUrl} target="_blank" rel="noreferrer">發行商頁面</a>（{r.facts?.checkedAt ?? "未查核"} 查閱）</div>
+                        <div style={{ marginTop: ".3rem" }}>{r.multiple === 1 ? EVIDENCE_1X : EVIDENCE_LEVERAGED}</div>
+                      </div>
+                    </details>
                   </td>
                   <td className="num">{r.multiple > 0 ? `${r.multiple}x` : `${r.multiple}x`}</td>
                   <td className="num">
@@ -192,6 +217,11 @@ export default function EtfPage({ asOf, catalogAsOf, rows, periods, plan, sim, d
                   { name: "市值", color: "#d1343b", points: dca.path.map((p) => ({ date: p.date, value: p.value })) },
                 ]}
               />
+              {(rows.find((r) => r.ticker === sim.etf)?.multiple ?? ETFS.find((e) => e.ticker === sim.etf)?.multiple ?? 1) === 1 ? (
+                <p className="meta">{EVIDENCE_1X}</p>
+              ) : (
+                <div className="notice warn">{EVIDENCE_LEVERAGED}</div>
+              )}
               <p className="meta">
                 試算起點 {sim.startDate}，首筆 {dca.firstBuyDate}。{DCA_BUY_RULE}；{DCA_FX_RULE}（最新 {num(fxLast?.close ?? null, 3)}，{fxLast?.date}）。不含配息、手續費、換匯價差與稅。歷史試算不代表未來。
               </p>
@@ -239,4 +269,18 @@ export default function EtfPage({ asOf, catalogAsOf, rows, periods, plan, sim, d
 /** 0.0300 → 0.03、0.0945 → 0.0945：保留有效位數、去掉尾端 0。 */
 function feeText(v: number): string {
   return String(Number(v.toFixed(4)));
+}
+
+function multipleText(m: number): string {
+  if (m === 1) return "1x，不每日重設";
+  if (m < 0) return `反向 ${Math.abs(m)}x，每日重設`;
+  return `${m}x，每日重設`;
+}
+
+function feeSummary(r: EtfProduct, catalogAsOf: string): string {
+  if (r.netFeePct === null) return `—（${catalogAsOf} 查核）`;
+  if (r.grossFeePct !== null && r.grossFeePct !== r.netFeePct) {
+    return `淨 ${feeText(r.netFeePct)}% / 總 ${feeText(r.grossFeePct)}%（${catalogAsOf} 查核）`;
+  }
+  return `淨／總 ${feeText(r.netFeePct)}%（${catalogAsOf} 查核）`;
 }

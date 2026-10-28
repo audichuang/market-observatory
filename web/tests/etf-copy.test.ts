@@ -91,3 +91,50 @@ test("資金類型選單在期間後，預設每月新收入，改選帶入網�
   (funding.props.onChange as Function)({ target: { value: "lump" } });
   assert.equal(new URL(String(ui.visits[0]), "http://localhost").searchParams.get("funding"), "lump");
 });
+
+test("證據邊界固定說明逐字符合雙端規格", () => {
+  assert.equal(copy.EVIDENCE_1X, "一次投入與定期定額的歷史研究只涵蓋非槓桿、正向 1x 的股票產品；這裡的試算是過去一段期間的算術結果，不代表未來。");
+  assert.equal(copy.EVIDENCE_LEVERAGED, "這是每日重設的槓桿或反向產品：持有超過一天，報酬會偏離「倍數 × 指數報酬」，盤整或大波動時偏離通常更大。一般定投與一次投入的研究結論不適用這類產品，這裡的試算只是這段歷史的算術結果。");
+});
+
+test("定投試算依所選標的顯示 1x 或槓桿證據邊界，資料卡含註冊地、ISIN 與每日重設", () => {
+  const uproRow = {
+    ticker: "UPRO", name: "ProShares UltraPro S&P500", issuer: "ProShares", multiple: 3,
+    grossFeePct: 0.88, netFeePct: 0.88, aumUsd: 5300921683, aumAsOf: null,
+    sourceUrl: "https://www.proshares.com/our-etfs/leveraged-and-inverse/upro", note: "",
+    facts: {
+      domicile: "美國", distribution: "配息（每季）", isin: null,
+      sourceUrl: "https://www.proshares.com/our-etfs/leveraged-and-inverse/upro", checkedAt: "2026-10-28",
+    },
+    close: 100, lastDate: "2026-10-28", ytd: 0.2, returns: {}, drift1y: null,
+  };
+  const vooRow = {
+    ticker: "VOO", name: "Vanguard S&P 500 ETF", issuer: "Vanguard", multiple: 1,
+    grossFeePct: 0.03, netFeePct: 0.03, aumUsd: 1032260000000, aumAsOf: "2026-09-30",
+    sourceUrl: "https://investor.vanguard.com/investment-products/etfs/profile/voo", note: "",
+    facts: {
+      domicile: "美國", distribution: "配息（每季）", isin: null,
+      sourceUrl: "https://investor.vanguard.com/investment-products/etfs/profile/voo", checkedAt: "2026-10-28",
+    },
+    close: 500, lastDate: "2026-10-28", ytd: 0.15, returns: {}, drift1y: null,
+  };
+
+  const renderedUpro = pageWithAction(undefined, {
+    ...simulation,
+    sim: { ...simulation.sim!, etf: "UPRO" },
+    rows: [uproRow, vooRow] as any,
+  }).render();
+  const textUpro = pageText(renderedUpro);
+  assert.ok(textUpro.includes(copy.EVIDENCE_LEVERAGED), "UPRO 試算須含 EVIDENCE_LEVERAGED");
+  assert.ok(textUpro.includes("註冊地"), "資料卡須含「註冊地」");
+  assert.ok(textUpro.includes("ISIN"), "資料卡須含「ISIN」");
+  assert.ok(textUpro.includes("每日重設"), "資料卡須含「每日重設」");
+
+  const renderedVoo = pageWithAction(undefined, {
+    ...simulation,
+    sim: { ...simulation.sim!, etf: "VOO" },
+    rows: [uproRow, vooRow] as any,
+  }).render();
+  const textVoo = pageText(renderedVoo);
+  assert.ok(textVoo.includes(copy.EVIDENCE_1X), "VOO 試算須含 EVIDENCE_1X");
+});

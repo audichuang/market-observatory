@@ -8,7 +8,7 @@
 - `history-range`（C2、C3）：切 1 個月／3 個月／6 個月／1 年／3 年／5 年，數字＝`months=1/3/6/12/36/60`；快速連點時停在最後一個。
 - `history-symbol`（C4、C6）：標的選單或區間統計表的列切換標的。
 - `history-compare`（C5）：相對報酬每條線顏色不同、圖例對得上、起點 0%。
-- `history-contribution`（C7）：近 40 日貢獻柱狀圖，最新一天名單貢獻＝API `contribution` 最後一筆 `mag7`。
+- `history-contribution`（C7）：近 40 日貢獻柱狀圖，名單達 26～30 家（含多股類）時網頁與 App 仍能開啟；最新一天名單貢獻＝API `contribution` 最後一筆 `mag7`，每天合計等於當天名單內逐家貢獻相加。
 
 ## How to get to it (user POV)
 
@@ -24,6 +24,7 @@ Preconditions:
 - **主圖。** `goto("/history")`，等 `text=走勢與均線`。`fetch("/api/v1/history?symbol=SPX&months=12")` 比 `mainStats`。截圖 `history-main.png`，用眼睛看四條線與圖例。
 - **區間。** 區間按鈕是 `a.chip`（文字「1 個月」「1 年」…），點 `a.chip:text-is("6 個月")`，等網址出現 `months=6` 與統計數字更新，再比 `months=6` 的 API。
 - **標的。** `selectOption("select", "NVDA")`，網址出現 `symbol=NVDA`，比 `symbol=NVDA` 的 API。
+- **名單貢獻。** 在本機站準備至少 26 家、並補到 30 家的帳號（站長加入不受每日 5 家限制），快照須含這些公司；從導覽列進 `/history`，確認近 40 個交易日的名單貢獻圖有資料，再用同帳號開 App 走勢頁。截圖 `history-contribution-30.png` 與 App 貢獻圖，保留同帳號 `/api/v1/history` JSON，逐日核對圖中名單貢獻與 `contribution.mag7`、名單內逐家貢獻加總一致。
 - **App。** walkthrough 的 `03-history.png`、`03b-history-compare.png`、`03c-history-contribution.png`；`ios-test.sh … VerifyInteractionTests/test03_History` 的 `C2-ranges.txt`（每個區間的報酬、回檔、交易日對 `months=` 的 API）、`C3-rapid.png`、`C4-nvda.png`／`.txt`、`C6-aapl.png`。
 - **Proof。** `history-main.png`、`history-nvda.png`、對應 API JSON、App 的 walkthrough 三張與 test03 的截圖、`.txt`。
 

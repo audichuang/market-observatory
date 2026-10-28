@@ -50,6 +50,33 @@ test("持股日期不是前一交易日時，權重依價格推算並標示 roll
   assert.ok(s.quality.notes.some((n) => n.includes("推算")));
 });
 
+test("持股落後前一交易日 5 個交易日時，快照附權重未更新說明", () => {
+  const s = buildSnapshot(input({ weightsAsOf: "2026-10-15" }))!;
+  assert.ok(s.quality.notes.some((n) => /權重未更新/.test(n)));
+  assert.ok(s.quality.notes.includes("權重未更新：最新 SPY 持股停在 2026-10-15，到 2026-10-22 已落後 5 個交易日（通常落後 1～2 個），成分與股數變動沒有反映"));
+});
+
+test("持股僅落後 2 個交易日時，快照仍只有原本的推算說明", () => {
+  const s = buildSnapshot(input({ weightsAsOf: "2026-10-20" }))!;
+  assert.deepEqual(s.quality.notes, ["權重由 2026-10-20 的 SPY 持股依價格變動推算到 2026-10-22（假設期間股數不變）"]);
+});
+
+test("持股晚於目標日時，不標權重未更新", () => {
+  const s = buildSnapshot(input({ weightsAsOf: D2 }))!;
+  assert.deepEqual(s.quality.notes, [`權重由 ${D2} 的 SPY 持股依價格變動推算到 ${D1}（假設期間股數不變）`]);
+});
+
+test("2024 年歷史快照超出日曆覆蓋時，不判斷權重未更新也不丟錯", () => {
+  const historical = input({ weightsAsOf: "2024-10-15" });
+  historical.tradeDate = "2024-10-23";
+  historical.series = Object.fromEntries(Object.entries(historical.series).map(([symbol, series]) => [
+    symbol, new Series(series.points.map((p) => ({ ...p, date: p.date.replace("2026", "2024") }))),
+  ]));
+  const s = buildSnapshot(historical)!;
+  assert.equal(s.prevDate, "2024-10-22");
+  assert.deepEqual(s.quality.notes, ["權重由 2024-10-15 的 SPY 持股依價格變動推算到 2024-10-22（假設期間股數不變）"]);
+});
+
 test("來源不一致會進 quality.mismatches，沒核對過的列為 pending", () => {
   const s = buildSnapshot(input({ mismatch: "NVDA" }))!;
   assert.deepEqual(s.quality.mismatches, ["NVDA"]);

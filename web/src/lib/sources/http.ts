@@ -19,6 +19,9 @@ export class SourceError extends Error {
 export class Budget {
   used = 0;
   readonly byHost: Record<string, number> = {};
+  readonly dataIssues: string[] = [];
+  readonly disabledRequests: string[] = [];
+  private blocked: { id: string; label: string; patterns: readonly RegExp[] }[] = [];
   readonly limit: number;
   constructor(limit: number) {
     this.limit = limit;
@@ -26,11 +29,26 @@ export class Budget {
   get remaining(): number {
     return Math.max(0, this.limit - this.used);
   }
+  block(rules: { id: string; label: string; patterns: readonly RegExp[] }[]): void {
+    this.blocked = rules;
+  }
   take(url: string): void {
     const host = new URL(url).host;
+    const disabled = this.blocked.find((rule) => rule.patterns.some((pattern) => pattern.test(url)));
+    if (disabled) {
+      const error = new SourceDisabledError(disabled.label, host);
+      this.disabledRequests.push(error.message);
+      throw error;
+    }
     if (this.used >= this.limit) throw new BudgetError(host, this.limit);
     this.used++;
     this.byHost[host] = (this.byHost[host] ?? 0) + 1;
+  }
+}
+
+export class SourceDisabledError extends Error {
+  constructor(label: string, host: string) {
+    super(`來源已停用：${label}，未請求 ${host}`);
   }
 }
 
@@ -94,6 +112,37 @@ export interface DailyBar {
   low: number | null;
   close: number;
   volume: number | null;
+}
+
+/**
+ * 同一個收盤的兩種寫法：Yahoo spark 的收盤是單精度浮點，與 chart 的值差在第 8 位有效數字左右
+ * （實測 ^GSPC 差 0.0002、相對 3e-8；單精度誤差上限約 6e-8）。門檻 1e-6 留了十幾倍餘裕；價格一萬美元以下時，它小於一分錢，真的修正收盤一定看得出來。這種差異不算「收盤改了」，否則每天都會把整個月重寫一遍、清掉已做完的交叉核對。
+ */
+export const sameClose = (a: number, b: number) => Math.abs(a - b) <= Math.max(Math.abs(a), Math.abs(b)) * 1e-6;
+
+export type DayConflict = { date: string; closes: number[] };
+
+/** Reject conflicting dates, except Yahoo's latest date which can include a live quote. */
+export function dedupeDaily(rows: DailyBar[], lastDayKeepsLatest: boolean): { bars: DailyBar[]; conflicts: DayConflict[] } {
+  const byDate = new Map<string, DailyBar[]>();
+  for (const row of rows) {
+    const group = byDate.get(row.date);
+    if (group) group.push(row);
+    else byDate.set(row.date, [row]);
+  }
+  const dates = [...byDate.keys()].sort();
+  const bars: DailyBar[] = [];
+  const conflicts: DayConflict[] = [];
+  for (const date of dates) {
+    const group = byDate.get(date)!;
+    const closes = group.map((r) => r.close);
+    if (!(lastDayKeepsLatest && date === dates.at(-1)) && !sameClose(Math.min(...closes), Math.max(...closes))) {
+      conflicts.push({ date, closes });
+    } else {
+      bars.push(group[group.length - 1]);
+    }
+  }
+  return { bars, conflicts };
 }
 
 export const finiteOrNull = (v: unknown): number | null =>

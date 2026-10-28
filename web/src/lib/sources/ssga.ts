@@ -3,7 +3,7 @@ import { type Budget, SourceError, fetchWithTimeout, parseLooseNumber } from "./
 
 export const SSGA_SOURCE = "ssga-spy-holdings";
 export const SSGA_SPY_URL =
-  "https://www.ssga.com/us/en/intermediary/library-content/products/fund-data/etfs/us/holdings-daily-us-en-spy.xlsx";
+  "https://www.ssga.com/library-content/products/fund-data/etfs/us/holdings-daily-us-en-spy.xlsx";
 export const SSGA_DISPLAY_URL = "https://www.ssga.com/us/en/intermediary/etfs/state-street-spdr-sp-500-etf-trust-spy";
 
 export interface Holding {

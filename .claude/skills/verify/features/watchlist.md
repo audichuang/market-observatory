@@ -1,10 +1,11 @@
 # 觀察名單
 
-每個帳號一份名單（預設七巨頭，最多 30 家），只收最新 SPY 持股裡的成分股，同公司多股類（GOOGL＋GOOG）合併成一列。加入全站沒人追蹤過的公司時會先抓十年日線（約幾秒），抓不到就整個不加。改名單後總覽與最近 45 個交易日的貢獻立刻用新名單重算。
+每個帳號一份名單（預設七巨頭，最多 30 家），只收最新 SPY 持股裡的成分股，同公司多股類（GOOGL＋GOOG）合併成一列。加入全站沒人追蹤過的公司時會先抓十年日線（約幾秒），抓不到（含空歷史）就整個不加，顯示「抓不到 X 的歷史股價」；中段同日不同收盤只略過該日，仍照常加入，完成訊息附「略過 N 天同日兩筆不同收盤的日線（日期）」。改名單後總覽與最近 45 個交易日的貢獻立刻用新名單重算。
 
 ## Sub-features
 
 - `watchlist-list`（D1）：顯示家數「N/30 家」、合計權重＝API `totalWeight`，每家權重＝API。
+- `watchlist-weights-stale`（網頁）：最新 SPY 持股落後 `latestScheduledClose()` 超過 2 個 NYSE 交易日時，在「目前 N 家 合計權重 X%」下顯示共用的「權重未更新：最新 SPY 持股停在 …」橘色警示，原有持股 as-of 句保留。`weightsStale` 僅在網頁 loader，`/api/v1/watchlist` 維持原有欄位，App 名單頁維持原樣。
 - `watchlist-add`（D2、D3）：用輸入框或權重最大的候選按鈕加入；有進度提示「加入 X 中…」，完成「已加入 X」；總覽同步出現。
 - `watchlist-add-invalid`（D4）：輸入不存在的代號（`ZZZZ`）：網頁顯示中文錯誤，App 搜尋顯示系統字串「沒有「ZZZZ」的結果」。
 - `watchlist-new-daily-cap`：非站長帳號每天（美東日期）最多加入 5 家全站沒人追蹤的公司，第 6 家顯示「今天新增的新公司已達上限…」、名單不變；別人已在追蹤的公司不受限，站長名單不受限。只有單元測試（`tests/leak-guards.test.ts`）覆蓋，實際操作要 6 家新公司、會打真實上游。
@@ -25,6 +26,7 @@ Preconditions:
 - 基準狀態、測試帳號登入、名單是七巨頭、AVGO 不在名單。
 
 - **列表。** `goto("/watchlist")`，等 `input[placeholder="代號或公司，例如 AVGO"]`。`fetch("/api/v1/watchlist")` 比家數、合計權重、每家權重（D1）。截圖 `watchlist-before.png`。
+- **權重未更新。** 沿用 `overview.md` 的舊持股準備與還原步驟，開 `/watchlist`，確認家數與合計權重下方有 `notice warn`，與 `/sources` 的警示逐字相同、目標日期為排程應有日期；存 `watchlist-weights-stale.png`，讀 `/api/v1/watchlist` 確認沒有 `weightsStale` 欄位。還原後重新載入，警示消失。
 - **加入。** `fill('input[placeholder="代號或公司，例如 AVGO"]', "AVGO")`，`click('form button[type=submit]')`。用 `waitForFunction(() => [...document.querySelectorAll("li")].some(li => li.innerText.includes("AVGO")), undefined, { timeout: 60000 })` 等列表出現，`[role=status]` 文字是「已加入 Broadcom」。截圖 `watchlist-add.png`。
 - **讀回。** `JSON.parse((await page.fetch("/api/v1/watchlist")).body).members.map(m => m.key)` 最後一個是 `AVGO`、`totalWeight` 增加、`candidates.map(c => c.ticker)` 裡不再有 AVGO（D5）；`goto("/")` 的表格有「Broadcom AVGO」，名單合計＋其他成分股仍＝指數漲跌（D3）。截圖 `watchlist-add-overview.png`、存 `watchlist-add.api.json`。
 - **跨介面。** 跑 iOS walkthrough：`04-watchlist.png` 有 8 家、最後一家 AVGO、「8/30 家」。
@@ -39,7 +41,7 @@ Preconditions:
 
 - 「加入」按鈕在輸入框空白時停用；輸入框有 `aria-label="股票代號"`，但 ego-browser 用 role 名稱找不到它，用 placeholder。
 - `text=Broadcom` 會同時對到 datalist 的 option 與狀態列，等列表的 `li` 而不是文字。
-- 加入全站沒人追蹤的公司要抓十年日線（本機約 5–15 秒）；Yahoo 限流時會失敗並顯示原因，名單不變——這是正確行為，不是測試要繞過的東西。
+- 加入全站沒人追蹤的公司要抓十年日線（本機約 5–15 秒）；Yahoo 限流或回空歷史時會失敗並顯示原因，名單不變。空歷史拒收與衝突日略過訊息用 `tests/data-gates.test.ts` 合成回應驗證，真實上游無法穩定重現。
 - `/api/v1/watchlist` 也回傳 `candidates`（還沒加入的成分股），整包 JSON 搜 `"AVGO"` 不管加沒加都會中；判斷名單一律看 `members`。
 - 移除會跳原生 confirm，沒處理前任何 `evaluate` 都會丟 `PageDialogOpenedError`。
 - 正式站的站長名單是使用者真的在用的資料；只用一次性帳號測加減。

@@ -1,4 +1,4 @@
-import { type Budget, type DailyBar, SourceError, fetchWithTimeout, finiteOrNull } from "./http.ts";
+import { type Budget, type DailyBar, type DayConflict, SourceError, dedupeDaily, fetchWithTimeout, finiteOrNull } from "./http.ts";
 
 export const YAHOO_SOURCE = "yahoo-chart";
 
@@ -13,7 +13,7 @@ export function yahooDisplayUrl(providerSymbol: string): string {
 interface ChartJson {
   chart?: {
     result?: {
-      meta?: { symbol?: string; exchangeTimezoneName?: string };
+      meta?: { symbol?: string; exchangeTimezoneName?: string; dataGranularity?: string };
       timestamp?: number[];
       indicators?: { quote?: { open?: (number | null)[]; high?: (number | null)[]; low?: (number | null)[]; close?: (number | null)[]; volume?: (number | null)[] }[] };
     }[];
@@ -23,9 +23,9 @@ interface ChartJson {
 
 /**
  * 解析 Yahoo chart JSON。close 是拆股調整後、不含股息的收盤價（不是 Adj Close）。
- * 同一天出現兩筆時保留最後一筆；close 為空的列直接丟掉。
+ * Conflicting dates are omitted; only the latest date keeps the last quote. Empty closes are dropped.
  */
-export function parseYahooChart(json: ChartJson, expectSymbol: string): DailyBar[] {
+export function parseYahooChart(json: ChartJson, expectSymbol: string, conflicts?: DayConflict[]): DailyBar[] {
   const result = json.chart?.result?.[0];
   if (!result) {
     const err = json.chart?.error;
@@ -34,15 +34,18 @@ export function parseYahooChart(json: ChartJson, expectSymbol: string): DailyBar
   if (result.meta?.symbol && result.meta.symbol.toUpperCase() !== expectSymbol.toUpperCase()) {
     throw new SourceError(YAHOO_SOURCE, `回傳代號 ${result.meta.symbol} 與要求的 ${expectSymbol} 不同`);
   }
+  if (result.meta?.dataGranularity !== undefined && result.meta.dataGranularity !== "1d") {
+    throw new SourceError(YAHOO_SOURCE, `回應頻率是 ${result.meta.dataGranularity}，不是日線`);
+  }
   const tz = result.meta?.exchangeTimezoneName || "America/New_York";
   const fmt = new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" });
   const q = result.indicators?.quote?.[0] ?? {};
-  const byDate = new Map<string, DailyBar>();
+  const rows: DailyBar[] = [];
   (result.timestamp ?? []).forEach((ts, i) => {
     const close = finiteOrNull(q.close?.[i]);
     if (close === null || close <= 0) return;
     const date = fmt.format(new Date(ts * 1000));
-    byDate.set(date, {
+    rows.push({
       date,
       open: finiteOrNull(q.open?.[i]),
       high: finiteOrNull(q.high?.[i]),
@@ -51,7 +54,9 @@ export function parseYahooChart(json: ChartJson, expectSymbol: string): DailyBar
       volume: finiteOrNull(q.volume?.[i]),
     });
   });
-  return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
+  const resultBars = dedupeDaily(rows, true);
+  conflicts?.push(...resultBars.conflicts);
+  return resultBars.bars;
 }
 
 export async function fetchYahooDaily(providerSymbol: string, range = "1mo", budget?: Budget): Promise<DailyBar[]> {
@@ -59,7 +64,11 @@ export async function fetchYahooDaily(providerSymbol: string, range = "1mo", bud
     headers: { Accept: "application/json" },
     budget,
   });
-  return parseYahooChart((await res.json()) as ChartJson, providerSymbol);
+  const conflicts: DayConflict[] = [];
+  const bars = parseYahooChart((await res.json()) as ChartJson, providerSymbol, conflicts);
+  for (const { date, closes } of conflicts) budget?.dataIssues.push(`${YAHOO_SOURCE} ${providerSymbol} ${date} 有兩筆不同收盤（${closes.join("、")}），這天的資料不採用`);
+  if (!bars.length) throw new SourceError(YAHOO_SOURCE, "回應沒有任何日線");
+  return bars;
 }
 
 type ChartResult = NonNullable<NonNullable<ChartJson["chart"]>["result"]>;
@@ -79,14 +88,18 @@ export function yahooSparkUrl(providerSymbols: string[], range: string): string 
  * 解析 spark：每檔是一份精簡的 chart 結果（只有收盤，沒有開高低量）。回傳 代號 → 日線；
  * 沒回來、或解析失敗的代號不放進結果，由呼叫端決定要不要改用單檔 chart 補抓。
  */
-export function parseYahooSpark(json: SparkJson): Map<string, DailyBar[]> {
+export function parseYahooSpark(json: SparkJson, conflicts?: Record<string, DayConflict[]>): Map<string, DailyBar[]> {
   const out = new Map<string, DailyBar[]>();
   for (const r of json.spark?.result ?? []) {
     const chart = r.response?.[0];
     if (!r.symbol || !chart) continue;
     try {
-      const bars = parseYahooChart({ chart: { result: [chart] } }, r.symbol);
-      if (bars.length) out.set(r.symbol, bars);
+      const dayConflicts: DayConflict[] = [];
+      const bars = parseYahooChart({ chart: { result: [chart] } }, r.symbol, dayConflicts);
+      if (bars.length) {
+        out.set(r.symbol, bars);
+        if (conflicts && dayConflicts.length) conflicts[r.symbol] = dayConflicts;
+      }
     } catch {
       // 單檔解析失敗就略過
     }
@@ -106,7 +119,12 @@ export async function fetchYahooSpark(providerSymbols: string[], range: string, 
     const chunk = providerSymbols.slice(i, i + SPARK_MAX);
     try {
       const res = await fetchWithTimeout(YAHOO_SOURCE, yahooSparkUrl(chunk, range), { headers: { Accept: "application/json" }, budget });
-      for (const [s, b] of parseYahooSpark((await res.json()) as SparkJson)) if (chunk.includes(s)) bars.set(s, b);
+      const conflicts: Record<string, DayConflict[]> = {};
+      for (const [s, b] of parseYahooSpark((await res.json()) as SparkJson, conflicts)) {
+        if (!chunk.includes(s)) continue;
+        bars.set(s, b);
+        for (const { date, closes } of conflicts[s] ?? []) budget?.dataIssues.push(`${YAHOO_SOURCE} ${s} ${date} 有兩筆不同收盤（${closes.join("、")}），這天的資料不採用`);
+      }
     } catch (e) {
       errors.push(e instanceof Error ? e.message : String(e));
     }

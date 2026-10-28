@@ -1,9 +1,11 @@
 import { addDays, latestExpectedClose, MACRO_EVENTS, macroEventsSummary } from "../lib/calendar.ts";
 import { type Snapshot, buildSnapshot, snapshotLoadWindow } from "../lib/snapshot.ts";
+import { weightsStaleNote } from "../lib/weights-age.ts";
 import { CBOE_SOURCE, fetchCboeDaily } from "../lib/sources/cboe.ts";
 import { type EarningsDate, NASDAQ_SOURCE, fetchAnalystView, fetchEarningsCalendar, fetchEarningsDate, fetchNasdaqHistorical, fetchNasdaqNews } from "../lib/sources/nasdaq.ts";
-import { nextPendingRebase } from "../lib/rebase.ts";
+import { nextPendingRebase, refetchCoverage } from "../lib/rebase.ts";
 import { bumpDataVersion } from "./page-cache.ts";
+import { applySourceSwitches } from "./source-switches.ts";
 import { fetchSpyHoldings } from "../lib/sources/ssga.ts";
 import { type FactsetInsight, fetchInsight, latestInsightUrl } from "../lib/sources/factset.ts";
 import { YAHOO_SOURCE, fetchYahooDaily, fetchYahooLastCloses, fetchYahooSpark } from "../lib/sources/yahoo.ts";
@@ -16,7 +18,7 @@ import { easternDate } from "../lib/calendar.ts";
 import { EQUAL_WEIGHT_SYMBOL, FX_SYMBOL, INDEX_SYMBOL, VIX_SYMBOL, type WatchMember, nasdaqCheckSymbols, watchTickers, yahooSymbols } from "../lib/universe.ts";
 import { MAX_TRACKED, addToWatchlist, removeFromWatchlist } from "../lib/watchlist.ts";
 import { USER_WATCHLIST_PREFIX, WATCHLIST_KEY, latestHoldings, newTrackedQuotaPrefix, loadTrackedMembers, loadWatchlist, updateWatchlist } from "./watchlist.ts";
-import { type BarBatch, applyCrossChecks, compareCloses, finishRun, insertMissingBars, insertWeights, loadPrices, getSetting, loadWeightAnchors, nowIso, putSetting, saveSnapshots, startRun, upsertBars, weightsNear } from "./repo.ts";
+import { type BarBatch, applyCrossChecks, compareCloses, finishRun, insertMissingBars, replaceWeights, loadPrices, getSetting, loadWeightAnchors, nowIso, priceRanges, putSetting, saveSnapshots, startRun, upsertBars, weightsNear } from "./repo.ts";
 
 export type JobName = "prices" | "crosscheck" | "weights" | "news" | "events" | "analysts" | "factset" | "forecast" | "snapshots" | "notify-close" | "notify-events" | "backfill-prices" | "backfill-checks" | "backfill-index-history";
 export const JOB_NAMES: JobName[] = ["prices", "crosscheck", "weights", "news", "events", "analysts", "factset", "forecast", "snapshots", "notify-close", "notify-events", "backfill-prices", "backfill-checks", "backfill-index-history"];
@@ -181,13 +183,24 @@ async function jobPrices(db: D1Database, _opts: JobOptions, budget: Budget): Pro
   const rebasedSymbols = Object.keys({ ...pending, ...rebased }).filter((s) => s in symbols);
   if (rebasedSymbols.length) {
     const now = rebasedSymbols.slice(0, budget.remaining);
+    const ranges = await priceRanges(db, now);
     const full = await fetchYahooBatch(now.map((s) => [s, symbols[s]] as [string, string]), "10y", expected, budget);
-    await upsertBars(db, full.ok, { allowRebase: true });
-    const stillPending = nextPendingRebase(pending, rebased, full.ok.map((b) => b.symbol));
+    const covered: BarBatch[] = [];
+    const uncovered: Record<string, string> = {};
+    for (const batch of full.ok) {
+      const coverage = refetchCoverage(ranges[batch.symbol] ?? null, batch.bars, expected);
+      if (coverage.ok) covered.push(batch);
+      else {
+        uncovered[batch.symbol] = coverage.reason;
+        failed[batch.symbol] = `分割後重抓的歷史未涵蓋已存區間，保留待修、下次重試：${coverage.reason}`;
+      }
+    }
+    await upsertBars(db, covered, { allowRebase: true });
+    const stillPending = nextPendingRebase(pending, rebased, covered.map((b) => b.symbol));
     await putSetting(db, PENDING_REBASE_KEY, stillPending);
     for (const [s, err] of Object.entries(full.failed)) failed[s] = `分割後重抓歷史失敗，已列入待修、下次重試：${err}`;
     for (const s of rebasedSymbols.slice(now.length)) failed[s] = "分割後要重抓歷史，這次請求額度不足，已列入待修、下次重試";
-    detail.rebased = { factors: { ...pending, ...rebased }, refetchFailed: full.failed, pending: stillPending };
+    detail.rebased = { factors: { ...pending, ...rebased }, refetchFailed: full.failed, uncovered, pending: stillPending };
   }
   const stale = ok.filter((b) => b.symbol !== FX_SYMBOL && b.bars.at(-1)?.date !== expected).map((b) => b.symbol);
   if (spx) {
@@ -248,14 +261,17 @@ async function jobCrosscheck(db: D1Database, _opts: JobOptions, budget: Budget):
 
 async function jobWeights(db: D1Database, _opts: JobOptions, budget: Budget): Promise<JobResult> {
   const file = await fetchSpyHoldings(budget);
-  const existed = await db.prepare("SELECT COUNT(*) AS n FROM weights WHERE as_of = ?").bind(file.asOf).first<{ n: number }>();
-  await insertWeights(db, file.asOf, file.holdings);
+  const correction = await replaceWeights(db, file.asOf, file.holdings);
   const snaps = await rebuildSnapshots(db, `SPY 持股 ${file.asOf}`);
   const mag = watchTickers(await loadTrackedMembers(db)).map((t) => `${t} ${file.holdings.find((h) => h.ticker === t)?.weightPct.toFixed(2) ?? "?"}%`);
+  const note = correction.unchanged ? "；已存在、內容相同" : correction.previous
+    ? `；同日更正：移除 ${correction.removed.join("、") || "無"}；新增 ${correction.added.join("、") || "無"}；權重變動 ${correction.changed} 檔（上一版取得於 ${correction.previousFetchedAt}）`
+    : "";
+  const staleNote = weightsStaleNote(file.asOf, latestExpectedClose());
   return {
-    status: "ok",
-    summary: `持股日期 ${file.asOf}（${file.holdings.length} 檔${existed?.n ? "，已存在、覆寫" : ""}）；${mag.join("、")}`,
-    detail: { asOf: file.asOf, count: file.holdings.length, snapshots: snaps.created },
+    status: staleNote ? "partial" : "ok",
+    summary: `${staleNote ? `${staleNote}；` : ""}持股日期 ${file.asOf}（${file.holdings.length} 檔）${note}；${mag.join("、")}`,
+    detail: { asOf: file.asOf, count: file.holdings.length, snapshots: snaps.created, correction },
   };
 }
 
@@ -747,16 +763,24 @@ const JOBS: Record<JobName, (db: D1Database, opts: JobOptions, budget: Budget) =
 export async function runJob(db: D1Database, job: JobName, trigger: string, opts: JobOptions = {}, budget = new Budget(SUBREQUEST_BUDGET)) {
   const id = await startRun(db, job, trigger);
   const before = budget.used;
+  const issuesBefore = budget.dataIssues.length;
+  const disabledBefore = budget.disabledRequests.length;
   const usage = () => ({ subrequests: budget.used - before, budgetLeft: budget.remaining });
   try {
+    await applySourceSwitches(db, budget);
     const r = await JOBS[job](db, opts, budget);
-    const detail = { ...r.detail, ...usage() };
-    await finishRun(db, id, r.status, r.summary, detail);
+    const disabled = [...new Set(budget.disabledRequests.slice(disabledBefore))];
+    if (disabled.length) r.summary += `；${disabled.join("；")}`;
+    const dataIssues = budget.dataIssues.slice(issuesBefore);
+    const status = dataIssues.length && r.status === "ok" ? "partial" as const : r.status;
+    const summary = r.summary + (dataIssues.length ? `；${dataIssues.length} 筆日線同日兩筆不同收盤、未採用：${dataIssues.slice(0, 3).join("；")}${dataIssues.length > 3 ? "…" : ""}` : "");
+    const detail = { ...r.detail, ...usage(), dataIssues };
+    await finishRun(db, id, status, summary, detail);
     await bumpDataVersion(db);
-    return { id, ...r, detail };
+    return { id, ...r, status, summary, detail };
   } catch (e) {
     const summary = errText(e);
-    const detail = { stack: e instanceof Error ? e.stack : null, ...usage() };
+    const detail = { stack: e instanceof Error ? e.stack : null, ...usage(), dataIssues: budget.dataIssues.slice(issuesBefore) };
     await finishRun(db, id, "failed", summary, detail);
     await bumpDataVersion(db);
     return { id, status: "failed" as const, summary, detail };
@@ -803,6 +827,7 @@ export const MAX_NEW_TRACKED_PER_DAY = 5;
  * 全站追蹤的公司數到 MAX_TRACKED 時，只能加別人已經在追蹤的公司。
  */
 export async function addWatchSymbol(db: D1Database, input: string, budget = new Budget(SUBREQUEST_BUDGET), listKey = WATCHLIST_KEY): Promise<WatchChange> {
+  const switches = await applySourceSwitches(db, budget);
   const list = await loadWatchlist(db, listKey);
   const { holdings } = await latestHoldings(db);
   const res = addToWatchlist(list, input, holdings);
@@ -811,6 +836,7 @@ export async function addWatchSymbol(db: D1Database, input: string, budget = new
   const tracked = await loadTrackedMembers(db);
   const trackedTickers = new Set(watchTickers(tracked));
   const isNew = member.tickers.some((t) => !trackedTickers.has(t));
+  if (isNew && switches["yahoo-chart"]?.disabled) return { ok: false, error: "來源已停用：Yahoo chart／spark 日線，暫時無法加入新公司" };
   if (isNew && tracked.length >= MAX_TRACKED) return { ok: false, error: `全站追蹤的公司已達 ${MAX_TRACKED} 家上限，目前只能加入其他人已在追蹤的公司` };
   // The owner list (WATCHLIST_KEY) is exempt: the cap guards against registered users using this path to hammer upstream sources.
   // Counted before fetching, so a failed fetch still uses a slot (the upstream requests were made either way).
@@ -829,13 +855,16 @@ export async function addWatchSymbol(db: D1Database, input: string, budget = new
   let summary = `已加入 ${member.company}（${member.tickers.join("＋")}）`;
   if (isNew) {
     const expected = latestExpectedClose();
+    const issuesBefore = budget.dataIssues.length;
     const { ok, failed } = await fetchYahooBatch(member.tickers.map((t) => [t, t] as [string, string]), "10y", expected, budget);
+    const dataIssues = budget.dataIssues.slice(issuesBefore);
     const failedNames = Object.keys(failed);
     if (failedNames.length) return { ok: false, error: `抓不到 ${failedNames.join(",")} 的歷史股價（${Object.values(failed)[0]}），稍後再試` };
     await upsertBars(db, ok, { allowRebase: true });
     // Nasdaq 核對最近兩個月；失敗不擋（之後的排程會再核對）。
     await crossCheckNasdaq(db, member.tickers.map((t) => ({ symbol: t, assetClass: "stocks" as const })), addDays(expected, -60), 60, budget).catch(() => null);
     summary += `，補了 ${ok.reduce((a, b) => a + b.bars.length, 0)} 筆日線`;
+    if (dataIssues.length) summary += `；略過 ${dataIssues.length} 天同日兩筆不同收盤的日線（${dataIssues.map((issue) => issue.split(" ")[2]).join("、")}）`;
   }
   // 抓價花了幾秒，這段時間名單可能被別的裝置改過：存檔時重讀、重新套用。
   const saved = await updateWatchlist(

@@ -1,4 +1,4 @@
-import { type Budget, type DailyBar, SourceError, fetchWithTimeout, mdyToIso, parseLooseNumber } from "./http.ts";
+import { type Budget, type DailyBar, type DayConflict, SourceError, dedupeDaily, fetchWithTimeout, mdyToIso, parseLooseNumber } from "./http.ts";
 
 export const NASDAQ_SOURCE = "nasdaq";
 
@@ -32,7 +32,7 @@ interface HistoricalData {
   tradesTable?: { rows?: { date: string; close: string; open?: string; high?: string; low?: string; volume?: string }[] | null };
 }
 
-export function parseNasdaqHistorical(data: HistoricalData): DailyBar[] {
+export function parseNasdaqHistorical(data: HistoricalData, conflicts?: DayConflict[]): DailyBar[] {
   const rows = data.tradesTable?.rows ?? [];
   const out: DailyBar[] = [];
   for (const r of rows) {
@@ -41,12 +41,18 @@ export function parseNasdaqHistorical(data: HistoricalData): DailyBar[] {
     if (!date || close === null) continue;
     out.push({ date, close, open: parseLooseNumber(r.open), high: parseLooseNumber(r.high), low: parseLooseNumber(r.low), volume: parseLooseNumber(r.volume) });
   }
-  return out.sort((a, b) => a.date.localeCompare(b.date));
+  const result = dedupeDaily(out, false);
+  conflicts?.push(...result.conflicts);
+  return result.bars;
 }
 
 export async function fetchNasdaqHistorical(symbol: string, assetClass: "stocks" | "etf", fromDate: string, limit = 40, budget?: Budget): Promise<DailyBar[]> {
   const url = `https://api.nasdaq.com/api/quote/${encodeURIComponent(nasdaqSymbol(symbol))}/historical?assetclass=${assetClass}&fromdate=${fromDate}&limit=${limit}`;
-  return parseNasdaqHistorical(await getJson<HistoricalData>(url, budget));
+  const conflicts: DayConflict[] = [];
+  const bars = parseNasdaqHistorical(await getJson<HistoricalData>(url, budget), conflicts);
+  for (const { date, closes } of conflicts) budget?.dataIssues.push(`${NASDAQ_SOURCE} ${symbol} ${date} 有兩筆不同收盤（${closes.join("、")}），這天的資料不採用`);
+  if (!bars.length) throw new SourceError(NASDAQ_SOURCE, "回應沒有任何日線");
+  return bars;
 }
 
 export interface EarningsDate {

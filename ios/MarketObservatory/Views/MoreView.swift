@@ -759,7 +759,6 @@ struct OutlookView: View {
                     HStack(alignment: .firstTextBaseline) {
                         if let u = t.sourceUrl.flatMap({ URL(string: $0) }) {
                             Link(t.firm, destination: u)
-                                .buttonStyle(.borderless)
                         } else {
                             Text(t.firm)
                         }

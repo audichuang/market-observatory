@@ -115,15 +115,15 @@ function matchesSchema(value: unknown, schema: unknown): boolean {
 interface NumericToken { raw: string; coefficient: bigint; digits: number; scale: number; dimension: "percent" | "money" | "number"; marked: boolean }
 function numbers(source: string): NumericToken[] {
   const out: NumericToken[] = [];
-  const pattern = /[+-]?\s*[$＄]?\s*[+-]?\d+(?:,\d{3})*(?:\.\d+)?(?:\s*(?:%|％|億|萬|billion\b|million\b|[BM]\b))?(?:\s*美元)?/giu;
+  const pattern = /[+-]?\s*[$＄]?\s*[+-]?\d+(?:,\d{3})*(?:\.\d+)?(?:\s*(?:%|％|兆|億|萬|trillion\b|billion\b|million\b|[BM]\b))?(?:\s*美元)?/giu;
   for (const m of source.matchAll(pattern)) {
     const raw = m[0].trim();
     const numeric = /\d+(?:,\d{3})*(?:\.\d+)?/.exec(raw)![0];
     const unit = raw.slice(raw.indexOf(numeric) + numeric.length).trim().replace(/美元$/, "").trim().toUpperCase();
-    const scale = ({ "億": 8, "萬": 4, B: 9, BILLION: 9, M: 6, MILLION: 6 } as Record<string, number>)[unit] ?? 0;
+    const scale = ({ "兆": 12, TRILLION: 12, "億": 8, "萬": 4, B: 9, BILLION: 9, M: 6, MILLION: 6 } as Record<string, number>)[unit] ?? 0;
     out.push({ raw, coefficient: BigInt(numeric.replace(/[,.]/g, "")) * (raw.includes("-") ? -1n : 1n), digits: numeric.split(".")[1]?.length ?? 0,
       scale, dimension: /[%％]/.test(raw) ? "percent" : /[$＄]|美元/.test(raw) ? "money" : "number",
-      marked: /[$＄.%％億萬]|\d\s*(?:[BM]|billion|million)\b/i.test(raw) });
+      marked: /[$＄.%％兆億萬]|\d\s*(?:[BM]|trillion|billion|million)\b/i.test(raw) });
   }
   return out;
 }
@@ -135,6 +135,7 @@ function supportedNumber(answer: NumericToken, sources: NumericToken[]) {
     const magnitude = source.coefficient < 0n ? -source.coefficient : source.coefficient;
     const divisor = 10n ** BigInt(Math.abs(power));
     const rounded = power >= 0 ? magnitude * divisor : magnitude / divisor + (magnitude % divisor * 2n >= divisor ? 1n : 0n);
+    if (!/[+-]/.test(answer.raw)) return rounded === answer.coefficient;
     return rounded * (source.coefficient < 0n ? -1n : 1n) === answer.coefficient;
   });
 }

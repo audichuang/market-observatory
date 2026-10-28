@@ -159,8 +159,24 @@ test("數字出處允許千分位與較少位四捨五入，但擋新增數字�
   const check = (text: string) => checkAnswer(c, { points: [text], tone: "neutral" }).blockers;
   assert.deepEqual(check("營收 $1234.6M，利潤率 -2.35%。"), []);
   assert.ok(check("營收 $999.0M。").some((b) => b.kind === "number"));
-  assert.ok(check("利潤率 2.35%。").some((b) => b.kind === "number"));
+  assert.deepEqual(check("利潤率下降 2.35%。"), []);
+  assert.ok(check("利潤率 +2.35%。").some((b) => b.kind === "number"));
   assert.ok(check("營收 $1234.6B。").some((b) => b.kind === "number"));
+});
+
+test("下跌摘要未明寫正負號時按絕對值核對百分比、點數與百分點", () => {
+  const summaries = {
+    "digest-date-only": "Moss Relay 股價跌 0.8%，對指數為負貢獻 0.2 點，檢討供應契約，發布時間不明。",
+    "market-format": "指數下跌 0.19%，跌 12.34 點，落後 0.2 個百分點，Aura Works 股價跌 1.2%，為負貢獻 8.0 點；其餘成分為負貢獻 4.34 點。沒有可清楚辨識的單一催化因素。",
+  };
+  const results = devCases().filter((c) => c.id in summaries).map((c) => ({
+    id: c.id,
+    blockers: checkAnswer(c, { summary: summaries[c.id as keyof typeof summaries], tone: "neutral" }).blockers,
+  }));
+  assert.deepEqual(results, [
+    { id: "digest-date-only", blockers: [] },
+    { id: "market-format", blockers: [] },
+  ]);
 });
 
 test("十進位半值必須正確四捨五入；B／M／億萬可等值換算", () => {
@@ -168,6 +184,35 @@ test("十進位半值必須正確四捨五入；B／M／億萬可等值換算", 
   assert.ok(c.task === "points");
   c.input.body = "EPS was $1.005; revenue was $1.25B; margin was -1.005%.";
   assert.deepEqual(checkAnswer(c, { points: ["每股盈餘 $1.01，營收 12.5億美元，利潤率 -1.01%。"], tone: "neutral" }).blockers, []);
+});
+
+test("兆／trillion 市值可與億等值換算，仍須保留貨幣維度", () => {
+  const c = numericCase();
+  assert.ok(c.task === "points");
+  c.input.body = "Synthetic market cap reached $4.5 trillion.";
+  const check = (text: string) => checkAnswer(c, { points: [text], tone: "neutral" }).blockers;
+  assert.deepEqual([
+    check("市值達 4.5 兆美元。"),
+    check("市值達 45,000 億美元。"),
+    check("市值達 4.5 TRILLION 美元。"),
+  ], [[], [], []]);
+  assert.ok(check("市值達 4.5 兆。").some((b) => b.kind === "number"));
+  assert.ok(check("市值達 7.7 兆美元。").some((b) => b.kind === "number"));
+  c.input.body = "合成公司市值達 4.5 兆美元。";
+  assert.deepEqual(check("市值達 $4.5 trillion。"), []);
+});
+
+test("整數兆／trillion 必須核對來源，錯誤數值不能漏擋", () => {
+  const c = numericCase();
+  assert.ok(c.task === "points");
+  c.input.body = "Synthetic market cap reached $9 trillion.";
+  const check = (text: string) => checkAnswer(c, { points: [text], tone: "neutral" }).blockers;
+  assert.deepEqual(check("市值達 9 兆美元。"), []);
+  assert.deepEqual([
+    check("市值達 99 兆美元。"),
+    check("市值達 99 trillion 美元。"),
+    check("市值達 $99 trillion。"),
+  ].map((blockers) => blockers.some((b) => b.kind === "number")), [true, true, true]);
 });
 
 test("大盤提示詞折疊的貢獻合計也是來源；被折疊而未提供的個股數字不能引用", () => {

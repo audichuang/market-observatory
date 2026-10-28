@@ -54,6 +54,7 @@ struct EtfView: View {
     @State private var simYears: Int?
     @State private var simMonthly: Int?
     @State private var simFunding = "monthly"
+    @State private var costQuery: CostQuery?
     @State private var monthlyText = ""
     @State private var loadSeq = 0
     @State private var savingDefault = false
@@ -84,12 +85,16 @@ struct EtfView: View {
         let seq = loadSeq
         state = .loading(state.value)
         do {
-            let e: Etfs = try await API.get("/api/v1/etfs", query: [
+            var query: [String: String?] = [
                 "etf": simEtf,
                 "years": simYears.map(String.init),
                 "monthly": simMonthly.map(String.init),
                 "funding": simFunding,
-            ])
+            ]
+            if let costQuery {
+                query.merge(costQuery.dictionary.mapValues { Optional($0) }) { _, new in new }
+            }
+            let e: Etfs = try await API.get("/api/v1/etfs", query: query)
             // 連續切換時只採用最後一次的結果，避免舊的回應蓋掉新的。
             guard seq == loadSeq else { return }
             simEtf = e.sim.etf
@@ -273,6 +278,14 @@ struct EtfView: View {
                 Text("\(e.sim.etf) 定投 \(e.sim.years) 年（台幣計價）")
             } footer: {
                 Text("\(e.dca?.firstBuyDate.map { "試算起點 \(Fmt.fullDate(e.sim.startDate))，首筆 \(Fmt.fullDate($0))。" } ?? "")\(Copy.dcaBuyRule)；\(Copy.dcaFxRule)。不含配息、手續費、換匯價差與稅。改標的、期間或金額只是試算，按「設為我的預設」才會存起來。\(e.fxLast.map { "最新匯率 \(Fmt.num($0.close, 3))（\(Fmt.fullDate($0.date))）。" } ?? "")")
+            }
+
+            CostScenarioSection(scenario: e.costScenario, query: costQuery) { input in
+                costQuery = input
+                Task { await load() }
+            } clear: {
+                costQuery = nil
+                Task { await load() }
             }
 
             Section("我的規劃") {

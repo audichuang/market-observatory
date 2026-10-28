@@ -411,6 +411,7 @@ struct Etfs: Decodable, Sendable {
     let dca: Dca?
     let fxLast: Fx?
     let funding: String?
+    let costScenario: CostScenario?
 
     struct Facts: Decodable, Sendable {
         let domicile: String
@@ -683,4 +684,60 @@ struct PushTestResult: Decodable, Sendable {
     }
 
     let results: [Item]
+}
+
+struct CostScenario: Decodable, Sendable {
+    struct PerBuy: Decodable, Sendable {
+        let amountTwd: Double?
+        let fxSpreadTwd: Double?
+        let fixedTwd: Double?
+        let commissionTwd: Double?
+        let investedTwd: Double?
+        let costTwd: Double?
+        let costPct: Double?
+    }
+
+    struct Layer: Decodable, Sendable {
+        let pct: Double?
+        let note: String?
+    }
+
+    struct Layers: Decodable, Sendable {
+        let fundExpense: Layer?
+        let fundWithholding: Layer?
+        let investorWithholding: Layer?
+    }
+
+    struct Promo: Decodable, Sendable {
+        let until: String?
+        let expired: Bool?
+    }
+
+    struct Source: Decodable, Sendable {
+        let name: String?
+        let url: String?
+        let sourceDate: String?
+        let checkedAt: String?
+    }
+
+    struct Inputs: Decodable, Sendable {
+        let costCcy: String?
+        let costFx: Double?
+        let costFee: Double?
+        let costMinUsd: Double?
+        let costFixed: Double?
+        let costPromo: String?
+        let costYield: Double?
+        let costBasis: String?
+        let costTax: String?
+    }
+
+    let issue: String?
+    let perBuy: PerBuy?
+    let annualTxCostTwd: Double?
+    let layers: Layers?
+    let promo: Promo?
+    let notes: [String]?
+    let sources: [Source]?
+    let inputs: Inputs?
 }

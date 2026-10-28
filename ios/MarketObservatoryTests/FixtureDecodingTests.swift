@@ -22,6 +22,7 @@ struct FixtureDecodingTests {
     @Test func generatedWatchlist() throws { _ = try decodeFixture("generated-watchlist", as: Watchlist.self) }
     @Test func generatedEtfs() throws {
         let p = try decodeFixture("generated-etfs", as: Etfs.self)
+        #expect(p.costScenario?.perBuy?.costPct != nil)
         #expect(p.funding == "monthly")
         #expect(p.dca != nil)
         #expect(p.dca?.firstBuyDate != nil)
@@ -119,6 +120,7 @@ struct FixtureDecodingTests {
 
     @Test func etfs() throws {
         let e = try decodeFixture("etfs", as: Etfs.self)
+        #expect(e.costScenario == nil)
         #expect(e.funding == nil)
         #expect(e.dca?.firstBuyDate == nil)
         #expect(e.rows.allSatisfy { $0.facts == nil })
@@ -129,5 +131,32 @@ struct FixtureDecodingTests {
         let drift = try #require(sso.drift1y)
         #expect(drift.drift != nil)
         #expect(e.rows.filter { $0.multiple != 1 }.allSatisfy { $0.drift1y != nil })
+    }
+
+    @Test func costScenarioAllowsIssueAndMissingFields() throws {
+        let issue = try API.decoder.decode(CostScenario.self, from: Data(#"{"issue":"手續費比例要在 0–5% 之間"}"#.utf8))
+        #expect(issue.issue == "手續費比例要在 0–5% 之間")
+        #expect(issue.perBuy == nil)
+        let partial = try API.decoder.decode(CostScenario.self, from: Data(#"{"perBuy":{},"layers":{"fundExpense":{},"fundWithholding":{},"investorWithholding":{}},"promo":{},"sources":[{}],"inputs":{}}"#.utf8))
+        #expect(partial.perBuy?.costPct == nil)
+        #expect(partial.layers?.fundExpense?.pct == nil)
+        #expect(partial.layers?.fundWithholding?.note == nil)
+        #expect(partial.layers?.investorWithholding?.pct == nil)
+        #expect(partial.promo?.expired == nil)
+        #expect(partial.sources?.first?.url == nil)
+        #expect(partial.inputs?.costFee == nil)
+    }
+
+    @Test func costScenarioDecodesIndexOtherAndExpiredPromo() throws {
+        let json = #"{"layers":{"fundExpense":{"pct":0.03,"note":"基金淨費用率（占持有市值的年化 %）"},"fundWithholding":{"pct":0},"investorWithholding":{"pct":null,"note":"不套用：請依你的稅務身分確認"}},"promo":{"until":"2026-01-01","expired":true},"inputs":{"costBasis":"index","costTax":"other","costPromo":"2026-01-01"}}"#
+        let scenario = try API.decoder.decode(CostScenario.self, from: Data(json.utf8))
+        #expect(scenario.layers?.fundExpense?.pct == 0.03)
+        #expect(scenario.layers?.fundWithholding?.pct == 0)
+        #expect(scenario.layers?.investorWithholding?.pct == nil)
+        #expect(scenario.layers?.investorWithholding?.note == "不套用：請依你的稅務身分確認")
+        #expect(scenario.promo?.until == "2026-01-01")
+        #expect(scenario.promo?.expired == true)
+        #expect(scenario.inputs?.costBasis == "index")
+        #expect(scenario.inputs?.costTax == "other")
     }
 }

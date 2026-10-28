@@ -107,7 +107,6 @@ function loadBatches(root: string): Batch[] {
       const answers = readJson<Record<string, unknown>>(join(dir, "answers.json"));
       const receipt = readJson<Receipt>(join(dir, "receipt.json"));
       if (!manifest && !tasks && !answers && !receipt) continue;
-      if (tasks?.length === 0 && !receipt) continue;
       const date = kind === "daily" ? manifest?.snapshot?.date ?? null : manifest?.pulledAt.slice(0, 10) ?? null;
       batches.push({ kind, directory, date, manifest, tasks: tasks ?? [], answers: answers ?? {}, receipt });
     }
@@ -148,7 +147,7 @@ function matches(item: Item, slot: Slot): boolean {
 }
 
 function coverageFor(batches: Batch[], date: string, kind: BatchKind) {
-  const runs = batches.filter((batch) => batch.date === date && batch.kind === kind).map((batch) => ({
+  const runs = batches.filter((batch) => batch.date === date && batch.kind === kind && (batch.receipt || batch.tasks.length)).map((batch) => ({
     runId: batch.manifest?.runId ?? null, directory: batch.directory, status: batch.receipt?.run?.status ?? "unknown" as Status,
   }));
   // Preserve every receipt and show the worst state, so a later ok does not hide a gap.
@@ -230,7 +229,7 @@ function audit(month: string, batches: Batch[], cases: string[]) {
     coverage: {
       from, to,
       sessions: sessions.map((date) => ({ date, daily: coverageFor(selectedBatches, date, "daily"), translate: coverageFor(selectedBatches, date, "translate") })),
-      undatedBatches: batches.filter((batch) => batch.date === null).map((batch) => ({ ...source(batch), reason: "缺 manifest 或 daily snapshot.date，無法判定月份與交易日" })),
+      undatedBatches: batches.filter((batch) => batch.date === null && (batch.receipt || batch.tasks.length)).map((batch) => ({ ...source(batch), reason: "缺 manifest 或 daily snapshot.date，無法判定月份與交易日" })),
     },
     population,
     samples,

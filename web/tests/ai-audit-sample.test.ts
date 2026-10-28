@@ -224,6 +224,21 @@ test("只有空且無回執的批次時，當日覆蓋列為 missing", async (t)
   assert.deepEqual(day.translate, { status: "missing", batches: [] });
 });
 
+test("空 daily 工作批次的 unavailable 仍列問題案例，無回執時不算覆蓋", async (t) => {
+  const root = fixture(t);
+  const key = "points:nasdaq:28651961";
+  save(root, "daily", "daily-unavailable", [], {}, [], {
+    working: true, noReceipt: true, unavailable: [{ key, reason: "no-match" }],
+  });
+  const r = await report(root);
+  assert.deepEqual(r.problemCases, [{
+    key,
+    reasons: [{ type: "unavailable", detail: "no-match", source: { runId: "daily-unavailable", directory: "daily", taskId: null } }],
+  }]);
+  const day = r.coverage.sessions.find((day) => day.date === date)!;
+  assert.deepEqual(day.daily, { status: "missing", batches: [] });
+});
+
 test("HOME 空白、無帳密、禁止網路與子程序仍能執行", async (t) => {
   const root = fixture(t);
   const home = join(root, "home");

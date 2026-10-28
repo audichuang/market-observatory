@@ -33,4 +33,12 @@ struct CopyTests {
             }
         }
     }
+
+    @Test @MainActor func comparisonSummaryCanBeHiddenWithoutChangingDefault() {
+        for distinct in [true, false, nil] as [Bool?] {
+            #expect(ProbabilityComparison(probability: 0.65, baseline: 0.6, distinct: distinct,
+                                          showsSummary: false).comparisonSummary == nil)
+            #expect(ProbabilityComparison(probability: 0.65, baseline: 0.6, distinct: distinct).comparisonSummary != nil)
+        }
+    }
 }

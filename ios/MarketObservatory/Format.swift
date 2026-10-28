@@ -172,6 +172,7 @@ struct ProbabilityComparison: View {
     let baseline: Double
     let distinct: Bool?
     var digits = 1
+    var showsSummary = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -186,14 +187,17 @@ struct ProbabilityComparison: View {
                     historical
                 }
             }
-            Text(comparisonSummary)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            if let summary = comparisonSummary {
+                Text(summary)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 
-    var comparisonSummary: String {
+    var comparisonSummary: String? {
+        if !showsSummary { return nil }
         // U-01: not detecting a difference does not establish equivalence.
         if distinct == true { return probability > baseline ? "估計比平常高" : "估計比平常低" }
         return "尚未偵測到與平常的差別"

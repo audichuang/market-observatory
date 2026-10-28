@@ -403,7 +403,8 @@ struct OutlookView: View {
                 Section("上漲展望") {
                     VStack(alignment: .leading, spacing: 16) {
                         Text("約 \(p.horizon) 個交易日後的上漲機率").font(.headline)
-                        ProbabilityComparison(probability: o.pick.p, baseline: o.pick.base.p, distinct: o.pick.distinct)
+                        ProbabilityComparison(probability: o.pick.p, baseline: o.pick.base.p, distinct: o.pick.distinct,
+                                              showsSummary: o.pick.distinct == true)
                         CallBadge(call: o.call)
                         Text(Self.callWhy[o.call] ?? Self.callWhy["inconclusive"]!).font(.body)
                         if let caveat = o.globalCaveat, !caveat.isEmpty {

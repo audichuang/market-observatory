@@ -787,7 +787,9 @@ final class VerifyInteractionTests: XCTestCase {
 
     /// A historical day without the injected warning guards the unchanged no-warning layout.
     func test23_OverviewWithoutWarning() throws {
-        let app = try signedIn(arguments: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryL"])
+        let variant = env["MO_READING_VARIANT"] ?? "light-normal"
+        let app = try signedIn(arguments: ["-UIPreferredContentSizeCategoryName", variant.contains("largest")
+            ? "UICTContentSizeCategoryAccessibilityXXXL" : "UICTContentSizeCategoryL"])
         tab(app, "總覽")
         XCTAssertTrue(app.buttons["其他交易日"].waitForExistence(timeout: 15))
         app.buttons["其他交易日"].tap()
@@ -796,8 +798,8 @@ final class VerifyInteractionTests: XCTestCase {
         XCTAssertTrue(day.waitForExistence(timeout: 5)); day.tap()
         XCTAssertTrue(app.navigationBars.matching(NSPredicate(format: "identifier CONTAINS %@", dayPrefix(older))).firstMatch.waitForExistence(timeout: 15))
         XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH '缺少當日收盤' ")).firstMatch.exists)
-        snap("polish-light-normal-overview-no-warning")
-        note("polish-light-normal-overview-no-warning", app.debugDescription)
+        snap("polish-\(variant)-overview-no-warning")
+        note("polish-\(variant)-overview-no-warning", app.debugDescription)
     }
 
     /// The local limited-history fixture produces scored=false without changing the model.

@@ -34,6 +34,19 @@ export interface BarBatch {
   bars: DailyBar[];
 }
 
+/** Stored price spans, including rows older than the current product read window. */
+export async function priceRanges(db: Db, symbols: string[]): Promise<Record<string, { min: string; max: string }>> {
+  const ranges: Record<string, { min: string; max: string }> = {};
+  for (const chunk of inChunks(symbols, 0)) {
+    const rows = await db
+      .prepare(`SELECT symbol, MIN(date) AS min, MAX(date) AS max FROM prices WHERE symbol IN (${chunk.map(() => "?").join(",")}) GROUP BY symbol`)
+      .bind(...chunk)
+      .all<{ symbol: string; min: string; max: string }>();
+    for (const row of rows.results) ranges[row.symbol] = { min: row.min, max: row.max };
+  }
+  return ranges;
+}
+
 // Bound each multi-symbol query and batch the writes to limit D1 round trips.
 
 /**

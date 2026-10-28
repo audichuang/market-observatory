@@ -2,7 +2,7 @@ import { addDays, latestExpectedClose, MACRO_EVENTS, macroEventsSummary } from "
 import { type Snapshot, buildSnapshot, snapshotLoadWindow } from "../lib/snapshot.ts";
 import { CBOE_SOURCE, fetchCboeDaily } from "../lib/sources/cboe.ts";
 import { type EarningsDate, NASDAQ_SOURCE, fetchAnalystView, fetchEarningsCalendar, fetchEarningsDate, fetchNasdaqHistorical, fetchNasdaqNews } from "../lib/sources/nasdaq.ts";
-import { nextPendingRebase } from "../lib/rebase.ts";
+import { nextPendingRebase, refetchCoverage } from "../lib/rebase.ts";
 import { bumpDataVersion } from "./page-cache.ts";
 import { fetchSpyHoldings } from "../lib/sources/ssga.ts";
 import { type FactsetInsight, fetchInsight, latestInsightUrl } from "../lib/sources/factset.ts";
@@ -16,7 +16,7 @@ import { easternDate } from "../lib/calendar.ts";
 import { EQUAL_WEIGHT_SYMBOL, FX_SYMBOL, INDEX_SYMBOL, VIX_SYMBOL, type WatchMember, nasdaqCheckSymbols, watchTickers, yahooSymbols } from "../lib/universe.ts";
 import { MAX_TRACKED, addToWatchlist, removeFromWatchlist } from "../lib/watchlist.ts";
 import { USER_WATCHLIST_PREFIX, WATCHLIST_KEY, latestHoldings, newTrackedQuotaPrefix, loadTrackedMembers, loadWatchlist, updateWatchlist } from "./watchlist.ts";
-import { type BarBatch, applyCrossChecks, compareCloses, finishRun, insertMissingBars, insertWeights, loadPrices, getSetting, loadWeightAnchors, nowIso, putSetting, saveSnapshots, startRun, upsertBars, weightsNear } from "./repo.ts";
+import { type BarBatch, applyCrossChecks, compareCloses, finishRun, insertMissingBars, insertWeights, loadPrices, getSetting, loadWeightAnchors, nowIso, priceRanges, putSetting, saveSnapshots, startRun, upsertBars, weightsNear } from "./repo.ts";
 
 export type JobName = "prices" | "crosscheck" | "weights" | "news" | "events" | "analysts" | "factset" | "forecast" | "snapshots" | "notify-close" | "notify-events" | "backfill-prices" | "backfill-checks" | "backfill-index-history";
 export const JOB_NAMES: JobName[] = ["prices", "crosscheck", "weights", "news", "events", "analysts", "factset", "forecast", "snapshots", "notify-close", "notify-events", "backfill-prices", "backfill-checks", "backfill-index-history"];
@@ -181,13 +181,24 @@ async function jobPrices(db: D1Database, _opts: JobOptions, budget: Budget): Pro
   const rebasedSymbols = Object.keys({ ...pending, ...rebased }).filter((s) => s in symbols);
   if (rebasedSymbols.length) {
     const now = rebasedSymbols.slice(0, budget.remaining);
+    const ranges = await priceRanges(db, now);
     const full = await fetchYahooBatch(now.map((s) => [s, symbols[s]] as [string, string]), "10y", expected, budget);
-    await upsertBars(db, full.ok, { allowRebase: true });
-    const stillPending = nextPendingRebase(pending, rebased, full.ok.map((b) => b.symbol));
+    const covered: BarBatch[] = [];
+    const uncovered: Record<string, string> = {};
+    for (const batch of full.ok) {
+      const coverage = refetchCoverage(ranges[batch.symbol] ?? null, batch.bars, expected);
+      if (coverage.ok) covered.push(batch);
+      else {
+        uncovered[batch.symbol] = coverage.reason;
+        failed[batch.symbol] = `分割後重抓的歷史未涵蓋已存區間，保留待修、下次重試：${coverage.reason}`;
+      }
+    }
+    await upsertBars(db, covered, { allowRebase: true });
+    const stillPending = nextPendingRebase(pending, rebased, covered.map((b) => b.symbol));
     await putSetting(db, PENDING_REBASE_KEY, stillPending);
     for (const [s, err] of Object.entries(full.failed)) failed[s] = `分割後重抓歷史失敗，已列入待修、下次重試：${err}`;
     for (const s of rebasedSymbols.slice(now.length)) failed[s] = "分割後要重抓歷史，這次請求額度不足，已列入待修、下次重試";
-    detail.rebased = { factors: { ...pending, ...rebased }, refetchFailed: full.failed, pending: stillPending };
+    detail.rebased = { factors: { ...pending, ...rebased }, refetchFailed: full.failed, uncovered, pending: stillPending };
   }
   const stale = ok.filter((b) => b.symbol !== FX_SYMBOL && b.bars.at(-1)?.date !== expected).map((b) => b.symbol);
   if (spx) {

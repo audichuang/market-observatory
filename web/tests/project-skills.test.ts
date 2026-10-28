@@ -5,7 +5,7 @@ import { test } from "node:test";
 
 const repo = resolve(import.meta.dirname, "../..");
 const skillsRoot = join(repo, ".claude/skills");
-const REQUIRED = ["verify", "research-round"];
+const REQUIRED = ["verify", "research-round", "strategist-monthly-check"];
 const skills = readdirSync(skillsRoot, { withFileTypes: true })
   .filter((entry) => !entry.isSymbolicLink() && entry.isDirectory())
   .map((entry) => entry.name);
@@ -37,6 +37,20 @@ function linkTargets(markdown: string): string[] {
 
 test("專案必備 skills 都是非 symlink 目錄", () => {
   for (const name of REQUIRED) assert.ok(skills.includes(name), `缺少必備 skill：${name}`);
+});
+
+test("strategist-monthly-check 引用現行資料、測試與展望驗證入口", () => {
+  const markdown = readFileSync(join(skillsRoot, "strategist-monthly-check/SKILL.md"), "utf8");
+  const references = [...markdown.matchAll(/`([^`\n]+)`/g)].map((match) => match[1]);
+  for (const path of [
+    "web/src/lib/strategists.ts",
+    "web/tests/strategists.test.ts",
+    "web/tests/api-contract.test.ts",
+    ".claude/skills/verify/features/outlook.md",
+  ]) {
+    assert.ok(references.includes(path), `月檢 skill 缺少入口：${path}`);
+    assert.ok(existsSync(join(repo, path)), `月檢 skill 引用不存在的入口：${path}`);
+  }
 });
 
 for (const name of skills) {

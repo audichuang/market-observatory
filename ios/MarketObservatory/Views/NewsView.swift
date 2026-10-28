@@ -161,13 +161,22 @@ struct NewsView: View {
                 DigestRow(digest: d, expanded: collapsedSymbolDigest != d.id) {
                     withAnimation { collapsedSymbolDigest = collapsedSymbolDigest == d.id ? nil : d.id }
                 }
+                if collapsedSymbolDigest != d.id {
+                    DigestSourcesList(sources: d.sources, sourcesMissing: d.sourcesMissing)
+                        .accessibilityIdentifier("news-digest-sources-\(d.symbol)")
+                }
             }
         }
     }
 
+    @ViewBuilder
     private func digestRow(_ d: NewsDigest) -> some View {
         DigestRow(digest: d, expanded: expandedDigest == d.symbol) {
             withAnimation { expandedDigest = expandedDigest == d.symbol ? nil : d.symbol }
+        }
+        if expandedDigest == d.symbol {
+            DigestSourcesList(sources: d.sources, sourcesMissing: d.sourcesMissing)
+                .accessibilityIdentifier("news-digest-sources-\(d.symbol)")
         }
     }
 

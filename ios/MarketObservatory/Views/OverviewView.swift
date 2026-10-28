@@ -157,7 +157,13 @@ struct OverviewView: View {
 
                 Section {
                     IndexHero(s: s, createdAt: row.createdAt)
-                    if let m = o.market { MarketDigestCard(digest: m) }
+                    if let m = o.market {
+                        MarketDigestCard(digest: m)
+                        DisclosureGroup("參考來源（整篇，非逐句）") {
+                            DigestSourcesList(sources: m.sources, sourcesMissing: m.sourcesMissing, showsHeading: false)
+                        }
+                        .accessibilityIdentifier("market-digest-sources")
+                    }
                     indicatorsToggle(s)
                     if showIndicators {
                         kpis(s)

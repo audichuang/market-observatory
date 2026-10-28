@@ -44,6 +44,14 @@ Preconditions:
   App 把手：試算區的 Picker 按鈕 label「標的、VOO」「期間、3 年」，每月投入欄位 label「每月投入」，試算按鈕 label「每月投入、試算」；「設為我的預設／已是我的預設」在清單下方，要先捲出來。右上「我的規劃」的欄位 label 是「研究預算」「每批投入」「考慮出場漲幅 %」，按鈕「儲存」「取消」。
 - **Proof。** `etfs-table.png`、`dca-ivv.png`、`plan-saved.png`、`plan-exit150-after-save.png`、`plan-saved.api.json`、還原後的 API JSON、App 截圖與 `.txt`。
 
+## 成本 sheet 最小重現與回歸（App，1a）
+
+入口：「更多 → ETF 與定投試算 → 成本情境（你的假設）」。先按「設定假設」，填價差 0.5、費率 0.1、最低 1、配息率 1.2 後按「試算」，等拆解與三層結果出現，再按「修改假設」。修正前 sheet 會閃現後自行關閉，UIKit log 可見多筆 `Attempt to present`／`already presenting`；未試算時只有一列，不能拿它代替這個重現。
+
+回歸通過條件：修改 sheet 的「設定假設」導覽列持續可見且保留原輸入；改「報酬口徑」為稅前指數、「稅務身分」為其他，按「試算」只送出一次並關閉，再按「修改假設」仍可開啟；按「取消」後觀察 6 秒不再彈出。保存重新開啟、送出與取消後截圖、畫面文字及 UIKit presentation log（`cost-app-sheet-reopen`、`cost-app-sheet-apply`、`cost-app-sheet-cancel`）。
+
+這是 SwiftUI 在 List 多列 Section 上配置 presenter 的行為；查詢轉換與 fixture 解碼單元測試無法觀察。本輪依派工限制只經 `ios-build.sh`／`ios-gate.sh` 建置與跑單元測試，不另開模擬器或改 UI 測試，未重跑此 UI 重現。審查提供的獨立最小 App 已在 MO iPhone 16 Plus（iOS 27.1）確認修正前兩次流程共 26 筆 presentation 錯誤，按鈕掛載版 2 個 UI 測試通過且 0 筆錯誤；完整 App 路徑與本輪修正仍待整合 UI 驗收。
+
 ## Gotchas
 
 - App ETF 列將名稱、費用率、規模及備註分行，大字時代號與報酬上下排列，報酬正負號與數值維持同一行；用 `test16_Readability` 的 `etfs`、`etfs-reading` 與規劃截圖檢查一般／最大字級，`test20_LargeTypeEtfAndLogin` 比較同樣 headline 的 VOO 代號／報酬高度，檢查報酬單行且不超出畫面；再用 `test06_EtfsPlan` 操作與 API 讀回確認試算及儲存。
@@ -58,3 +66,4 @@ Preconditions:
 - 1x 股票產品的長期定投與一次投入研究不自動涵蓋每日重設的槓桿／反向 ETF；定投試算選到槓桿／反向標的時以警示樣式呈現每日重設偏離風險。
 - 成本情境的美元扣款仍用台幣等值月額拆解，換匯價差固定為 0；最低美元費以 API 最新 USD/TWD 換算並列日期。沒有匯率且最低費大於 0、扣完費用不夠買進時只回 issue。優惠到期只提醒，不自動替換費率。稅務規則是 2026-10-28 查閱的靜態事實，不自動更新；IRS 協定清單來源日期未標明時如實顯示。一般股利以外的分配不估算，三層不相加、不產生稅後報酬。本次審查修正已實測網頁清除與成功試算後按上一頁的兩條路徑；其餘網頁／App 成本情境仍須在整合驗收操作上述把手。
 - App 的 `costScenario` 及其內部欄位均為 optional，舊 `etfs.json` 沒有此欄位仍可解碼；generated fixture 的非空成本率斷言依賴 `api-contract.test.ts` 的 cost* 參數，整合時需保留。App 不把輸入寫入 Plan、UserDefaults 或後端；費率超界等輸入交給 API 回 issue，原始輸入留在本頁可修正，清除才移除。數字鍵盤用工具列「完成」收起，日期可留空或填 YYYY-MM-DD；sheet 與結果列已安排換行／捲動，最大字級與來源點擊範圍仍須實際畫面驗證，單元測試與 build 不能代替。
+- 成本編輯 sheet 掛在「設定假設／修改假設」Button 上，讓多列結果共用單一 presenter；掛在 Section 會在試算後觸發多重呈現並自行關閉。回歸操作與證據見上方「成本 sheet 最小重現與回歸」。

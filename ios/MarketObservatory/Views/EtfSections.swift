@@ -102,6 +102,12 @@ struct CostScenarioSection: View {
     var body: some View {
         Section {
             Button(query == nil ? "設定假設" : "修改假設") { editing = true }
+                .sheet(isPresented: $editing) {
+                    CostEditor(query: query ?? CostQuery()) { input in
+                        editing = false
+                        apply(input)
+                    }
+                }
             if query != nil {
                 Button("清除", role: .destructive, action: clear)
                 if let scenario {
@@ -114,12 +120,6 @@ struct CostScenarioSection: View {
             }
         } header: {
             Text("成本情境（你的假設）")
-        }
-        .sheet(isPresented: $editing) {
-            CostEditor(query: query ?? CostQuery()) { input in
-                editing = false
-                apply(input)
-            }
         }
     }
 

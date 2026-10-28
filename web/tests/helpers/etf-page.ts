@@ -32,12 +32,29 @@ export function pageWithAction(action: () => Promise<unknown> = async () => ({ o
   assert.deepEqual(compiled.errors, []);
   const code = compiled.code.replace(/^import[^;]+;\s*/gm, "").replace("export default function EtfPage", "function EtfPage");
   const state: unknown[] = [];
+  const effectDeps: (readonly unknown[])[] = [];
+  const pendingEffects: (() => void)[] = [];
   let index = 0;
+  let changed = false;
+  let currentQuery = query;
   const visits: unknown[] = [];
   const useState = (initial: unknown) => {
     const slot = index++;
     if (!(slot in state)) state[slot] = initial;
-    return [state[slot], (value: unknown) => { state[slot] = value; }];
+    return [state[slot], (value: unknown) => {
+      if (!Object.is(state[slot], value)) {
+        state[slot] = value;
+        changed = true;
+      }
+    }];
+  };
+  const useEffect = (effect: () => void, deps: readonly unknown[]) => {
+    const slot = index++;
+    const previous = effectDeps[slot];
+    if (!previous || deps.some((value, i) => !Object.is(value, previous[i]))) {
+      effectDeps[slot] = deps;
+      pendingEffects.push(effect);
+    }
   };
   const defaults: Props = {
     asOf: "2026-10-28", catalogAsOf: "2026-10-24", rows: [], periods: [], plan: DEFAULT_PLAN, funding: "monthly",
@@ -48,8 +65,8 @@ export function pageWithAction(action: () => Promise<unknown> = async () => ({ o
   let currentProps = { ...defaults, ...props };
   // Keep every runtime import in pages/etfs.tsx available to the compiled page.
   const imports = {
-    h, Fragment: Symbol("Fragment"), useState, useEffect: () => {},
-    useRouter: () => ({ query: new URLSearchParams(query), visit: (url: unknown) => visits.push(url) }),
+    h, Fragment: Symbol("Fragment"), useState, useEffect,
+    useRouter: () => ({ query: new URLSearchParams(currentQuery), visit: (url: unknown) => visits.push(url) }),
     useForm: () => ({ data: currentProps.plan, pending: false, hasChanges: false }),
     action, Form: "form", Link: "a", LineChart: "chart", Delta: "delta", num, compactUsd, pctText, planIssue, ETFS,
     ...etfCopy,
@@ -58,10 +75,19 @@ export function pageWithAction(action: () => Promise<unknown> = async () => ({ o
   const page = factory(...Object.values(imports)) as (props: Props) => Element;
   return {
     visits,
-    render(overrides: Partial<Props> = {}) {
-      index = 0;
-      currentProps = { ...defaults, ...props, ...overrides };
-      return page(currentProps);
+    render(overrides: Partial<Props> = {}, nextQuery: Record<string, string> = currentQuery) {
+      currentProps = { ...currentProps, ...overrides };
+      currentQuery = nextQuery;
+      let rendered: Element;
+      // Commit effects after rendering, then expose the state they produce as React does.
+      do {
+        index = 0;
+        changed = false;
+        pendingEffects.length = 0;
+        rendered = page(currentProps);
+        for (const effect of pendingEffects) effect();
+      } while (changed);
+      return rendered;
     },
   };
 }

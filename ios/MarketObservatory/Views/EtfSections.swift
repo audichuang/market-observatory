@@ -93,6 +93,7 @@ struct CostQuery: Equatable, Sendable {
 }
 
 struct CostScenarioSection: View {
+    let etf: String
     let scenario: CostScenario?
     let query: CostQuery?
     let apply: (CostQuery) -> Void
@@ -126,6 +127,10 @@ struct CostScenarioSection: View {
     @ViewBuilder
     private func result(_ scenario: CostScenario) -> some View {
         if let buy = scenario.perBuy {
+            Text(Copy.costScenarioBasis(etf: etf, amountTwd: buy.amountTwd))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
             Text("每次扣款拆解（台幣）").font(.headline)
             CostValueRow(label: "扣款金額", value: Fmt.num(buy.amountTwd))
             CostValueRow(label: "換匯價差", value: Fmt.num(buy.fxSpreadTwd))
@@ -226,7 +231,7 @@ struct CostEditor: View {
         NavigationStack {
             Form {
                 Section {
-                    Text("只是試算，不會儲存")
+                    Text(Copy.costScenarioNote)
                         .fixedSize(horizontal: false, vertical: true)
                     Picker("扣款幣別", selection: $query.costCcy) {
                         Text("台幣").tag("twd")

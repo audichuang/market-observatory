@@ -3,6 +3,15 @@ import Testing
 
 // Strings must stay identical to web/src/lib/etf-copy.ts (see web/tests/etf-copy.test.ts).
 struct EtfCopyTests {
+    @Test func costScenarioExplainsOrdinaryDividends() {
+        #expect(Copy.costScenarioNote == "只是試算，不會儲存。假設年配息率僅計一般股利。")
+    }
+
+    @Test func costScenarioBasisIncludesETFAndMonthlyTwdAmount() {
+        #expect(Copy.costScenarioBasis(etf: "VOO", amountTwd: 10000) == "以 VOO、每月 10,000 台幣等值金額估算。")
+        #expect(Copy.costScenarioBasis(etf: "SSO", amountTwd: 25000.4) == "以 SSO、每月 25,000 台幣等值金額估算。")
+    }
+
     @Test func dcaLumpPremise() {
         #expect(Copy.dcaLumpPremise == "假設整筆資金在期初已備妥；逐月新收入無法照此提前投入。")
     }

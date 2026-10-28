@@ -3,6 +3,26 @@ import Testing
 
 // Strings must stay identical to web/src/lib/communication.ts (see web/tests/communication.test.ts).
 struct CopyTests {
+    @Test func marketWithoutNewsExplainsItsSources() {
+        let expected = "這段只根據行情數字，沒有引用新聞"
+        #expect(NewsText.sourcesEmptyNote(isMarket: true, sources: [], sourcesMissing: 0) == expected)
+    }
+
+    @Test func marketWithAbsentSourceFieldsDoesNotClaimNoNews() {
+        #expect(NewsText.sourcesEmptyNote(isMarket: true, sources: nil, sourcesMissing: nil) == nil)
+        #expect(NewsText.sourcesEmptyNote(isMarket: true, sources: nil, sourcesMissing: 0) == nil)
+        #expect(NewsText.sourcesEmptyNote(isMarket: true, sources: [], sourcesMissing: nil) == nil)
+    }
+
+    @Test func sourcesEmptyNoteDoesNotMislabelNewsOrMissingSources() {
+        let source = DigestSource(id: "news", title: "Market news", titleZh: nil,
+            url: "https://example.test/news", publisher: nil, publishedAt: nil)
+        #expect(NewsText.sourcesEmptyNote(isMarket: true, sources: [source], sourcesMissing: 0) == nil)
+        #expect(NewsText.sourcesEmptyNote(isMarket: true, sources: [], sourcesMissing: 1) == nil)
+        #expect(NewsText.sourcesEmptyNote(isMarket: true, sources: nil, sourcesMissing: 1) == nil)
+        #expect(NewsText.sourcesEmptyNote(isMarket: false, sources: [], sourcesMissing: 0) == nil)
+    }
+
     @Test func dd5Definition() {
         #expect(Copy.dd5Definition(horizon: 21) == "以資料日收盤為起點，未來 21 個交易日內至少有一天收盤比它低 5% 以上")
     }
@@ -43,6 +63,11 @@ struct CopyTests {
 
     @Test func outlookInsufficientCopyMatchesWeb() {
         #expect(Copy.outlookUnavailable(reason: "insufficient", spxDate: nil, vixDate: nil, staleSessions: nil, maxStaleSessions: 3) == "歷史資料還不夠計算條件與驗證，今天不產生預測。下方的過去預測紀錄與機構觀點照常顯示。")
+    }
+
+    @Test func outlookLiveTooFewStartsFromFirstRealtimePublication() {
+        #expect(Copy.outlookLiveTooFew(n: 3, horizon: 21) == "只有 3 個獨立月份（少於 12），不報分數。只取不重疊的列：從第一筆即時發布的紀錄起每 21 個交易日一列。")
+        #expect(Copy.outlookLiveTooFew(n: 11, horizon: 10) == "只有 11 個獨立月份（少於 12），不報分數。只取不重疊的列：從第一筆即時發布的紀錄起每 10 個交易日一列。")
     }
 
     @Test func outlookUnavailableFallbackMatchesWeb() {

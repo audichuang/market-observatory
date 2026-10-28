@@ -15,6 +15,11 @@ extension Color {
 }
 
 enum NewsText {
+    static func sourcesEmptyNote(isMarket: Bool, sources: [DigestSource]?, sourcesMissing: Int?) -> String? {
+        guard isMarket, let sources, let sourcesMissing, sources.isEmpty, sourcesMissing == 0 else { return nil }
+        return "這段只根據行情數字，沒有引用新聞"
+    }
+
     static func toneLabel(_ tone: String?) -> String? {
         switch tone {
         case "positive": "利多"
@@ -184,6 +189,7 @@ struct DigestSections {
 struct DigestSourcesList: View {
     let sources: [DigestSource]?
     let sourcesMissing: Int?
+    var isMarket = false
     var showsHeading = true
 
     @Environment(\.openURL) private var openURL
@@ -223,6 +229,12 @@ struct DigestSourcesList: View {
             }
             if let missing = sourcesMissing, missing > 0 {
                 Text("另有 \(missing) 則來源已不在資料庫，無法列出")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if let note = NewsText.sourcesEmptyNote(isMarket: isMarket, sources: sources, sourcesMissing: sourcesMissing) {
+                Text(note)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

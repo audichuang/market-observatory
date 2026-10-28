@@ -134,6 +134,10 @@ enum Copy {
     static func upTargetLabel(horizon: Int) -> String {
         "約 \(horizon) 個交易日後收盤高於資料日"
     }
+
+    static func outlookLiveTooFew(n: Int, horizon: Int) -> String {
+        "只有 \(n) 個獨立月份（少於 12），不報分數。只取不重疊的列：從第一筆即時發布的紀錄起每 \(horizon) 個交易日一列。"
+    }
 }
 
 extension Color {

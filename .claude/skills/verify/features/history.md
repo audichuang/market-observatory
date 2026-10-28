@@ -35,7 +35,7 @@ Preconditions:
 - 本機只回補了 60 天快照：近 40 日貢獻圖有資料；更早日子的名單貢獻沒有（價格有十年）。
 - App 的區間標籤要讀成「1 個月」而不是「1 月」（C2 曾經的 fail）。
 
-## 研究表與原始資料（網頁，L6-T5）
+## 研究表與原始資料（網頁 L6-T5、App L6-T6）
 
 - `history-research`：主圖後只在 `watch.includes(symbol)` 時顯示「研究表與原始資料」；SPX、VIX、RSP 與 ETF 不顯示。沿用走勢頁資料，不改 API，也沒有輸入框或儲存。
 - 入口：登入測試帳號後，從名單點 NVIDIA 的「走勢」，或開 `/history?symbol=NVDA`。確認面板在主圖下、相對報酬圖上；「SEC EDGAR 申報清單」另開 NVIDIA CORP 申報清單，「公司投資人關係（IR）」另開 `https://investor.nvidia.com/`；兩者均有 `target="_blank" rel="noreferrer"`。
@@ -45,3 +45,7 @@ Preconditions:
 - 隱藏與未收錄 IR：依序開 `/history?symbol=SPX`、`/history?symbol=VIX`、`/history?symbol=RSP`、`/history?symbol=VOO`，皆無研究面板。暫時把 AVGO 加入測試帳號名單後，開 `/history?symbol=AVGO`，只有 EDGAR 外連並顯示「這家公司未收錄 IR 網址；可從 EDGAR 的年報（10-K）找到公司網站。」；複製文字也省略「公司 IR」行。測完移除 AVGO 並確認名單還原。
 - Proof：`history-research-nvda.png`（主圖與面板位置）、`history-research-expanded.png`（七題）、`history-research-copied.png`／`history-research-copy-failed.png`（結果提示）、剪貼簿文字（可讀時）、兩個外連的落地頁截圖、非公司標的無面板的截圖、`history-research-avgo.png` 與名單還原的讀回證據。
 - Gotchas：EDGAR 用內部連字號 `BRK-B`，不可轉成 `BRK.B`；SEC 會擋 curl，外連落地頁只能用瀏覽器驗。IR 只收錄預設七家在 2026-10-28 核對過的網址。剪貼簿需 https 或 localhost；日期只在點擊時計算，SSR 不輸出日期。
+- App（C8）：走勢 → 右上「標的：S&P 500」→ NVIDIA；主圖後、相對報酬圖前顯示同名 Section，條件為 `h.watch.contains(h.symbol)`。點 EDGAR 會開 Safari 的 NVIDIA 申報清單，IR 開公司投資人頁；未收錄 IR 時用與網頁相同的說明句。展開「研究表範本（7 題）」逐題核對，footer 是 `Research.note`；沒有輸入框或儲存。
+- App 複製：展開後點「複製範本」，確認「已複製，可貼到你自己的筆記保存」，剪貼簿等於 `Research.template(company:ticker:date:)`；日期取按下當下裝置本地的 Gregorian `yyyy-MM-dd`。同頁改選另一家公司時範本收合、成功提示清除；切回 S&P 500 或 RSP 時整個 Section 消失，ETF 也不顯示。範本與七個 IR 網址的正本是 `web/src/lib/research.ts`，`CopyTests` 和 `web/tests/research.test.ts` 比對同一全文字面值。
+- App 自動互動：在全域模擬器鎖內重用 `MO iPhone 16 Plus`，依 AGENTS.md 設定本輪 `sim.udid`，執行 `ios-test.sh … VerifyInteractionTests/test19_HistoryResearch` 對本機站操作選 NVIDIA、核對兩個外連與七題、複製、再切 S&P 500。Proof：`C8-research-links.png`、`C8-research.png`／`.txt`、`C8-research-spx.png`／`.txt`（輸出目錄沿用 `MO_SHOTS`）。本票只編譯 XCUITest，實跑留到整合 UI 驗收。
+- App 人工驗收另點兩個外連確認落地頁，並用最大 Dynamic Type 檢查七題、未收錄 IR 句、複製結果與 footer 都完整換行。驗完立即 shutdown；L7-T1 合併前不執行 `ios-up.sh` 或 `down.sh`。

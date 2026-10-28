@@ -18,7 +18,7 @@ const errorText = (e: unknown) => {
   return e instanceof Error && e.message ? `操作失敗：${e.message}` : "操作失敗，請檢查網路後再試";
 };
 
-export default function EtfPage({ asOf, catalogAsOf, rows, periods, plan, sim, dca, fxLast, funding, costScenario }: Props) {
+export default function EtfPage({ asOf, catalogAsOf, rows, periods, plan, sim, dca, fxLast, funding, costScenario, checklists }: Props) {
   const router = useRouter();
   const form = useForm("/etfs", { ...plan });
   const issue = planIssue(form.data);
@@ -352,6 +352,27 @@ export default function EtfPage({ asOf, catalogAsOf, rows, periods, plan, sim, d
             </ul>
           </>
         )}
+      </div>
+      <div className="panel section" id="tax-checklists" style={{ minWidth: 0, overflowWrap: "anywhere" }}>
+        <h2>稅務與傳承檢查清單</h2>
+        {checklists.map((checklist) => (
+          <details key={checklist.id} id={checklist.id} style={{ marginTop: ".8rem" }}>
+            <summary>{checklist.title}</summary>
+            <ol>
+              {checklist.items.map((item) => <li key={item}>{item}</li>)}
+            </ol>
+            {checklist.note && <p className="meta">{checklist.note}</p>}
+            <p className="meta">{checklist.footer}</p>
+            <ul className="meta">
+              {checklist.sources.map((source) => (
+                <li key={source.url}>
+                  <a href={source.url} target="_blank" rel="noreferrer">{source.label}</a>
+                  （頁面更新日：{source.updatedAt}；查閱日：{source.checkedAt}）
+                </li>
+              ))}
+            </ul>
+          </details>
+        ))}
       </div>
     </>
   );

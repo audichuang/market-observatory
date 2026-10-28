@@ -6,6 +6,7 @@ import { nodes, pageText, pageWithAction } from "./helpers/etf-page.ts";
 import type { Props } from "../pages/etfs.server.ts";
 import { costScenario, parseCostQuery } from "../src/lib/costs.ts";
 import { ETFS } from "../src/lib/universe.ts";
+import { TAX_CHECKLISTS } from "../src/lib/tax-facts.ts";
 
 const simulation: Partial<Props> = {
   sim: { etf: "IVV", years: 2, monthlyTwd: 1000, startDate: "2040-01-15" },
@@ -253,4 +254,37 @@ test("成本 issue 的網址重建表單，切標的、期間、月額與資金�
       assert.ok(!("issue" in costScenario(correctedInput, { monthlyTwd: 5000, fxRate: 32, fxDate: "2026-10-27", etf: ETFS[0], today: "2026-10-28" })));
     }
   }
+});
+
+test("成本之後的稅務面板以兩份可展開清單呈現 API 文字、來源日期與 footer，不收金額", () => {
+  const rendered = pageWithAction(undefined, { checklists: TAX_CHECKLISTS }).render();
+  const panels = nodes(rendered).filter((n) => n.props.className === "panel section");
+  const panel = panels.find((n) => n.props.id === "tax-checklists");
+  assert.ok(panel, "須顯示稅務與傳承檢查清單面板");
+  assert.ok(panels.indexOf(panel) > panels.findIndex((n) => n.props.id === "cost-scenario"));
+  assert.ok(pageText(panel).includes("稅務與傳承檢查清單"));
+  const details = nodes(panel).filter((n) => n.type === "details");
+  assert.equal(details.length, 2);
+  for (const [index, checklist] of TAX_CHECKLISTS.entries()) {
+    const detail = details[index];
+    assert.equal(detail.props.id, checklist.id);
+    assert.equal(pageText(nodes(detail).find((n) => n.type === "summary")), checklist.title);
+    const items = nodes(detail).find((n) => n.type === "ol");
+    assert.ok(items);
+    assert.deepEqual(nodes(items).filter((n) => n.type === "li").map(pageText), checklist.items);
+    const paragraphs = nodes(detail).filter((n) => n.type === "p").map(pageText);
+    assert.deepEqual(paragraphs, checklist.note ? [checklist.note, checklist.footer] : [checklist.footer]);
+    const sources = nodes(detail).find((n) => n.type === "ul");
+    assert.ok(sources);
+    const sourceItems = nodes(sources).filter((n) => n.type === "li");
+    assert.equal(sourceItems.length, checklist.sources.length);
+    for (const [i, source] of checklist.sources.entries()) {
+      const link = nodes(sourceItems[i]).find((n) => n.type === "a");
+      assert.ok(link);
+      assert.equal(link.props.href, source.url);
+      assert.equal(pageText(link), source.label);
+      assert.ok(pageText(sourceItems[i]).includes(`頁面更新日：${source.updatedAt}；查閱日：${source.checkedAt}`));
+    }
+  }
+  assert.equal(nodes(panel).filter((n) => ["input", "form", "button"].includes(String(n.type))).length, 0);
 });

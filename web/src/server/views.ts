@@ -9,6 +9,7 @@ import { ETFS, ETF_CATALOG_AS_OF, EQUAL_WEIGHT_SYMBOL, FX_SYMBOL, INDEX_SYMBOL, 
 import { MAX_WATCH, displayName, isConstituent } from "../lib/watchlist.ts";
 import { PLAN_LIMITS } from "../lib/plan.ts";
 import { costScenario, parseCostQuery } from "../lib/costs.ts";
+import { TAX_CHECKLISTS } from "../lib/tax-facts.ts";
 import { z } from "zod";
 import { type Viewer, getViewerSetting, settingKey, viewerWatchlist } from "./account.ts";
 import { rebuildSnapshots, WATCHLIST_REBUILD_SESSIONS } from "./jobs.ts";
@@ -318,7 +319,7 @@ export async function etfsView(c: ViewCtx, v: Viewer) {
     etf: ETFS.find((e) => e.ticker === computed.sim.etf)!,
     today: new Date().toISOString().slice(0, 10),
   });
-  return { ...computed, plan, funding, costScenario: costs };
+  return { ...computed, plan, funding, costScenario: costs, checklists: TAX_CHECKLISTS };
 }
 
 // ── 新聞與日曆 ───────────────────────────────────────────

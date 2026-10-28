@@ -7,6 +7,7 @@ import { planIssue } from "../../src/lib/plan.ts";
 import { DEFAULT_PLAN } from "../../src/server/views.ts";
 import { compactUsd, num, pctText } from "../../src/ui/format.ts";
 import { ETFS } from "../../src/lib/universe.ts";
+import { TAX_CHECKLISTS } from "../../src/lib/tax-facts.ts";
 
 export interface Element { type: unknown; props: Record<string, unknown> & { children: unknown[] } }
 const h = (type: unknown, props: Record<string, unknown> | null, ...children: unknown[]): Element => ({ type, props: { ...props, children } });
@@ -40,6 +41,7 @@ export function pageWithAction(action: () => Promise<unknown> = async () => ({ o
   const defaults: Props = {
     asOf: "2026-10-28", catalogAsOf: "2026-10-24", rows: [], periods: [], plan: DEFAULT_PLAN, funding: "monthly",
     sim: { etf: "VOO", years: 3, monthlyTwd: 1500, startDate: "2023-10-29" }, dca: null, fxLast: null, costScenario: null,
+    checklists: TAX_CHECKLISTS,
   };
   let currentProps = { ...defaults, ...props };
   // Keep every runtime import in pages/etfs.tsx available to the compiled page.

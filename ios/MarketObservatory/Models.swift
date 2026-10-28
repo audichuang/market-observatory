@@ -559,6 +559,15 @@ struct OutlookPage: Decodable, Sendable {
     }
 
     struct Consensus: Decodable, Sendable {
+        struct CoverageCount: Decodable, Sendable {
+            let symbols: Int
+            let weightPct: Double
+        }
+
+        struct Coverage: Decodable, Sendable {
+            let target, ratings, revisions: CoverageCount?
+        }
+
         struct Top: Decodable, Sendable, Identifiable {
             var id: String { symbol }
             let symbol: String
@@ -567,16 +576,25 @@ struct OutlookPage: Decodable, Sendable {
             let targetMean: Double?
             let upsidePct: Double?
             let buy, hold, sell: Int?
+            let asOf, priceDate: String?
+            let targetLow, targetHigh: Double?
+            let epsUp, epsDown: Int?
+            let fiscalEnd: String?
+            let estimates: Int?
         }
 
         let symbols: Int
         let coveredWeightPct: Double?
+        let coverage: Coverage?
+        let noData: CoverageCount?
         let impliedUpsidePct: Double?
         let buyPct: Double?
         let revisionBreadth: Double?
         let impliedIndexTarget: Double?
         let oldest: String?
         let newest: String?
+        let priceOldest, priceNewest: String?
+        let weightsAsOf, indexCloseDate: String?
         let top: [Top]
     }
 

@@ -684,37 +684,104 @@ struct OutlookView: View {
 
     private func consensusSection(_ c: OutlookPage.Consensus) -> some View {
         Section {
-            LabeledContent("隱含漲幅") { Delta(value: c.impliedUpsidePct, digits: 1, percent: true) }
+            LabeledContent {
+                Delta(value: c.impliedUpsidePct, digits: 1, percent: true)
+                    .fixedSize(horizontal: false, vertical: true)
+            } label: {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("隱含漲幅")
+                    if let coverage = c.coverage?.target {
+                        Text("\(coverage.symbols) 檔 · \(Fmt.plainPct(coverage.weightPct)) 權重\(coverage.weightPct < 50 ? "（不到一半）" : "")")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                .fixedSize(horizontal: false, vertical: true)
+            }
             LabeledContent("隱含指數目標", value: Fmt.num(c.impliedIndexTarget, 0))
-            LabeledContent("買進評等占比", value: Fmt.plainPct(c.buyPct))
+                .fixedSize(horizontal: false, vertical: true)
+            LabeledContent {
+                Text(Fmt.plainPct(c.buyPct)).monospacedDigit()
+                    .fixedSize(horizontal: false, vertical: true)
+            } label: {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("買進評等占比")
+                    if let coverage = c.coverage?.ratings {
+                        Text("\(coverage.symbols) 檔 · \(Fmt.plainPct(coverage.weightPct)) 權重\(coverage.weightPct < 50 ? "（不到一半）" : "")")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                .fixedSize(horizontal: false, vertical: true)
+            }
             LabeledContent {
                 Delta(value: c.revisionBreadth.map { $0 * 100 }, digits: 0)
+                    .fixedSize(horizontal: false, vertical: true)
             } label: {
-                Text("EPS 修正廣度")
-                Text("範圍 −100～+100")
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("EPS 修正廣度")
+                    if let coverage = c.coverage?.revisions {
+                        Text("\(coverage.symbols) 檔 · \(Fmt.plainPct(coverage.weightPct)) 權重\(coverage.weightPct < 50 ? "（不到一半）" : "")")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    Text("近四週（上修−下修）÷ 總次數，−100～+100")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                .fixedSize(horizontal: false, vertical: true)
             }
-            LabeledContent("涵蓋權重", value: "\(c.symbols) 檔 · \(Fmt.plainPct(c.coveredWeightPct))")
+            VStack(alignment: .leading, spacing: 4) {
+                Text("資料狀態")
+                let noData = c.noData.flatMap { $0.symbols > 0 ? "；\($0.symbols) 檔沒有可用數字" : nil }
+                Text("有可用數字 \(c.symbols) 檔 · \(Fmt.plainPct(c.coveredWeightPct))\(noData ?? "")")
+                    .foregroundStyle(.secondary)
+            }
+            .fixedSize(horizontal: false, vertical: true)
             if !c.top.isEmpty {
                 DisclosureGroup("權重前 \(c.top.count) 檔") {
                     ForEach(c.top) { t in
-                        HStack {
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(t.symbol).fontWeight(.semibold)
-                                Text("權重 \(Fmt.plainPct(t.weightPct))").font(.caption2).foregroundStyle(.secondary)
+                        VStack(alignment: .leading, spacing: 6) {
+                            let layout = dts.isAccessibilitySize
+                                ? AnyLayout(VStackLayout(alignment: .leading, spacing: 6))
+                                : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 12))
+                            layout {
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(t.symbol).fontWeight(.semibold)
+                                    Text("權重 \(Fmt.plainPct(t.weightPct))").font(.caption2).foregroundStyle(.secondary)
+                                }
+                                if !dts.isAccessibilitySize { Spacer(minLength: 12) }
+                                VStack(alignment: dts.isAccessibilitySize ? .leading : .trailing, spacing: 4) {
+                                    Text(t.targetMean.map { "目標 \(Fmt.num($0))" } ?? "—").monospacedDigit()
+                                    if let low = t.targetLow, let high = t.targetHigh {
+                                        Text("區間 \(Fmt.num(low))–\(Fmt.num(high))")
+                                            .font(.caption).foregroundStyle(.secondary)
+                                    }
+                                    Delta(value: t.upsidePct, digits: 1, percent: true).font(.caption)
+                                }
                             }
-                            Spacer()
-                            VStack(alignment: .trailing, spacing: 1) {
-                                Text(t.targetMean.map { "目標 \(Fmt.num($0))" } ?? "—").monospacedDigit()
-                                Delta(value: t.upsidePct, digits: 1, percent: true).font(.caption)
+                            let eps = switch (t.epsUp, t.epsDown) {
+                            case let (.some(up), .some(down)):
+                                up == 0 && down == 0 ? "EPS 近四週沒有修正" : "EPS 上修 \(up)／下修 \(down)"
+                            default:
+                                "EPS 缺資料"
                             }
+                            let details = [eps, t.fiscalEnd.map { "會計年度 \($0)" }, t.estimates.map { "估計數 \($0)" }]
+                                .compactMap { $0 }.joined(separator: " · ")
+                            Text(details).font(.caption).foregroundStyle(.secondary)
                         }
+                        .fixedSize(horizontal: false, vertical: true)
                     }
                 }
+                .fixedSize(horizontal: false, vertical: true)
             }
         } header: {
             Text("成分股分析師共識")
         } footer: {
-            Text("依 SPY 權重加權，目標價為 12 個月共識\(c.oldest.flatMap { o in c.newest.map { "（\(o)～\($0) 更新）" } } ?? "")。")
+            let dates = [
+                c.weightsAsOf.map { "依 SPY \($0) 持股權重加權。" },
+                c.oldest.flatMap { oldest in c.newest.map { "分析師資料 \(oldest)～\($0) 抓取。" } },
+                c.priceOldest.flatMap { oldest in c.priceNewest.map { "股價日 \(oldest)～\($0)（各檔不同日）。" } },
+                c.indexCloseDate.map { "隱含指數目標是涵蓋子集的加權隱含漲幅套用 SPX \($0) 收盤推算，不是全部成分股同日加總。" },
+            ].compactMap { $0 }.joined()
+            Text("\(dates)目標價為 12 個月共識；目標價區間不是機率區間，EPS 是近四週修正次數不是幅度；這些欄位成效未證實，不是買賣訊號。")
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 

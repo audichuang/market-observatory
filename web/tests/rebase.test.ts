@@ -7,37 +7,37 @@ const bars = (pairs: [string, number][]) => pairs.map(([date, close]) => ({ date
 const coverageCases = [
   {
     name: "空歷史即使沒有已存列也不涵蓋",
-    stored: null,
+    stored: [],
     fresh: [],
     expected: { ok: false, reason: "重抓沒有日線" },
   },
   {
     name: "沒有已存列時非空歷史涵蓋",
-    stored: null,
+    stored: [],
     fresh: ["2026-10-28"],
     expected: { ok: true },
   },
   {
     name: "末日早於已存末日，即使起點足夠早仍不涵蓋",
-    stored: { min: "2020-04-02", max: "2026-10-28" },
+    stored: ["2020-04-02", "2026-10-28"],
     fresh: ["2019-01-01", "2026-10-27"],
     expected: { ok: false, reason: "重抓只到 2026-10-27，早於已存的 2026-10-28" },
   },
   {
     name: "起訖等於已存區間時涵蓋短歷史",
-    stored: { min: "2026-10-26", max: "2026-10-28" },
+    stored: ["2026-10-26", "2026-10-28"],
     fresh: ["2026-10-26", "2026-10-28"],
     expected: { ok: true },
   },
   {
     name: "起點恰為 2200 天前，保留更早已存列仍算涵蓋",
-    stored: { min: "2020-04-02", max: "2026-10-28" },
+    stored: ["2020-04-02", "2026-10-28"],
     fresh: ["2020-10-19", "2026-10-28"],
     expected: { ok: true },
   },
   {
     name: "起點比 2200 天前晚一天且未涵蓋已存起點時不涵蓋",
-    stored: { min: "2020-04-02", max: "2026-10-28" },
+    stored: ["2020-04-02", "2026-10-28"],
     fresh: ["2020-10-20", "2026-10-28"],
     expected: { ok: false, reason: "重抓從 2020-10-20 開始，未涵蓋已存的 2020-04-02 起" },
   },

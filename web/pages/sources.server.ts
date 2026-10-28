@@ -23,7 +23,7 @@ export const loader = defineHandler(async (c) => {
   const cached = cachedPage(c, db, `sources?close=${latestScheduledClose()}`, async () => {
     // 「落後」標記的基準：抓價排程該跑完了才算，與總覽的過期警告一致。
     const expected = latestScheduledClose();
-    const [freshness, mismatches, runs, weights, counts, switches] = await Promise.all([
+    const [freshness, mismatches, weights, counts, switches] = await Promise.all([
       db
         .prepare(
           `SELECT p.symbol, p.date, p.close, p.source, p.fetched_at, p.check_status, p.check_source, p.check_close
@@ -34,10 +34,6 @@ export const loader = defineHandler(async (c) => {
         .prepare("SELECT symbol, date, close, check_close, check_source FROM prices WHERE check_status = 'mismatch' AND date >= ? ORDER BY date DESC LIMIT 50")
         .bind(addDays(expected, -60))
         .all<{ symbol: string; date: string; close: number; check_close: number; check_source: string }>(),
-      // Page props are embedded in the HTML for every signed-in user: never send detail (other users' ids, token prefixes, stacks)
-      // or the raw trigger (manual triggers used to carry the owner's email).
-      db
-        .prepare("SELECT id, job, CASE WHEN trigger LIKE 'cron%' THEN 'cron' WHEN trigger = 'ai-batch' THEN 'local' ELSE 'manual' END AS trigger, status, started_at, finished_at, summary FROM runs ORDER BY id DESC LIMIT 60").all<{ id: number; job: string; trigger: string; status: string; started_at: string; finished_at: string | null; summary: string | null }>(),
       db.prepare("SELECT as_of, COUNT(*) AS n, ROUND(SUM(weight_pct), 2) AS total, MAX(fetched_at) AS fetched_at FROM weights GROUP BY as_of ORDER BY as_of DESC LIMIT 10").all<{ as_of: string; n: number; total: number; fetched_at: string }>(),
       db.prepare("SELECT (SELECT COUNT(*) FROM prices) AS prices, (SELECT COUNT(*) FROM snapshots) AS snapshots, (SELECT COUNT(DISTINCT trade_date) FROM snapshots) AS days, (SELECT COUNT(*) FROM news) AS news, (SELECT COUNT(*) FROM events) AS events").first<Record<string, number>>(),
       loadSourceSwitches(db),
@@ -50,7 +46,6 @@ export const loader = defineHandler(async (c) => {
       // 只列目前追蹤的標的；從觀察名單移除的代號舊資料還在，但不再更新，不列入「是否過期」。
       freshness: freshness.results.filter((f) => f.symbol in sourceLinks).map((f) => ({ ...f, link: sourceLinks[f.symbol] })),
       mismatches: mismatches.results,
-      runs: runs.results,
       weights: weights.results,
       weightsStale: weightsStaleNote(weights.results[0]?.as_of, expected),
       counts,
@@ -58,13 +53,20 @@ export const loader = defineHandler(async (c) => {
       tolerance: { abs: CHECK_ABS_TOLERANCE, rel: CHECK_REL_TOLERANCE },
       calendar: NYSE_CALENDAR,
       registry,
-      switches,
+      // Shared page props only expose status; private reasons remain in the owner-only API.
+      switches: Object.fromEntries(Object.entries(switches).map(([id, { disabled, at }]) => [id, { disabled, at }])),
       links: { ssga: SSGA_DISPLAY_URL, cboeSpx: CBOE_URLS.SPX },
     };
   });
-  // AI imports do not bump data_version, so read their status from the primary DB on every request.
-  const [page, ai] = await Promise.all([cached, aiPipelineStatus(c.env.DB)]);
-  return { ...page, ai };
+  // AI imports do not bump data_version, so read status and runs from the primary DB on every request.
+  const [page, ai, runs] = await Promise.all([
+    cached,
+    aiPipelineStatus(c.env.DB),
+    // Shared HTML must never expose detail or raw triggers (which used to include the owner's email).
+    c.env.DB
+      .prepare("SELECT id, job, CASE WHEN trigger LIKE 'cron%' THEN 'cron' WHEN trigger = 'ai-batch' THEN 'local' ELSE 'manual' END AS trigger, status, started_at, finished_at, summary FROM runs ORDER BY id DESC LIMIT 60").all<{ id: number; job: string; trigger: string; status: string; started_at: string; finished_at: string | null; summary: string | null }>(),
+  ]);
+  return { ...page, ai, runs: runs.results };
 });
 
 export const head = defineHead(() => ({ title: "資料來源" }));

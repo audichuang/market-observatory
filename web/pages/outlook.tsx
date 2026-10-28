@@ -327,13 +327,13 @@ export default function OutlookPage({ outlook, cells, liveTrack, frequency, rece
                         <td className="mono">{v.symbol}</td>
                         <td className="num">{num(v.weightPct, 2)}%</td>
                         <td className="num">{num(v.price)}<div className="meta">{v.priceDate?.slice(5) ?? "—"}</div></td>
-                        <td className="num">
+                        <td className="num" style={{ whiteSpace: "normal" }}>
                           {v.targetMean === null && v.buy + v.hold + v.sell === 0 ? "Nasdaq 無資料" : num(v.targetMean)}
                           {v.targetLow != null && v.targetHigh != null && <div className="meta" style={{ whiteSpace: "normal" }}>最低 {num(v.targetLow)}～最高 {num(v.targetHigh)}</div>}
                         </td>
                         <td className="num"><Delta value={v.upsidePct} percent digits={1} /></td>
                         <td className="num hide-sm">{v.buy}/{v.hold}/{v.sell}</td>
-                        <td className="num hide-sm">
+                        <td className="num hide-sm" style={{ whiteSpace: "normal" }}>
                           {v.epsUp === null || v.epsDown === null ? "缺資料" : v.epsUp === 0 && v.epsDown === 0 ? "沒有修正" : `上修 ${v.epsUp}／下修 ${v.epsDown}`}
                           <div className="meta">會計年度 {v.fiscalEnd ?? "缺資料"} · 估計數 {v.estimates ?? "缺資料"}</div>
                         </td>

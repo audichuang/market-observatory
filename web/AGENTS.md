@@ -25,7 +25,7 @@
 - 改到排程或抓取：`npm test` 通過、部署後，用 `POST /api/admin/cron?name=<SCHEDULES 的鍵>`（站長登入，`OWNER_EMAIL`）在正式站跑一次，看每個工作的 `status` 與 `detail.subrequests`。`/api/admin/run?job=` 只跑單一工作，看不出同一支排程裡幾個工作共用額度的情況。`prices` 排程含 `notify-close`：在當天每日推播送出前手動跑，會提前把推播送給真實使用者（同一天同一人只送一次）。
 - 正式站的觀察名單是使用者實際在用的資料：為了測試加減名單，測完要改回原狀。
 - 開放註冊：`cachedPage` 回呼算出的結果全站共用、會被快取，每個人不同的資料（名單、定投規劃）與要即時反映的資料不能放進去，要嘛在快取外套上，要嘛把名單放進快取鍵；排程一律用 `loadTrackedMembers`（聯集），單一使用者用 `loadWatchlist(db, key)`。
-- Better Auth 開了 `session.cookieCache`：`c.get("user")` 直接來自 cookie、不查 DB，另一台裝置刪掉帳號後最多 5 分鐘仍會帶著。以 user id 為鍵的寫入（裝置、名單、定投、推播偏好、配額）靠 `middleware/01.gate.ts` 先確認 user 還在；新路徑不要繞過 gate 或掛進 `PUBLIC_PREFIXES` 去寫使用者資料。
+- Better Auth 開了 `session.cookieCache`：`c.get("user")`／`c.get("session")` 直接來自 cookie、不查 DB，撤銷 session 或刪帳號後最多 5 分鐘仍會帶著。`middleware/01.gate.ts` 每個已認證請求以 session id 查主庫 `c.env.DB`，確認 session 屬於該 user 且 `expiresAt`（毫秒）未過期；撤銷與刪帳號（連帶刪 session）立即生效。以 user id 為鍵的寫入（裝置、名單、定投、推播偏好、配額）都靠 gate 保護；新路徑不要繞過 gate 或掛進 `PUBLIC_PREFIXES` 去寫使用者資料。
 - 新的後台功能放在 `/api/admin/` 底下：middleware 只放行站長，route 裡也要再用 `viewerOf(c)?.isOwner` 檢查。
 - 新聞 AI（翻譯、重點、「今天為什麼漲跌」）不在 Worker 裡呼叫模型：本機 Orca 排程（名稱開頭「市場觀測室：」）叫 Claude 跑 `scripts/ai-batch.ts`，答案經 `/api/admin/ai` 驗證後寫進 D1，網頁與 App 只讀 D1。新的 AI 內容照這條路加，並掛在現有的 `translate` 或 `daily` 底下（兩個排程只跑這兩種），不要在 route 或 cron 裡接模型。排程跑的是主 checkout 當下的分支，那裡要一直停在有 `scripts/ai-batch.ts` 的分支，開分支做事用 worktree；排程寫的是腳本的絕對路徑，搬動或改名要用 `orca automations edit` 一起改。
 - 新開的 worktree 沒有 `.void`（gitignore 的生成物），typecheck 會報 TS5083 與一堆假錯：先在 `web/` 跑 `npx void prepare`。

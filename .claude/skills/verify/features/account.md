@@ -10,7 +10,7 @@
 - `account-signin-wrong`（A5）：錯誤密碼顯示中文錯誤；網頁錯誤段落有 `role="alert"`；再用正確密碼成功。
 - `navigation-current`：桌面、窄螢幕與手機底部導覽的目前頁連結都有 `aria-current="page"`，其他連結沒有。
 - `account-apple-cancel`（A6）：App 點「使用 Apple 登入」後取消，回登入畫面。
-- `account-session-cache`：登入 session cookie 快取 300 秒，App 登入、登出及新帳號總覽都正常；每次已認證請求另查主庫確認 user 還存在，刪帳號後其他裝置下一個請求立即回 401／登入頁；單獨撤銷 session 仍最多 5 分鐘後生效。
+- `account-session-cache`：登入 session cookie 快取 300 秒，App 登入、登出及新帳號總覽都正常；每次已認證請求另查主庫確認這次 session 仍屬於該 user 且未到期，撤銷 session 或刪帳號後下一個請求立即回 401／登入頁。
 - `account-signout`（Z1）：網頁右上「登出」、App「更多 → 帳號 → 登出」。
 - `account-delete`（Z2、Z3）：App 刪除帳號，先取消一次、再確認一次。
 - `account-gate`：未登入打開 `/watchlist` 會導到 `/login?next=%2Fwatchlist`，登入後回到原頁。
@@ -33,13 +33,15 @@ Preconditions:
 - **導覽無障礙。** 登入後切換總覽、走勢與 ETF 頁，分別讀桌面、窄螢幕與手機底部導覽中 `.active` 連結，確認 `aria-current="page"`，其餘連結沒有 `aria-current`。
 - **登入閘門。** 登出後 `goto("/watchlist")`：網址變 `/login?next=%2Fwatchlist`；登入後回到 `/watchlist`（截圖 `account-signin-next.png`）。`page.fetch("/api/v1/me")` 在登出狀態回 401。
 - **session 快取。** 用本機 App 登入、登出再登入，新帳號也登入一次，總覽 `/api/v1/overview` 均可讀；確認網頁登入後有 `better-auth.session_data` cookie（只記名稱、不存內容）。效能前後比較用唯讀 `npx wrangler d1 insights <db> --time-period 7d --limit 100`，部署 24 小時後再比 session／user 查詢相對頁面查詢的比例。
-- **刪帳號的快取身分。** 只用一次性帳號：保存另一個登入裝置的 session cookie，刪除帳號後以舊 cookie 呼叫裝置註冊、定投儲存、推播偏好、總覽／新聞／名單（含會初始化名單的 GET）與加入公司，API 全部回 401，網頁 loader/action 導回登入，devices／settings 不再建立該 user id 的列。自動化回歸為 `cd web && node --test tests/deleted-session.test.ts`；cookieCache 保留，但每個認證請求需一次主庫 user 存在查詢，只節省 session 查詢。
+- **撤銷 session 的快取身分。** 一次性帳號先從網頁註冊，再建立第二個登入 session，保留第一個裝置的 cookie（含 `better-auth.session_data`，證據只記名稱與欄位、不要存內容）。第二個 session 呼叫 `POST /api/auth/revoke-session`（body 為第一個 session 的 `token`），確認主庫 user 與第二個 session 仍在。300 秒內用第一個 cookie 呼叫 `/api/v1/me`、裝置註冊、定投儲存、推播偏好與名單寫入，全部回 401；打開 `/watchlist` 導到 `/login?next=%2Fwatchlist`。第二個 session 與站長仍可讀寫。留下撤銷前後截圖、API 狀態與 DB 寫入前後對帳。
+- **刪帳號的快取身分。** 沿用一次性帳號，再登入建立另一個 session 並保留 cookie；其中一個裝置 `DELETE /api/v1/me` 後，以另一個舊 cookie 呼叫裝置註冊、定投儲存、推播偏好、總覽／新聞／名單（含會初始化名單的 GET）與加入公司，API 全部回 401，網頁 loader/action 導回登入，devices／settings 不再建立該 user id 的列。自動化回歸為 `cd web && node --test tests/deleted-session.test.ts`，另涵蓋 DB session 已到期但 cookie 尚未到期；cookieCache 保留，每個認證請求只做一次主庫 session 查詢（id、userId、expiresAt）。
 - **App 登入。** `ios-walkthrough.sh <run-id> <email> <密碼檔>`：`01-login.png` 是登入畫面，`02-overview.png` 已在總覽，底部四個分頁：總覽、走勢、新聞、更多（名單在總覽右上星號）。再 `simctl terminate` + `simctl launch` 一次，直接進總覽（A4）。
 - **App 刪除帳號。** 只對一次性帳號：`-only-testing:MarketObservatoryUITests/WalkthroughTests/test2_DeleteAccount`（環境變數同 walkthrough）。`11-delete-confirm.png` 是確認對話框、`12-after-delete.png` 回到登入畫面；之後用同帳密打 `POST /api/auth/sign-in/email` 要失敗。
 - **Proof。** `evidence/web/account-signup.png`（總覽＋右上 email）、`evidence/ios/01-login.png`、`02-overview.png`；刪除時加上登入失敗的 API 回應。
 
 ## Gotchas
 
+- Void 的前端預載導覽可能直接顯示已載入的舊頁面，不發出新請求；撤銷／刪帳號的閘門證據用網頁寫入、完整重新載入或 API 確認下一個伺服器請求已遭拒。
 - 本機登入頁所有按鈕沒反應＝頁面沒 hydrate（gate 擋了 `/pages/login.tsx`）；doctor 會抓到。
 - App 的 Apple 登入在沒登入 Apple ID 的模擬器跳不出視窗，記 not-run 並寫明看到什麼。
 - 站長帳號（`OWNER_EMAIL`）不能從 App 刪除，正式站的站長帳號絕不能拿來測刪除。

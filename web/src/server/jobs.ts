@@ -16,7 +16,7 @@ import { easternDate } from "../lib/calendar.ts";
 import { EQUAL_WEIGHT_SYMBOL, FX_SYMBOL, INDEX_SYMBOL, VIX_SYMBOL, type WatchMember, nasdaqCheckSymbols, watchTickers, yahooSymbols } from "../lib/universe.ts";
 import { MAX_TRACKED, addToWatchlist, removeFromWatchlist } from "../lib/watchlist.ts";
 import { USER_WATCHLIST_PREFIX, WATCHLIST_KEY, latestHoldings, newTrackedQuotaPrefix, loadTrackedMembers, loadWatchlist, updateWatchlist } from "./watchlist.ts";
-import { type BarBatch, applyCrossChecks, compareCloses, finishRun, insertMissingBars, insertWeights, loadPrices, getSetting, loadWeightAnchors, nowIso, priceRanges, putSetting, saveSnapshots, startRun, upsertBars, weightsNear } from "./repo.ts";
+import { type BarBatch, applyCrossChecks, compareCloses, finishRun, insertMissingBars, replaceWeights, loadPrices, getSetting, loadWeightAnchors, nowIso, priceRanges, putSetting, saveSnapshots, startRun, upsertBars, weightsNear } from "./repo.ts";
 
 export type JobName = "prices" | "crosscheck" | "weights" | "news" | "events" | "analysts" | "factset" | "forecast" | "snapshots" | "notify-close" | "notify-events" | "backfill-prices" | "backfill-checks" | "backfill-index-history";
 export const JOB_NAMES: JobName[] = ["prices", "crosscheck", "weights", "news", "events", "analysts", "factset", "forecast", "snapshots", "notify-close", "notify-events", "backfill-prices", "backfill-checks", "backfill-index-history"];
@@ -259,14 +259,16 @@ async function jobCrosscheck(db: D1Database, _opts: JobOptions, budget: Budget):
 
 async function jobWeights(db: D1Database, _opts: JobOptions, budget: Budget): Promise<JobResult> {
   const file = await fetchSpyHoldings(budget);
-  const existed = await db.prepare("SELECT COUNT(*) AS n FROM weights WHERE as_of = ?").bind(file.asOf).first<{ n: number }>();
-  await insertWeights(db, file.asOf, file.holdings);
+  const correction = await replaceWeights(db, file.asOf, file.holdings);
   const snaps = await rebuildSnapshots(db, `SPY 持股 ${file.asOf}`);
   const mag = watchTickers(await loadTrackedMembers(db)).map((t) => `${t} ${file.holdings.find((h) => h.ticker === t)?.weightPct.toFixed(2) ?? "?"}%`);
+  const note = correction.unchanged ? "；已存在、內容相同" : correction.previous
+    ? `；同日更正：移除 ${correction.removed.join("、") || "無"}；新增 ${correction.added.join("、") || "無"}；權重變動 ${correction.changed} 檔（上一版取得於 ${correction.previousFetchedAt}）`
+    : "";
   return {
     status: "ok",
-    summary: `持股日期 ${file.asOf}（${file.holdings.length} 檔${existed?.n ? "，已存在、覆寫" : ""}）；${mag.join("、")}`,
-    detail: { asOf: file.asOf, count: file.holdings.length, snapshots: snaps.created },
+    summary: `持股日期 ${file.asOf}（${file.holdings.length} 檔）${note}；${mag.join("、")}`,
+    detail: { asOf: file.asOf, count: file.holdings.length, snapshots: snaps.created, correction },
   };
 }
 

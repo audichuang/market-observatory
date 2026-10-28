@@ -210,11 +210,29 @@ export async function loadPrices(db: Db, symbols: string[], fromDate: string, to
   return { series: Object.fromEntries(Object.entries(pts).map(([s, p]) => [s, new Series(p)])), checks };
 }
 
-export async function insertWeights(db: Db, asOf: string, holdings: { ticker: string; name: string; weightPct: number; shares: number | null }[], fetchedAt = nowIso()) {
-  const stmt = db.prepare(
-    "INSERT INTO weights (as_of, ticker, name, weight_pct, shares, fetched_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(as_of, ticker) DO UPDATE SET weight_pct = excluded.weight_pct, shares = excluded.shares, name = excluded.name",
-  );
-  await batchRun(db, holdings.map((h) => stmt.bind(asOf, h.ticker, h.name, h.weightPct, h.shares, fetchedAt)));
+export async function replaceWeights(db: Db, asOf: string, holdings: { ticker: string; name: string; weightPct: number; shares: number | null }[], fetchedAt = nowIso()) {
+  const previous = await db.prepare("SELECT ticker, name, weight_pct, shares, fetched_at FROM weights WHERE as_of = ?").bind(asOf)
+    .all<{ ticker: string; name: string; weight_pct: number; shares: number | null; fetched_at: string }>();
+  const byTicker = new Map(previous.results.map((h) => [h.ticker, h]));
+  const tickers = new Set(holdings.map((h) => h.ticker));
+  const removed = previous.results.filter((h) => !tickers.has(h.ticker)).map((h) => h.ticker).sort();
+  const added = holdings.filter((h) => !byTicker.has(h.ticker)).map((h) => h.ticker);
+  const changed = holdings.filter((h) => {
+    const old = byTicker.get(h.ticker);
+    return old && (old.name !== h.name || old.weight_pct !== h.weightPct || old.shares !== h.shares);
+  }).length;
+  if (!removed.length && !added.length && !changed) return { unchanged: true as const };
+  const previousFetchedAt = previous.results.map((h) => h.fetched_at).sort().at(-1) ?? null;
+  const stmts = removed.map((ticker) => db.prepare("DELETE FROM weights WHERE as_of = ? AND ticker = ?").bind(asOf, ticker));
+  // Keep the whole replacement in one transaction; 16 rows × 6 columns = 96 bound parameters per insert.
+  for (let i = 0; i < holdings.length; i += 16) {
+    const chunk = holdings.slice(i, i + 16);
+    stmts.push(db.prepare(
+      `INSERT INTO weights (as_of, ticker, name, weight_pct, shares, fetched_at) VALUES ${chunk.map(() => "(?, ?, ?, ?, ?, ?)").join(",")} ON CONFLICT(as_of, ticker) DO UPDATE SET name = excluded.name, weight_pct = excluded.weight_pct, shares = excluded.shares, fetched_at = excluded.fetched_at`,
+    ).bind(...chunk.flatMap((h) => [asOf, h.ticker, h.name, h.weightPct, h.shares, fetchedAt])));
+  }
+  await db.batch(stmts);
+  return { previous: previous.results.length, removed, added, changed, previousFetchedAt };
 }
 
 export interface WeightAnchors {

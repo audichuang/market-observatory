@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { costScenario, parseCostQuery } from "../src/lib/costs.ts";
-import { ETFS } from "../src/lib/universe.ts";
+import { ETFS, ETF_CATALOG_AS_OF } from "../src/lib/universe.ts";
 
 const context = { monthlyTwd: 10000, fxRate: 32, fxDate: "2026-10-27", etf: ETFS.find((e) => e.ticker === "VOO")!, today: "2026-10-28" };
 const parse = (values: Record<string, string | undefined>) => parseCostQuery((key) => values[key]);
@@ -49,6 +49,12 @@ test("最低一美元手續費與美元扣款分別符合手算 B、C", () => {
   assert.equal(scenario({ costFee: "0.1" }, { fxRate: null, fxDate: null }).perBuy.commissionTwd, 10);
 });
 
+test("最低手續費註記的匯率最多三位小數，計算仍用原始精度", () => {
+  const result = scenario({ costMinUsd: "1" }, { fxRate: 30.336366115787033 });
+  assert.ok(result.notes.includes("最低手續費以 2026-10-27 的 USD/TWD 30.336 換算。"));
+  assert.equal(result.perBuy.commissionTwd, 30.336366115787033);
+});
+
 test("NAV 不重扣基金費用；index 列淨費率，投資人一般股利預扣不隨口徑變動", () => {
   const nav = scenario({ costYield: "1.2" });
   const index = scenario({ costYield: "1.2", costBasis: "index" });
@@ -71,6 +77,15 @@ test("分層與交易成本沒有加總或稅後報酬欄位，來源各附版�
   assert.ok(result.sources.some((s) => s.name.includes("State Street") && s.sourceDate === "2026-06-02"));
   assert.ok(result.sources.some((s) => s.url === context.etf.sourceUrl));
   assert.ok(result.sources.every((s) => s.name && s.url && "sourceDate" in s && s.checkedAt));
+});
+
+test("所有 index 情境的費率來源不冒用資料卡查閱日或把費率查核日當文件日期", () => {
+  for (const etf of ETFS) {
+    const result = scenario({ costBasis: "index" }, { etf });
+    assert.deepEqual(result.sources.find((s) => s.name === `${etf.ticker} 發行商費用率`), {
+      name: `${etf.ticker} 發行商費用率`, url: etf.sourceUrl, sourceDate: null, checkedAt: ETF_CATALOG_AS_OF,
+    });
+  }
 });
 
 test("優惠只標記日期，過期與否不改費用；槓桿與反向另列分配性質說明", () => {

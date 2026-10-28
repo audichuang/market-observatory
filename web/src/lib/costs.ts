@@ -89,12 +89,12 @@ export function costScenario(input: CostInputs, { monthlyTwd, fxRate, fxDate, et
   const costTwd = amountTwd - investedTwd;
   const usFund = etf.facts.domicile === "美國";
   const sources: TaxSource[] = [];
-  if (input.costBasis === "index") sources.push({ name: `${etf.ticker} 發行商費用率`, url: etf.sourceUrl, sourceDate: ETF_CATALOG_AS_OF, checkedAt: etf.facts.checkedAt });
+  if (input.costBasis === "index") sources.push({ name: `${etf.ticker} 發行商費用率`, url: etf.sourceUrl, sourceDate: null, checkedAt: ETF_CATALOG_AS_OF });
   if (usFund) sources.push(...US_FUND_LEVEL_WITHHOLDING.sources);
   if (usFund && input.costTax === "tw") sources.push(...US_DIVIDEND_WITHHOLDING.sources);
   const notes = ["這是你填的假設算出的情境，不是券商實際收費，也不是應納稅額；不比較券商，也不代表哪個產品比較好。"];
   if (etf.multiple !== 1) notes.push("槓桿與反向產品的分配性質與頻率不同，本情境只按你填的配息率估算。");
-  if (input.costMinUsd > 0) notes.push(`最低手續費以 ${fxDate} 的 USD/TWD ${fxRate} 換算。`);
+  if (input.costMinUsd > 0) notes.push(`最低手續費以 ${fxDate} 的 USD/TWD ${Number(fxRate!.toFixed(3))} 換算。`);
   return {
     perBuy: { amountTwd, fxSpreadTwd, fixedTwd, commissionTwd, investedTwd, costTwd, costPct: costTwd / amountTwd * 100 },
     annualTxCostTwd: costTwd * 12,

@@ -23,7 +23,7 @@ export function pageText(value: unknown): string {
   return typeof value === "string" || typeof value === "number" ? String(value) : "";
 }
 
-export function pageWithAction(action: () => Promise<unknown> = async () => ({ ok: true }), props: Partial<Props> = {}) {
+export function pageWithAction(action: () => Promise<unknown> = async () => ({ ok: true }), props: Partial<Props> = {}, query: Record<string, string> = {}) {
   // Execute the actual page and its click handler; only framework hooks and transport are supplied by the test.
   const source = readFileSync(new URL("../../pages/etfs.tsx", import.meta.url), "utf8");
   const compiled = transformSync("etfs.tsx", source, { reactCompiler: false, jsx: { runtime: "classic", pragma: "h", pragmaFrag: "Fragment" } });
@@ -45,7 +45,7 @@ export function pageWithAction(action: () => Promise<unknown> = async () => ({ o
   // Keep every runtime import in pages/etfs.tsx available to the compiled page.
   const imports = {
     h, Fragment: Symbol("Fragment"), useState, useEffect: () => {},
-    useRouter: () => ({ visit: (url: unknown) => visits.push(url) }),
+    useRouter: () => ({ query: new URLSearchParams(query), visit: (url: unknown) => visits.push(url) }),
     useForm: () => ({ data: currentProps.plan, pending: false, hasChanges: false }),
     action, Form: "form", Link: "a", LineChart: "chart", Delta: "delta", num, compactUsd, pctText, planIssue, ETFS,
     ...etfCopy,

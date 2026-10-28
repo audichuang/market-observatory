@@ -214,3 +214,43 @@ test("成本表單用查詢試算；切標的保留假設，清除後只移除 c
   assert.equal(cleared.searchParams.get("funding"), "lump");
   assert.equal(cleared.searchParams.get("monthly"), "1500");
 });
+
+test("成本 issue 的網址重建表單，切標的、期間、月額與資金類型仍保留全部假設", () => {
+  for (const values of [
+    { costFee: "9", costFx: "0.5" },
+    { costCcy: "usd", costFx: "0.5", costFee: "0.1", costMinUsd: "1", costFixed: "1500", costPromo: "2026-01-01", costYield: "1.2", costBasis: "index", costTax: "other" },
+  ] as Record<string, string>[]) {
+    const query = { etf: "VOO", years: "3", monthly: "1500", funding: "monthly", unrelated: "omit", ...values };
+    const input = parseCostQuery((key) => query[key as keyof typeof query]);
+    assert.ok(input);
+    const result = "issue" in input ? input : costScenario(input, { monthlyTwd: 1500, fxRate: 32, fxDate: "2026-10-27", etf: ETFS[0], today: "2026-10-28" });
+    assert.ok("issue" in result);
+    const ui = pageWithAction(undefined, { costScenario: result }, query);
+    const rendered = ui.render();
+    const panel = nodes(rendered).find((n) => n.props.id === "cost-scenario")!;
+    for (const [name, value] of Object.entries(values)) {
+      assert.equal(nodes(panel).find((n) => n.props.name === name)?.props.value, value, name);
+    }
+    const selects = nodes(rendered).filter((n) => n.type === "select");
+    (selects[0].props.onChange as Function)({ target: { value: "IVV" } });
+    (selects[1].props.onChange as Function)({ target: { value: "5" } });
+    (selects[2].props.onChange as Function)({ target: { value: "lump" } });
+    const amount = nodes(rendered).find((n) => n.type === "input" && n.props.value === "1500")!;
+    (amount.props.onChange as Function)({ target: { value: "5000" } });
+    const form = nodes(ui.render()).find((n) => n.type === "form" && n.props.onSubmit)!;
+    (form.props.onSubmit as Function)({ preventDefault() {} });
+    assert.equal(ui.visits.length, 4);
+    for (const visit of ui.visits) {
+      const url = new URL(String(visit), "http://localhost");
+      for (const [name, value] of Object.entries(values)) assert.equal(url.searchParams.get(name), value, name);
+      assert.equal(url.searchParams.has("unrelated"), false);
+    }
+    const corrected = new URL(String(ui.visits[3]), "http://localhost");
+    assert.equal(corrected.searchParams.get("monthly"), "5000");
+    if (values.costFixed) {
+      const correctedInput = parseCostQuery((key) => corrected.searchParams.get(key) ?? undefined);
+      assert.ok(correctedInput && !("issue" in correctedInput));
+      assert.ok(!("issue" in costScenario(correctedInput, { monthlyTwd: 5000, fxRate: 32, fxDate: "2026-10-27", etf: ETFS[0], today: "2026-10-28" })));
+    }
+  }
+});

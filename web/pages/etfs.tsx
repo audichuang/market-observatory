@@ -26,7 +26,8 @@ export default function EtfPage({ asOf, catalogAsOf, rows, periods, plan, sim, d
   const [savedDefault, setSavedDefault] = useState(false);
   const [savingDefault, setSavingDefault] = useState(false);
   const [defaultError, setDefaultError] = useState<string | null>(null);
-  const costInputs = costScenario && !("issue" in costScenario) ? costScenario.inputs : null;
+  const costInputs = costScenario && !("issue" in costScenario) ? costScenario.inputs
+    : Object.fromEntries([...router.query].filter(([key]) => key.startsWith("cost")));
   const [costForm, setCostForm] = useState(costFormOf(costInputs));
   useEffect(() => {
     if (!costScenario || !("issue" in costScenario)) setCostForm(costFormOf(costInputs));
@@ -52,7 +53,7 @@ export default function EtfPage({ asOf, catalogAsOf, rows, periods, plan, sim, d
   }
   useEffect(() => setMonthly(String(sim.monthlyTwd)), [sim.monthlyTwd]);
   const isDefault = plan.etf === sim.etf && plan.years === sim.years && plan.monthlyTwd === sim.monthlyTwd;
-  const simUrl = (patch: Partial<typeof sim & { funding: string }>, costs: CostInputs | typeof costForm | null = costInputs) => {
+  const simUrl = (patch: Partial<typeof sim & { funding: string }>, costs: CostInputs | Partial<typeof costForm> | null = costInputs) => {
     const next = { ...sim, funding, ...patch };
     const query = new URLSearchParams({ etf: next.etf, years: String(next.years), monthly: String(next.monthlyTwd), funding: next.funding });
     for (const [key, value] of Object.entries(costs ?? {})) {
@@ -358,7 +359,7 @@ export default function EtfPage({ asOf, catalogAsOf, rows, periods, plan, sim, d
   );
 }
 
-function costFormOf(inputs: CostInputs | null): Record<keyof CostInputs, string> {
+function costFormOf(inputs: CostInputs | Partial<Record<keyof CostInputs, string>> | null): Record<keyof CostInputs, string> {
   return {
     costCcy: inputs?.costCcy ?? "twd", costFx: String(inputs?.costFx ?? 0), costFee: String(inputs?.costFee ?? 0),
     costMinUsd: String(inputs?.costMinUsd ?? 0), costFixed: String(inputs?.costFixed ?? 0), costPromo: inputs?.costPromo ?? "",

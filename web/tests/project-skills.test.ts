@@ -96,3 +96,14 @@ test("research-round 的 Markdown 只引用 forecast 門檻", () => {
     }
   }
 });
+
+for (const path of ["SKILL.md", "references/templates.md"]) {
+  test(`research-round ${path} 的計算提案容許其他終點並另列標的`, () => {
+    const markdown = readFileSync(join(skillsRoot, "research-round", path), "utf8");
+    const proposal = markdown.split("\n").find((line) => line.includes("建議事前登記的計算") && line.includes("target"));
+    assert.ok(proposal, `${path} 缺少 target 提案規則`);
+    assert.match(proposal, /up／dd5.*--target/, `${path} 應保留現行展望的 target 定義`);
+    assert.match(proposal, /其他計算[^。]*終點[^。]*標籤定義/, `${path} 將 target 限定為 up／dd5，未提供其他終點與標籤定義的填法`);
+    assert.match(proposal, /另列標的|標的另列/, `${path} 應將 target 與標的分列`);
+  });
+}

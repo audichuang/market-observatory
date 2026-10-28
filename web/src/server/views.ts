@@ -93,7 +93,7 @@ export async function overviewView(c: ViewCtx, v: Viewer) {
           .bind(s.weights.asOf, ...tickers)
           .first<{ n: number }>()
       : Promise.resolve(null),
-    s ? latestDigests(c.env.DB, members, s.tradeDate, addDays(s.tradeDate, 1)) : Promise.resolve([]),
+    s ? latestDigests(c.env.DB, members, s.tradeDate, s.tradeDate) : Promise.resolve([]),
     s ? marketDigest(c.env.DB, s.tradeDate) : Promise.resolve(null),
   ]);
   return {
@@ -109,7 +109,7 @@ export async function overviewView(c: ViewCtx, v: Viewer) {
     forecast: shared.forecast,
     restCount: rest?.n ?? null,
     viewingLatest: !date,
-    // 名單公司在這個交易日（或之後一天，盤後新聞）的 AI 新聞重點
+    // 名單公司的 AI 新聞重點：只取這個交易日的摘要
     digests,
     market,
   };
@@ -370,11 +370,17 @@ export async function newsView(c: ViewCtx, v: Viewer) {
   // 指定代號時，「重要」是這則真的在講那家公司
   const important = importanceFor(members, symbol);
   const digestMembers = symbol ? members.filter((m) => m.key === symbol) : members;
-  const [events, news, digests] = await Promise.all([eventsTask, newsTask, latestDigests(c.env.DB, digestMembers, addDays(today, -3))]);
+  const [events, news, digests, latest] = await Promise.all([
+    eventsTask,
+    newsTask,
+    latestDigests(c.env.DB, digestMembers, addDays(today, -3)),
+    c.env.DB.prepare("SELECT MAX(trade_date) AS d FROM snapshots").first<{ d: string | null }>(),
+  ]);
   return {
     symbol,
     keys,
     today,
+    latestTradeDate: latest?.d ?? null,
     news: news.results.map((n) => newsOut(n, important(n))),
     digests,
     events: events.filter((e) => e.kind !== "earnings" || (e.symbol !== null && keys.includes(e.symbol))),

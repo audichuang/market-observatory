@@ -326,6 +326,7 @@ struct NewsPage: Decodable, Sendable {
     let symbol: String?
     let keys: [String]
     let today: String
+    let latestTradeDate: String?
     let news: [Item]
     let events: [Event]
     let digests: [NewsDigest]?

@@ -160,6 +160,27 @@ struct NewsDetailSheet: View {
     }
 }
 
+struct DigestSections {
+    let latestDate: String?
+    let current: [NewsDigest]
+    let earlier: [NewsDigest]
+    let title: String
+
+    static func split(_ digests: [NewsDigest], latest: String?) -> DigestSections {
+        let date = latest ?? digests.map(\.date).max()
+        // An old backend cannot establish which trading day is current.
+        guard let latest else {
+            return DigestSections(latestDate: date, current: digests, earlier: [], title: "公司重點")
+        }
+        return DigestSections(
+            latestDate: date,
+            current: digests.filter { $0.date == latest },
+            earlier: digests.filter { $0.date != latest },
+            title: "今日重點 · \(Fmt.dateWithWeekday(latest))"
+        )
+    }
+}
+
 /// 每日公司重點：一家一列，列首 3pt tone 色條；點一下在 3 行與全文之間切換。
 struct DigestRow: View {
     let digest: NewsDigest
@@ -178,6 +199,10 @@ struct DigestRow: View {
                         ToneTag(tone: digest.tone)
                         Spacer(minLength: 4)
                     }
+                    Text(Fmt.dateWithWeekday(digest.date))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                     Text(digest.summary)
                         .font(.body)
                         .foregroundStyle(.primary)

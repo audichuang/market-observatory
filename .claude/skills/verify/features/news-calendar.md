@@ -5,6 +5,7 @@
 ## Sub-features
 
 - `news-digest-tone`（E9）：公司每日重點在公司名稱旁顯示「利多／利空／中性」，色條不朗讀；新聞篩選 chip 選中時帶 isSelected trait。
+- `news-digest-dates`（L2-T5）：App 每列公司重點顯示資料日。全部代號時，「今日重點 · M/D（週）」只列 `/api/v1/news.latestTradeDate` 當天的摘要，前 3 家直接顯示，其餘收在「其餘 N 家」；其他日期收在預設收合的「較早的重點」。後端沒給 `latestTradeDate` 時，全部改列單一「公司重點」中性段落；單股段落保留原結構並顯示日期。
 
 - `news-list`（E1）：標題、來源、時間。網頁與 App 都把 `important: true` 的新聞排前面，其餘收在「其他 N 則」：第一筆＝API `/api/v1/news` 的 `news` 裡**第一個 `important` 為 true** 的 `title`（不是 `news[0]`）。
 - `news-open`（E2）：點新聞開原文，回來時列表位置合理。
@@ -31,6 +32,7 @@ Preconditions:
 - **Proof。** `news-list.png`、`news-nvda.png`、API JSON、App 的 E3／E4／E5 截圖與 `.txt`。
 
 - **語氣與篩選無障礙（App）。** `test15_DigestToneLabels` 一般與最大字級各檢查 `news-digest-<symbol>` 的文字與利多／利空 staticTexts，並確認選中篩選 chip 的 `isSelected`；截圖 `E9-tone-normal`／`E9-tone-largest`。本機需有近三天、前幾家名單公司 positive/negative 重點，缺資料測試明確失敗。
+- **摘要資料日（L2-T5，App）。** 在本機用站長 `POST /api/admin/ai` 準備最新快照交易日 2 家、前一交易日另一家摘要，日期須落在 API 近三天的摘要範圍。讀 `/api/v1/news`，逐筆對照 `latestTradeDate` 與 `digests[].date`：「今日重點 · M/D（週）」只有最新日的 2 家；「較早的重點」初始收合，展開後只有前一日那家。每列（含單股篩選）有 `M/D（週）` 日期，最大字級不裁切，identifier 保持 `news-digest-<symbol>` 且 label 含利多／利空。另驗最新日沒有摘要時沒有今日段、全部在較早段；舊回應缺 `latestTradeDate` 時只有「公司重點」。留 `news-digest-dates-normal.png`／`news-digest-dates-largest.png`、展開較早段截圖及 API JSON；驗完還原本輪資料。
 
 - App 一般及最大字級檢查新聞標題與事件列完整換行、摘要展開後可讀；大字月曆用「選擇日期」開啟原生 sheet，以單欄日期與事件標記選取，選完自動關閉並在原位置呈現當日事件。`test16_Readability` 檢查換月、回今天、選取事件日與關閉狀態；實看 `UI-<variant>-calendar-selected.png`，確認不用再捲過整月才能看到結果。
 - 新聞詳情使用大型原生 sheet 閱讀；`test16_Readability` 點一則新聞、捲到「開啟原文」、關閉回列表。截圖 `UI-<variant>-news-detail*.png` 檢查標題、段落、來源與原文入口。

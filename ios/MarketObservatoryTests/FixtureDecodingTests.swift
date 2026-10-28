@@ -18,7 +18,10 @@ struct FixtureDecodingTests {
         #expect(p.snapshot != nil && p.forecast?.drawdown != nil)
     }
     @Test func generatedHistory() throws { _ = try decodeFixture("generated-history", as: History.self) }
-    @Test func generatedNews() throws { _ = try decodeFixture("generated-news", as: NewsPage.self) }
+    @Test func generatedNews() throws {
+        let p = try decodeFixture("generated-news", as: NewsPage.self)
+        #expect(p.latestTradeDate == "2026-10-28")
+    }
     @Test func generatedWatchlist() throws { _ = try decodeFixture("generated-watchlist", as: Watchlist.self) }
     @Test func generatedEtfs() throws {
         let p = try decodeFixture("generated-etfs", as: Etfs.self)
@@ -35,7 +38,10 @@ struct FixtureDecodingTests {
     @Test func overview() throws { _ = try decodeFixture("overview", as: Overview.self) }
     @Test func history() throws { _ = try decodeFixture("history", as: History.self) }
     @Test func historyForSymbol() throws { _ = try decodeFixture("history_symbol_NVDA_months_3", as: History.self) }
-    @Test func news() throws { _ = try decodeFixture("news", as: NewsPage.self) }
+    @Test func news() throws {
+        let p = try decodeFixture("news", as: NewsPage.self)
+        #expect(p.latestTradeDate == nil)
+    }
     @Test func outlook() throws { _ = try decodeFixture("outlook", as: OutlookPage.self) }
     // 策略師表 2026-10 加的欄位：舊回應沒有時為 nil，新回應解得開。
     @Test func strategistMetadata() throws {

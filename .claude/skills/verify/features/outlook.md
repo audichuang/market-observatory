@@ -5,7 +5,7 @@
 ## Sub-features
 
 - `outlook-pick`（F6）：上漲機率＝API `outlook.pick.p`、基準率＝`outlook.pick.base.p`（顯示成 %）；dd5＝`outlook.drawdown.pick.p`、平常＝`outlook.drawdown.pick.base.p`，標題與「定義：」一行用上面的 dd5 定義。P(up) 不顯著時的說法是「尚未偵測到增額預測力」（自然頻率句；沒有收縮、採歷史基準率時主數字下方那行也有），不出現「與平常差不多」。
-- `outlook-validation`：兩個分開標目標的滾動驗證區塊。網頁：KPI「跌幅機率（dd5）滾動驗證 BSS」＝`outlook.drawdown.evaluation.bss`、「上漲機率滾動驗證 BSS」＝`outlook.evaluation.bss`，各自的面板「滾動驗證：跌幅機率（dd5）」「滾動驗證：上漲機率」；App：同名的兩個 Section（dd5 的不列命中率）。區間標「歷史平均預測力 95% 區間（不是今天這個數字的區間）」。
+- `outlook-validation`：兩個分開標目標的滾動驗證區塊。網頁：KPI「跌幅機率（dd5）滾動驗證 BSS」＝`outlook.drawdown.evaluation.bss`、「上漲機率滾動驗證 BSS」＝`outlook.evaluation.bss`，各自的面板「滾動驗證：跌幅機率（dd5）」「滾動驗證：上漲機率」；App：同名的兩個 Section，都只列 Brier、基準 Brier、BSS 與區間、最小可偵測 BSS，不列命中率；API 與 App Codable 的 `hitRate`、`baseHitRate` 保留。區間標「歷史平均預測力 95% 區間（不是今天這個數字的區間）」。
 - `outlook-intervals`：條件比例的區間（主數字下方、評估項「差異」、條件表表頭）標「這類時期的歷史比例 95% 區間」，跟 BSS 的預測力區間分名。
 - `outlook-conditions`：條件表、目前條件有標記。
 - `outlook-legend`：機率條的可見圖例列出目前機率、歷史基準、50% 中線與歷史比例 95% 區間，390px 觸控寬度也看得到。
@@ -31,6 +31,7 @@ Preconditions:
 - **頁面。** `goto("/outlook")`，等 `text=下月展望`；`fetch("/api/v1/outlook")`，比 `pick.p`、`pick.base.p`、`drawdown.pick.p`，以及兩個 BSS 區塊各自對 `drawdown.evaluation` 與 `evaluation`（數字不能對調）。截圖 `outlook.png`（整頁：`page.screenshot` 前捲動，或分段截）。
 - **紅漲綠跌與圖例（網頁）。** 本機 forecasts 準備 call=up 的上線紀錄，bump data_version 後開展望頁，確認該列徽章是紅色（tone-pos）；call=down 為綠色（tone-neg）。設 viewport 390px，機率條下四項圖例均可見並截圖。
 - **App。** walkthrough 的 `08-outlook.png`、`08b-outlook-more.png`。
+- **App 滾動驗證。** 在全域模擬器鎖下用 `ios-test.sh` 跑 `VerifyInteractionTests/test12_Outlook`，確認 dd5 與上漲兩個區塊都可展開、收合；上漲驗證展開後不含「命中率」。核對 `H1-validation-up-expanded.png` 與 `H1-validation-up.txt`，dd5 區塊維持原樣。
 - **總覽入口與預測日期。** 依 [總覽的展望資料日與待更新驗證](overview.md#driving-it-with-ego-browser--xcuitest) 準備同日與落後兩種狀態；核對卡片資料日、標籤與說明後，網頁及 App 各從總覽卡片進入下月展望。卡片機率對 `/api/v1/overview` 的已存 forecast，展望頁機率對 `/api/v1/outlook` 的即時計算，不要求兩者數字相等；驗完還原本機 forecasts 與 data_version。
 - **無法產生展望。** 僅在本機 worktree D1，先確認沒有 `verify_held_vix`，暫停 prices 工作，執行 `CREATE TABLE verify_held_vix AS SELECT * FROM prices WHERE symbol='VIX' AND date > (SELECT date FROM prices WHERE symbol='VIX' ORDER BY date DESC LIMIT 1 OFFSET 5); DELETE FROM prices WHERE symbol='VIX' AND date IN (SELECT date FROM verify_held_vix);` 並 bump `data_version`。兩端從導覽入口進入下月展望，確認同句「VIX 最新只到 …落後 5 個交易日…超過 3 個交易日的上限」，App 為橘色 Notice；網頁「上線後實際紀錄」與 App「實際發出的預測／上線後實際紀錄」仍在。儲存 `outlook-unavailable.png`、`outlook-unavailable.api.json` 與 App 截圖，對帳 `outlook === null`、`outlookUnavailable.reason === "vix-stale"`、兩個日期、落後天數及 `recent` 筆數。驗完執行 `INSERT INTO prices SELECT * FROM verify_held_vix; DROP TABLE verify_held_vix;` 再 bump，確認兩端正常版面與 `outlookUnavailable === null`，App 再跑 `test12_Outlook`。iOS 操作須持有全域模擬器鎖並重用既有 MO 裝置，依本輪整合流程執行。
 - **Proof。** `outlook.png`、`outlook.api.json`、App 兩張截圖。

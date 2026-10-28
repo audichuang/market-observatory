@@ -785,6 +785,9 @@ final class VerifyInteractionTests: XCTestCase {
             disclosure.tap()
             reveal(app, detail)
             XCTAssertTrue(detail.waitForExistence(timeout: 5), "\(title) 展開後沒有 BSS 解釋")
+            if target == "up" {
+                XCTAssertFalse(app.staticTexts.containing(NSPredicate(format: "label CONTAINS '命中率'")).firstMatch.exists, "上漲驗證不應再列命中率")
+            }
             snap("H1-validation-\(target)-expanded"); note("H1-validation-\(target)", texts(app))
             reveal(app, disclosure, up: false).tap()
             XCTAssertTrue(detail.waitForNonExistence(timeout: 5), "\(title) 無法收合")

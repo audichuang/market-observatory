@@ -58,6 +58,11 @@ test("同一交易日第二次寫入不覆蓋；新欄位都有值", async () =>
   assert.equal(detail.drawdown.p, outlook.drawdown.pick.p);
   assert.equal(detail.drawdown.base, outlook.drawdown.pick.base.p);
   assert.equal(detail.drawdown.scored, outlook.drawdown.scored);
+  assert.equal(detail.drawdown.modelVersion, DEFAULT_MODEL.version);
+  assert.deepEqual(detail.drawdown.regime, outlook.regime);
+  assert.equal(detail.drawdown.basis, outlook.drawdown.pick.basis);
+  assert.equal(detail.drawdown.cell, outlook.drawdown.pick.cell);
+  assert.equal(detail.drawdown.historyStart, outlook.historyStart);
   assert.deepEqual(detail.drawdown.cellGate, outlook.drawdown.cellGate);
   assert.ok(detail.drawdown.gate);
   assert.deepEqual(detail.drawdown.gate, outlook.drawdown.gate);
@@ -162,7 +167,13 @@ test("(c) 補記只用當天以前的資料：兩個交易日後才補，也等�
   assert.equal(row.call, o.call);
   assert.equal(row.history_start, o.historyStart);
   assert.deepEqual(JSON.parse(row.regime as string), o.regime);
-  assert.equal(JSON.parse(row.detail as string).recordedLagSessions, 2);
+  const detail = JSON.parse(row.detail as string);
+  assert.equal(detail.recordedLagSessions, 2);
+  assert.equal(detail.drawdown.modelVersion, DEFAULT_MODEL.version);
+  assert.deepEqual(detail.drawdown.regime, o.regime);
+  assert.equal(detail.drawdown.basis, o.drawdown.pick.basis);
+  assert.equal(detail.drawdown.cell, o.drawdown.pick.cell);
+  assert.equal(detail.drawdown.historyStart, o.historyStart);
 });
 
 test("(d) 第二次呼叫什麼都不做", async () => {

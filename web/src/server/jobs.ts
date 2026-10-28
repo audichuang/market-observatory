@@ -560,7 +560,14 @@ export async function recordForecast(db: D1Database): Promise<ForecastRecord> {
           vixDate: S, vix: vixToday, spxCheck: status, recordedLagSessions: lag,
           cellGate: outlook.cellGate,
           assessments: outlook.assessments,
-          drawdown: { p: outlook.drawdown.pick.p, base: outlook.drawdown.pick.base.p, scored: outlook.drawdown.scored, cellGate: outlook.drawdown.cellGate, gate: outlook.drawdown.gate },
+          // Before slot A, dd5 and P(up) share DEFAULT_MODEL. Once slot A adopts DD5_MODEL,
+          // store its version here; the top-level model_version remains the P(up) version.
+          drawdown: {
+            p: outlook.drawdown.pick.p, base: outlook.drawdown.pick.base.p, scored: outlook.drawdown.scored,
+            cellGate: outlook.drawdown.cellGate, gate: outlook.drawdown.gate,
+            modelVersion: outlook.modelVersion, regime: outlook.regime,
+            basis: outlook.drawdown.pick.basis, cell: outlook.drawdown.pick.cell, historyStart: outlook.historyStart,
+          },
         }),
       )
       .run();

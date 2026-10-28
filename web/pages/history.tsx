@@ -54,7 +54,7 @@ export default function HistoryPage({ symbol, watch, months, ranges, symbols, pr
         />
       </div>
 
-      {watch.includes(symbol) && <ResearchPanel company={label} ticker={symbol} />}
+      {watch.includes(symbol) && <ResearchPanel key={symbol} company={label} ticker={symbol} />}
 
       <div className="panel section">
         <div className="head-row">

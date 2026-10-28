@@ -56,7 +56,7 @@ const page = task.page("p1");
 const results = [];
 for (const scenario of ["complete", "missing"]) {
   await page.goto(${JSON.stringify(base)} + "/" + scenario);
-  for (const width of [1280, 1440, 390]) {
+  for (const width of [1024, 1100, 1280, 1440, 390]) {
     await page.cdp("Emulation.setDeviceMetricsOverride", { width, height: 1000, deviceScaleFactor: 1, mobile: false });
     const metrics = await page.evaluate(() => {
       const panel = [...document.querySelectorAll(".panel")].find(p => p.querySelector("h2")?.textContent === "成分股分析師共識");
@@ -83,7 +83,7 @@ for (const result of results) {
   assert.equal(result.epsVisible, result.width > 390, JSON.stringify(result));
   if (result.epsVisible) assert.equal(result.epsInside, true, JSON.stringify(result));
 }
-console.log("PASS: 共識表在 1280／1440 不溢出，390 隱藏 EPS 欄，含 Nasdaq 無資料列。");
+console.log("PASS: 共識表在 1024／1100／1280／1440 不溢出，390 隱藏 EPS 欄，含 Nasdaq 無資料列。");
 `;
 try {
   const child = spawn("ego-browser", ["nodejs"], { stdio: ["pipe", "inherit", "inherit"] });

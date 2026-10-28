@@ -320,7 +320,7 @@ export default function OutlookPage({ outlook, cells, liveTrack, frequency, rece
               </p>
               <div className="table-wrap">
                 <table>
-                  <thead><tr><th>代號</th><th className="num">權重</th><th className="num">股價</th><th className="num">目標價</th><th className="num">隱含</th><th className="num hide-sm">買/持/賣</th><th className="num hide-sm">EPS 近四週修正</th></tr></thead>
+                  <thead><tr><th>代號</th><th className="num">權重</th><th className="num">股價</th><th className="num">目標價</th><th className="num">隱含</th><th className="num hide-sm">買/持/賣</th><th className="num hide-sm" style={{ whiteSpace: "normal" }}>EPS 近四週修正</th></tr></thead>
                   <tbody>
                     {consensus.top.map((v) => (
                       <tr key={v.symbol}>

@@ -190,10 +190,10 @@ if (cmd === "pull") {
     manifest.requestedModel = process.env.AI_BATCH_MODEL ?? manifest.requestedModel ?? "unknown";
     manifest.answersWrittenAt = statSync(join(dir, "answers.json")).mtime.toISOString();
     manifest.pushedAt = new Date().toISOString();
-    writeFileSync(manifestFile, JSON.stringify(manifest, null, 2));
     const body = preparePush(tasks, answers, manifest, process.env.AI_BATCH_MODEL ?? "claude-orca");
     const cookie = await signIn();
     const receipt = await api<Receipt>(cookie, "POST", "/api/admin/ai", body);
+    writeFileSync(manifestFile, JSON.stringify(manifest, null, 2));
     writeFileSync(join(dir, "receipt.json"), JSON.stringify(receipt, null, 2));
     const result = summarizeReceipt(receipt, body.run);
     console.log(result.message);

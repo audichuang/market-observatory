@@ -27,13 +27,14 @@ async function fixture(t: TestContext) {
   }
   symlinkSync(join(web, "src"), join(root, "src"), "dir");
   const batch = join(root, ".ai-batch");
-  const state = { translate: news(1), daily: emptyDaily as object, receipt: accepted as object, postStatus: 200 };
+  const state = { translate: news(1), daily: emptyDaily as object, receipt: accepted as object, signInStatus: 200, postStatus: 200, disconnectPost: false };
   const posts: (ImportBody & { run: NonNullable<ImportBody["run"]> })[] = [];
   const requests: string[] = [];
   const server = createServer(async (req, res) => {
     requests.push(`${req.method} ${req.url}`);
     res.setHeader("content-type", "application/json");
     if (req.url === "/api/auth/sign-in/email") {
+      res.statusCode = state.signInStatus;
       res.setHeader("set-cookie", "s=1; Path=/");
       return void res.end("{}");
     }
@@ -41,6 +42,7 @@ async function fixture(t: TestContext) {
       let body = "";
       for await (const chunk of req) body += chunk;
       posts.push(JSON.parse(body));
+      if (state.disconnectPost) return req.socket.destroy();
       res.statusCode = state.postStatus;
       return void res.end(JSON.stringify(state.receipt));
     }
@@ -342,6 +344,46 @@ test("push 全部 accepted 回 0、rejected 或舊 Worker 的 skipped 回 3，HT
   assert.equal(result.code, 1, result.out);
   assert.match(result.out, /HTTP 503/);
   assert.equal(readFileSync(join(dir, "receipt.json"), "utf8"), before);
+});
+
+test("push 登入、HTTP 或斷線失敗時，manifest 與回執維持上一個成功狀態並一致歸檔", async (t) => {
+  for (const failure of [
+    { name: "登入 401", state: { signInStatus: 401 }, output: /登入失敗：HTTP 401/ },
+    { name: "POST 400", state: { postStatus: 400 }, output: /HTTP 400/ },
+    { name: "POST 503", state: { postStatus: 503 }, output: /HTTP 503/ },
+    { name: "POST 斷線", state: { disconnectPost: true }, output: /fetch failed/ },
+  ]) for (const pushed of [false, true]) await t.test(`${pushed ? "成功後重推" : "首次 push"}：${failure.name}`, async (t) => {
+    const f = await fixture(t);
+    assert.equal((await f.run(["pull", "translate"])).code, 0);
+    const dir = join(f.batch, "translate");
+    const manifestFile = join(dir, "manifest.json");
+    const receiptFile = join(dir, "receipt.json");
+    const [task] = JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"));
+    writeFileSync(join(dir, "answers.json"), JSON.stringify({ [task.id]: { items: [] } }));
+    if (pushed) {
+      const success = await f.run(["push", "translate"], f.batch, "successful-model");
+      assert.equal(success.code, 0, success.out);
+    }
+    const manifest = readFileSync(manifestFile, "utf8");
+    const receipt = existsSync(receiptFile) ? readFileSync(receiptFile, "utf8") : undefined;
+    const postCount = f.posts.length;
+    Object.assign(f.state, failure.state);
+    const result = await f.run(["push", "translate"], f.batch, "failed-model");
+    assert.equal(result.code, 1, result.out);
+    assert.match(result.out, failure.output);
+    assert.equal(f.posts.length, postCount + (failure.state.signInStatus ? 0 : 1));
+    assert.equal(readFileSync(manifestFile, "utf8"), manifest, "失敗不能寫入 pushedAt、答案時間或模型");
+    assert.equal(existsSync(receiptFile), pushed);
+    if (pushed) assert.equal(readFileSync(receiptFile, "utf8"), receipt);
+
+    f.state.signInStatus = 200;
+    const pull = await f.run(["pull", "translate"]);
+    assert.equal(pull.code, 0, pull.out);
+    const archive = join(dir, "runs", JSON.parse(manifest).runId);
+    assert.equal(readFileSync(join(archive, "manifest.json"), "utf8"), manifest);
+    assert.equal(existsSync(join(archive, "receipt.json")), pushed);
+    if (pushed) assert.equal(readFileSync(join(archive, "receipt.json"), "utf8"), receipt);
+  });
 });
 
 test("article 保存擷取 URL，6000 字上限才標 truncated，同批搜尋可共用", async () => {

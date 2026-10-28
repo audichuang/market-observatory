@@ -512,6 +512,20 @@ struct OutlookPage: Decodable, Sendable {
         let resolvedAll: Int?
         let tooFew: Bool
         let bss, brier, brierBase, upShare: Double?
+        let note: String?
+    }
+
+    struct Dd5LiveTrack: Decodable, Sendable {
+        struct Group: Decodable, Sendable {
+            let modelVersion: String?
+            let n: Int?
+            let tooFew: Bool?
+            let brier, brierBase, bss, eventShare: Double?
+        }
+
+        let realtime, delayed, unknown: Int?
+        let groups: [Group]?
+        let note: String?
     }
 
     struct Frequency: Decodable, Sendable {
@@ -631,11 +645,37 @@ struct OutlookPage: Decodable, Sendable {
         let staleAfterDays: Int?
     }
 
+    struct PhaseSummary: Decodable, Sendable {
+        struct Target: Decodable, Sendable {
+            struct Cycles: Decodable, Sendable {
+                let total: Int?
+                let used: Int?
+                let dropped: Int?
+            }
+
+            let mean: Double?
+            let low: Double?
+            let high: Double?
+            let min: Double?
+            let max: Double?
+            let cycles: Cycles?
+        }
+
+        let asOf: String?
+        let modelVersion: String?
+        let computedAt: String?
+        let phases: Int?
+        let up: Target?
+        let dd5: Target?
+    }
+
     let outlook: Outlook?
     let outlookUnavailable: Unavailable?
+    let phaseSummary: PhaseSummary?
     let cells: [Cell]
     let track: Track?
     let liveTrack: LiveTrack?
+    let liveTrackDd5: Dd5LiveTrack?
     let frequency: Frequency?
     let recent: [Forecast]?
     let consensus: Consensus?

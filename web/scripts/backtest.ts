@@ -154,7 +154,7 @@ for (const name of names) {
   lines.push(`Brier ${fmt(ev.brier, 4)}（基準 ${fmt(ev.brierBase, 4)}）；命中率 ${fmt(ev.hitRate)}（永遠看漲 ${fmt(ev.baseHitRate)}）`);
   if (target === "up") lines.push(`方向（point-in-time）up ${calls.up} / down ${calls.down} / inconclusive ${calls.inconclusive}`);
   if (target === "dd5") {
-    // G09 採用判定的輸入（機械判定）：dd5 walk-forward 全域 bssLow > 0 且今天所用 cell nEff ≥ 30、段數 ≥ 8。
+    // R2-5: dd5 scoring requires global G09 plus today's offset 0 cell gate.
     // Evaluate dd5 only (targetOutlookOf), not buildOutlook, so a dd5 trial never computes the candidate's P(up).
     const d = targetOutlookOf(buildObservations(spx, vix, cfg), cfg, "dd5");
     if (!d) lines.push("G09 判定輸入：dd5 算不出來（資料不足）");
@@ -162,7 +162,7 @@ for (const name of names) {
       const used = d.pick.conditional ?? d.pick.base;
       lines.push(`G09 判定輸入（as-of ${d.asOf}，正式版 walkForward）：全域 bssLow ${fmt(d.evaluation.bssLow)}（BSS ${fmt(d.evaluation.bss)}，列數 ${d.evaluation.points}）；格點相位 0 的 bssLow ${fmt(ev.bssLow)}`);
       lines.push(`  今天所用 cell ${d.pick.cell}：nEff ${fmt(used.nEff, 1)}、段數 ${used.episodes}（門檻 ${MIN_EFFECTIVE_N}／${MIN_EPISODES}）；P(dd5) ${fmt(d.pick.p, 4)}（基準 ${fmt(d.pick.base.p, 4)}，條件 ${fmt(d.pick.conditional?.p, 4)}）`);
-      lines.push(`  cellGate 列數 ${d.cellGate.rows} 段數 ${d.cellGate.runs} bssLow ${fmt(d.cellGate.bssLow)}（G03，僅參考）；scored = ${d.scored}`);
+      lines.push(`  cellGate 列數 ${d.cellGate.rows} 段數 ${d.cellGate.runs} bssLow ${fmt(d.cellGate.bssLow)}（R2-5，offset 0 計分閘門）；scored = ${d.scored}；未通過原因 ${d.gate.failed.join(", ") || "無"}`);
       const q = d.returnQuantiles;
       if (q.cell) lines.push(`  21 日報酬分位數 cell：p10 ${fmt(q.cell.p10, 4)} p50 ${fmt(q.cell.p50, 4)} p90 ${fmt(q.cell.p90, 4)}（n ${q.cell.n}）`);
       if (q.all) lines.push(`  21 日報酬分位數 全部：p10 ${fmt(q.all.p10, 4)} p50 ${fmt(q.all.p50, 4)} p90 ${fmt(q.all.p90, 4)}（n ${q.all.n}）`);

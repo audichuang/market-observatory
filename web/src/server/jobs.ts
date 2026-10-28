@@ -12,7 +12,8 @@ import { YAHOO_SOURCE, fetchYahooDaily, fetchYahooLastCloses, fetchYahooSpark } 
 import { Budget } from "../lib/sources/http.ts";
 import { type ApnsConfig, notifyClose, notifyEvents } from "./push.ts";
 import { Series } from "../lib/analytics.ts";
-import { DEFAULT_MODEL, buildOutlook, vixAt } from "../lib/forecast.ts";
+import { DEFAULT_MODEL, buildObservations, buildOutlook, vixAt } from "../lib/forecast.ts";
+import { phaseSummaryOf, type PhaseSummary } from "../lib/forecast-eval.ts";
 import { rotationPicks } from "../lib/consensus.ts";
 import { easternDate } from "../lib/calendar.ts";
 import { EQUAL_WEIGHT_SYMBOL, FX_SYMBOL, INDEX_SYMBOL, VIX_SYMBOL, type WatchMember, nasdaqCheckSymbols, watchTickers, yahooSymbols } from "../lib/universe.ts";
@@ -20,8 +21,8 @@ import { MAX_TRACKED, addToWatchlist, removeFromWatchlist } from "../lib/watchli
 import { USER_WATCHLIST_PREFIX, WATCHLIST_KEY, latestHoldings, newTrackedQuotaPrefix, loadTrackedMembers, loadWatchlist, updateWatchlist } from "./watchlist.ts";
 import { type BarBatch, applyCrossChecks, compareCloses, finishRun, insertMissingBars, replaceWeights, loadPrices, getSetting, loadWeightAnchors, nowIso, priceRanges, putSetting, saveSnapshots, startRun, upsertBars, weightsNear } from "./repo.ts";
 
-export type JobName = "prices" | "crosscheck" | "weights" | "news" | "events" | "analysts" | "factset" | "forecast" | "snapshots" | "notify-close" | "notify-events" | "backfill-prices" | "backfill-checks" | "backfill-index-history";
-export const JOB_NAMES: JobName[] = ["prices", "crosscheck", "weights", "news", "events", "analysts", "factset", "forecast", "snapshots", "notify-close", "notify-events", "backfill-prices", "backfill-checks", "backfill-index-history"];
+export type JobName = "prices" | "crosscheck" | "weights" | "news" | "events" | "analysts" | "factset" | "forecast" | "forecast-phase" | "snapshots" | "notify-close" | "notify-events" | "backfill-prices" | "backfill-checks" | "backfill-index-history";
+export const JOB_NAMES: JobName[] = ["prices", "crosscheck", "weights", "news", "events", "analysts", "factset", "forecast", "forecast-phase", "snapshots", "notify-close", "notify-events", "backfill-prices", "backfill-checks", "backfill-index-history"];
 
 export interface JobOptions {
   /** 回補工作的分段序號（從 0 開始） */
@@ -575,7 +576,14 @@ export async function recordForecast(db: D1Database): Promise<ForecastRecord> {
           vixDate: S, vix: vixToday, spxCheck: status, recordedLagSessions: lag,
           cellGate: outlook.cellGate,
           assessments: outlook.assessments,
-          drawdown: { p: outlook.drawdown.pick.p, base: outlook.drawdown.pick.base.p, scored: outlook.drawdown.scored, cellGate: outlook.drawdown.cellGate },
+          // Before slot A, dd5 and P(up) share DEFAULT_MODEL. Once slot A adopts DD5_MODEL,
+          // store its version here; the top-level model_version remains the P(up) version.
+          drawdown: {
+            p: outlook.drawdown.pick.p, base: outlook.drawdown.pick.base.p, scored: outlook.drawdown.scored,
+            cellGate: outlook.drawdown.cellGate, gate: outlook.drawdown.gate,
+            modelVersion: outlook.modelVersion, regime: outlook.regime,
+            basis: outlook.drawdown.pick.basis, cell: outlook.drawdown.pick.cell, historyStart: outlook.historyStart,
+          },
         }),
       )
       .run();
@@ -723,6 +731,28 @@ async function jobFactset(db: D1Database, _opts: JobOptions, budget: Budget): Pr
   };
 }
 
+export const FORECAST_PHASE_KEY = "forecast-phase-summary";
+
+async function jobForecastPhase(db: D1Database): Promise<JobResult> {
+  const loaded = await loadPrices(db, [INDEX_SYMBOL, VIX_SYMBOL], "0000-01-01");
+  const obs = buildObservations(loaded.series[INDEX_SYMBOL], loaded.series[VIX_SYMBOL]);
+  const last = obs.at(-1);
+  if (!last?.regime) return { status: "ok", summary: "資料不足，略過", detail: {} };
+  const previous = await getSetting<(PhaseSummary & { computedAt: string }) | null>(db, FORECAST_PHASE_KEY, null);
+  if (previous?.asOf === last.date && previous.modelVersion === DEFAULT_MODEL.version) {
+    return { status: "ok", summary: "已是最新", detail: {} };
+  }
+  const summary = phaseSummaryOf(obs, DEFAULT_MODEL)!;
+  if (summary.up?.mean === null && summary.dd5?.mean === null) return { status: "ok", summary: "資料不足，略過", detail: {} };
+  const stored = { ...summary, computedAt: nowIso() };
+  await putSetting(db, FORECAST_PHASE_KEY, stored);
+  return {
+    status: "ok",
+    summary: `相位平均 BSS：上漲 ${summary.up?.mean?.toFixed(3) ?? "—"}、dd5 ${summary.dd5?.mean?.toFixed(3) ?? "—"}`,
+    detail: { asOf: stored.asOf, modelVersion: stored.modelVersion, computedAt: stored.computedAt },
+  };
+}
+
 const JOBS: Record<JobName, (db: D1Database, opts: JobOptions, budget: Budget) => Promise<JobResult>> = {
   prices: jobPrices,
   crosscheck: jobCrosscheck,
@@ -731,6 +761,7 @@ const JOBS: Record<JobName, (db: D1Database, opts: JobOptions, budget: Budget) =
   events: jobEvents,
   analysts: jobAnalysts,
   factset: jobFactset,
+  "forecast-phase": jobForecastPhase,
   forecast: async (db) => {
     const f = await recordForecast(db);
     return {
@@ -794,7 +825,7 @@ export async function runJob(db: D1Database, job: JobName, trigger: string, opts
 export const SCHEDULES = {
   // 收盤推播跟在抓價後面：當天收盤沒抓到就不發，隔天清晨的補抓（retry）抓到後再發（push_log 去重，不會發兩次）。
   prices: ["prices", "notify-close"],
-  crosscheck: ["crosscheck"],
+  crosscheck: ["crosscheck", "forecast-phase"],
   retry: ["prices", "crosscheck", "notify-close"],
   // 事件提醒在美東早上（UTC 11:30 = 台灣晚上 7:30）：當天的財報日剛更新完。
   "daily-reference": ["weights", "events", "factset", "notify-events"],

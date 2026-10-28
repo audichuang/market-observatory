@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { Series } from "../src/lib/analytics.ts";
+import { expectedSessions } from "../src/lib/calendar.ts";
 import { DEFAULT_MODEL, buildOutlook } from "../src/lib/forecast.ts";
 import { forecastNeedsAttention, recordForecast, runJob } from "../src/server/jobs.ts";
 import { outlookView } from "../src/server/outlook.ts";
@@ -10,9 +11,9 @@ import { FakeUpstream, fakeClose, migratedDb, weekdays } from "./helpers/fake-cl
 const N = 900;
 
 /** SPX 與 VIX 各 N 天；vixLag > 0 時 VIX 少最後 vixLag 個交易日。 */
-async function seed(vixLag = 0, spxScale = 1) {
+async function seed(vixLag = 0, spxScale = 1, end?: string) {
   const { db, sql } = await migratedDb();
-  const days = weekdays(N);
+  const days = weekdays(N, end);
   const ins = sql.prepare("INSERT OR REPLACE INTO prices (symbol, date, close, source, fetched_at, check_status) VALUES (?, ?, ?, 'test', 'x', ?)");
   days.forEach((d, i) => {
     // SPX 收盤都已經 cross-check 過（match）；VIX 是 Cboe 主來源，沒有第二來源。
@@ -58,7 +59,14 @@ test("同一交易日第二次寫入不覆蓋；新欄位都有值", async () =>
   assert.equal(detail.drawdown.p, outlook.drawdown.pick.p);
   assert.equal(detail.drawdown.base, outlook.drawdown.pick.base.p);
   assert.equal(detail.drawdown.scored, outlook.drawdown.scored);
+  assert.equal(detail.drawdown.modelVersion, DEFAULT_MODEL.version);
+  assert.deepEqual(detail.drawdown.regime, outlook.regime);
+  assert.equal(detail.drawdown.basis, outlook.drawdown.pick.basis);
+  assert.equal(detail.drawdown.cell, outlook.drawdown.pick.cell);
+  assert.equal(detail.drawdown.historyStart, outlook.historyStart);
   assert.deepEqual(detail.drawdown.cellGate, outlook.drawdown.cellGate);
+  assert.ok(detail.drawdown.gate);
+  assert.deepEqual(detail.drawdown.gate, outlook.drawdown.gate);
   const view = await outlookView({ env: { DB: db }, req: { query: () => undefined, url: "http://x/outlook" } });
   assert.ok(view.outlook!.drawdown.pick && view.outlook!.returnQuantiles.all);
   assert.equal(view.outlookUnavailable, null);
@@ -83,7 +91,79 @@ test("VIX 過期：outlookView 的 outlook 為 null，但共識、策略師、�
   assert.ok(v.recent.length >= 1);
   for (const k of ["track", "consensus", "factset", "horizon", "minN"]) assert.ok(k in v, k);
   assert.ok("modelVersion" in v.recent[0] && "historyStart" in v.recent[0]);
+  assert.ok(v.liveTrackDd5);
+  assert.equal(v.liveTrackDd5.realtime, 1);
+  assert.equal(v.liveTrackDd5.delayed, 4);
 });
+
+test("讀取端：準時新紀錄按 lag 分類，無 detail 舊列另計資格不明；兩目標附正式說明", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-03-06T23:00:00Z") });
+  const { db, sql, days } = await seed(0, 1, "2026-03-06");
+  t.after(() => sql.close());
+  const recorded = await recordForecast(db);
+  assert.equal(recorded.recorded.length, 5);
+  sql.prepare("INSERT INTO forecasts (trade_date, probability, base_rate, basis, call, close, created_at) VALUES (?, 0.6, 0.6, 'test', 'inconclusive', 1000, 'x')").run(days.at(-6)!);
+  const v = await outlookView({ env: { DB: db }, req: { query: () => undefined, url: "http://x/outlook" } });
+  assert.equal(v.liveTrackDd5.realtime, 1);
+  assert.equal(v.liveTrackDd5.delayed, 4);
+  assert.equal(v.liveTrackDd5.unknown, 1);
+  assert.equal(v.liveTrack.realtime, 1);
+  assert.equal(v.liveTrack.delayed, 4);
+  assert.equal(v.liveTrack.unknown, 1);
+  assert.equal(v.liveTrack.note, "只計即時發布的列（寫入時是最新交易日，且在下一個交易日美東 16:30 前寫入）；延遲補記 4 列、資格不明 1 列另列、不計分。合併所有已發布的模型版本。");
+  assert.equal(v.liveTrackDd5.note, "只計即時發布的列（寫入時是最新交易日，且在下一個交易日美東 16:30 前寫入）；延遲補記 4 列、資格不明 1 列另列、不計分。依模型版本分開計分。");
+});
+
+test("兩目標先篩 PUB-1 即時資格再定格線；P(up) 不要求 dd5 欄位，缺 lag 優先不明", async (t) => {
+  const { db, sql } = await migratedDb();
+  t.after(() => sql.close());
+  const days = expectedSessions("2026-01-02", "2026-04-10");
+  const price = sql.prepare("INSERT INTO prices (symbol, date, close, source, fetched_at) VALUES ('SPX', ?, 100, 'test', 'x')");
+  for (const date of days) price.run(date);
+  const insert = sql.prepare("INSERT INTO forecasts (trade_date, probability, base_rate, basis, call, close, created_at, detail) VALUES (?, 0.7, 0.6, 'test', 'up', 100, ?, ?)");
+  for (const i of [0, 1, 4, 5, 6, 7, 21, 22, 23, 43]) {
+    const createdAt = i === 5 ? "x" : `${days[i === 0 || i === 22 ? i + 1 : i]}T22:00:00Z`;
+    const detail = { recordedLagSessions: i === 6 ? undefined : i === 4 ? 2 : 0,
+      drawdown: i === 7 ? undefined : { p: 0.2, base: 0.3, modelVersion: "dd5-v1" } };
+    insert.run(days[i], createdAt, JSON.stringify(detail));
+  }
+  const v = await outlookView({ env: { DB: db }, req: { query: () => undefined, url: "http://x/outlook" } });
+  assert.deepEqual([v.liveTrack.realtime, v.liveTrack.delayed, v.liveTrack.unknown], [5, 3, 2]);
+  assert.deepEqual([v.liveTrackDd5.realtime, v.liveTrackDd5.delayed, v.liveTrackDd5.unknown], [4, 3, 3]);
+  assert.equal(v.liveTrack.n, 2); // Sessions 1 and 43; late 22 is skipped without substituting 23.
+  assert.equal(v.liveTrack.resolvedAll, 5);
+  assert.deepEqual(v.liveTrackDd5.groups.map((g) => g.n), [2]);
+  assert.match(v.liveTrack.note, /延遲補記 3 列、資格不明 2 列/);
+  assert.match(v.liveTrackDd5.note, /延遲補記 3 列、資格不明 3 列/);
+});
+
+for (const scenario of [
+  { tradeDate: "2026-03-06", recordedAt: "2026-03-13T23:00:00Z", matureThrough: "2026-04-17", delayed: 5, unknown: 0 },
+  { tradeDate: "2040-01-06", recordedAt: "2040-01-13T23:00:00Z", matureThrough: "2040-02-17", delayed: 0, unknown: 5 },
+]) {
+  test(`停更後補寫的 lag 0 列不計分：${scenario.tradeDate} 歸${scenario.delayed ? "延遲補記" : "資格不明"}`, async (t) => {
+    t.mock.timers.enable({ apis: ["Date"], now: Date.parse(scenario.recordedAt) });
+    const { db, sql } = await seed(0, 1, scenario.tradeDate);
+    t.after(() => sql.close());
+    await recordForecast(db);
+    const latest = sql.prepare("SELECT trade_date, detail FROM forecasts ORDER BY trade_date DESC LIMIT 1").get() as { trade_date: string; detail: string };
+    assert.equal(latest.trade_date, scenario.tradeDate);
+    assert.equal(JSON.parse(latest.detail).recordedLagSessions, 0);
+    // Supply subsequent closes so exclusion from n is about eligibility, not an immature forecast.
+    const price = sql.prepare("INSERT INTO prices (symbol, date, close, source, fetched_at, check_status) VALUES ('SPX', ?, 3000, 'test', 'x', 'match')");
+    for (const date of weekdays(30, scenario.matureThrough).filter((d) => d > scenario.tradeDate)) price.run(date);
+    const v = await outlookView({ env: { DB: db }, req: { query: () => undefined, url: "http://x/outlook" } });
+    assert.equal(v.liveTrackDd5.realtime, 0);
+    assert.equal(v.liveTrackDd5.delayed, scenario.delayed);
+    assert.equal(v.liveTrackDd5.unknown, scenario.unknown);
+    assert.deepEqual(v.liveTrackDd5.groups, []);
+    assert.equal(v.liveTrack.realtime, 0);
+    assert.equal(v.liveTrack.delayed, scenario.delayed);
+    assert.equal(v.liveTrack.unknown, scenario.unknown);
+    assert.equal(v.liveTrack.n, 0);
+    assert.equal(v.liveTrack.resolvedAll, 0);
+  });
+}
 
 test("forecast 工作遇到 VIX 過期：status partial，原因寫明 VIX", async () => {
   const { db, sql } = await seed(8);
@@ -165,7 +245,13 @@ test("(c) 補記只用當天以前的資料：兩個交易日後才補，也等�
   assert.equal(row.call, o.call);
   assert.equal(row.history_start, o.historyStart);
   assert.deepEqual(JSON.parse(row.regime as string), o.regime);
-  assert.equal(JSON.parse(row.detail as string).recordedLagSessions, 2);
+  const detail = JSON.parse(row.detail as string);
+  assert.equal(detail.recordedLagSessions, 2);
+  assert.equal(detail.drawdown.modelVersion, DEFAULT_MODEL.version);
+  assert.deepEqual(detail.drawdown.regime, o.regime);
+  assert.equal(detail.drawdown.basis, o.drawdown.pick.basis);
+  assert.equal(detail.drawdown.cell, o.drawdown.pick.cell);
+  assert.equal(detail.drawdown.historyStart, o.historyStart);
 });
 
 test("(d) 第二次呼叫什麼都不做", async () => {

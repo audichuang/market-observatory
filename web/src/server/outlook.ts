@@ -1,12 +1,13 @@
 // 下月展望（跟使用者無關，整頁照資料版本快取）。網頁 loader 與 App 的 API 共用。
 import { addDays } from "../lib/calendar.ts";
-import { frequencySentences, liveTrackOf, outlookUnavailable } from "../lib/communication.ts";
+import { dd5LiveTrackOf, frequencySentences, liveNoteOf, liveTrackOf, outlookUnavailable, upClassOf } from "../lib/communication.ts";
 import { aggregateConsensus, type ViewRow } from "../lib/consensus.ts";
 import { HORIZON, MIN_EFFECTIVE_N, MIN_EPISODES, buildObservations, buildOutlook, conditionalRate, type Rate, type Regime } from "../lib/forecast.ts";
+import type { PhaseSummary } from "../lib/forecast-eval.ts";
 import { FACTSET_EARNINGS_INSIGHT_URL, REUTERS_POLL, STRATEGIST_TARGETS, STRATEGIST_TARGETS_CHECKED, strategistTable } from "../lib/strategists.ts";
 import { INDEX_SYMBOL, VIX_SYMBOL } from "../lib/universe.ts";
 import type { FactsetInsight } from "../lib/sources/factset.ts";
-import { FACTSET_HISTORY_KEY } from "./jobs.ts";
+import { FACTSET_HISTORY_KEY, FORECAST_PHASE_KEY } from "./jobs.ts";
 import { cachedPage, readDb } from "./page-cache.ts";
 import { getSetting, loadPrices } from "./repo.ts";
 import { type ViewCtx, exec } from "./views.ts";
@@ -60,8 +61,15 @@ export async function outlookView(c: ViewCtx) {
       : null;
 
     // L09：上線後實際紀錄只用不重疊的已到期列（獨立月份），與樣本內、滾動驗證分開。
-    const allRows = await db.prepare("SELECT trade_date AS date, probability AS p, base_rate AS base, close FROM forecasts ORDER BY trade_date").all<{ date: string; p: number; base: number; close: number }>();
-    const liveTrack = liveTrackOf(allRows.results, spx.points);
+    const allRows = await db.prepare("SELECT trade_date AS date, probability AS p, base_rate AS base, close, detail, created_at FROM forecasts ORDER BY trade_date").all<{ date: string; p: number; base: number; close: number; detail: string | null; created_at: string }>();
+    const counts = { realtime: 0, delayed: 0, unknown: 0 };
+    const realtime = allRows.results.filter((row) => {
+      const kind = upClassOf(row);
+      counts[kind]++;
+      return kind === "realtime";
+    });
+    const liveTrack = { ...liveTrackOf(realtime, spx.points), ...counts, note: liveNoteOf(counts, "up") };
+    const liveTrackDd5 = dd5LiveTrackOf(allRows.results, spx.points);
     // L11：自然頻率句（up 與 drawdown）。
     const frequency = outlook ? frequencySentences(outlook) : null;
 
@@ -92,9 +100,11 @@ export async function outlookView(c: ViewCtx) {
     return {
       outlook,
       outlookUnavailable: outlook ? null : outlookUnavailable(spx, vix),
+      phaseSummary: await getSetting<(PhaseSummary & { computedAt: string }) | null>(db, FORECAST_PHASE_KEY, null),
       cells,
       track,
       liveTrack,
+      liveTrackDd5,
       frequency,
       recent: recent.slice(0, 30),
       consensus: consensus

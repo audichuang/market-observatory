@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { DEFAULT_MODEL, HORIZON, mulberry32, walkForwardRows, type ModelConfig, type Observation, type WalkRow } from "../src/lib/forecast.ts";
 import { EVAL_SEED, bootstrapCI, bssOf, intersectRegimes, nullPairedBss, pairedBrierDiff, pairedBrierDiffMcStdErr, pairedBrierDiffPhase, pairedMcStdErr, pairedPhaseAveraged, permutationP, phaseAveraged, phaseAverageFromCells, phaseGrid, pointInTimeCalls, stationaryBootstrapIndices, summarizeByCell } from "../src/lib/forecast-eval.ts";
+import { phaseSummaryOf } from "../src/lib/forecast-eval.ts";
 
 const day = (i: number) => new Date(Date.UTC(2015, 0, 1) + i * 864e5).toISOString().slice(0, 10);
 const mkRows = (n: number, f: (i: number) => { p: number; pBase: number; y: number }): WalkRow[] =>
@@ -53,6 +54,37 @@ function syntheticObs(n: number): Observation[] {
     knownOn: i + 21 < n ? day(i + 21) : null,
   }));
 }
+
+test("phaseSummaryOf：兩個目標都使用 G08 預設相位平均與 cycle 區間", () => {
+  const obs = syntheticObs(1200).map((o, i) => ({ ...o, dd5: o.up === null ? null : i % 5 === 0 }));
+  const cfg = { ...DEFAULT_MODEL, version: "phase-summary-test" };
+  const summary = phaseSummaryOf(obs, cfg);
+  assert.ok(summary);
+  assert.equal(summary.asOf, obs.at(-1)!.date);
+  assert.equal(summary.modelVersion, cfg.version);
+  assert.equal(summary.phases, 21);
+  for (const label of ["up", "dd5"] as const) {
+    const direct = phaseAveraged(obs, cfg, label);
+    assert.ok(Number.isFinite(direct.mean));
+    assert.deepEqual(summary[label], {
+      mean: direct.mean, low: direct.ci.low, high: direct.ci.high,
+      min: direct.min, max: direct.max, cycles: direct.cycles,
+    });
+  }
+});
+
+test("phaseSummaryOf：沒有可用格時數字為 null，最後一天沒有 regime 時不產生摘要", () => {
+  const obs = syntheticObs(100);
+  const summary = phaseSummaryOf(obs, DEFAULT_MODEL)!;
+  for (const label of ["up", "dd5"] as const) {
+    assert.deepEqual(summary[label], {
+      mean: null, low: null, high: null, min: null, max: null,
+      cycles: { total: 0, used: 0, dropped: 0 },
+    });
+  }
+  assert.equal(phaseSummaryOf([...obs.slice(0, -1), { ...obs.at(-1)!, regime: null }], DEFAULT_MODEL), null);
+  assert.equal(phaseSummaryOf([], DEFAULT_MODEL), null);
+});
 
 test("phaseAveraged：恆定 p（= 基準率）的序列 BSS 為 0", () => {
   const obs = syntheticObs(1500).map((o) => ({ ...o, regime: { aboveSma200: true, vixStress: false } }));

@@ -32,6 +32,9 @@ struct FixtureDecodingTests {
         let p = try decodeFixture("generated-outlook", as: OutlookPage.self)
         #expect(p.outlook?.drawdown != nil)
         #expect(p.outlookUnavailable == nil)
+        #expect(p.liveTrackDd5 != nil)
+        #expect(p.liveTrack?.note != nil)
+        #expect(p.phaseSummary?.dd5?.mean != nil)
         #expect(p.strategists?.staleAfterDays == 45)
         #expect(p.strategists?.list.contains { $0.targetLow != nil && $0.verifiedOn != nil } == true)
     }
@@ -67,6 +70,24 @@ struct FixtureDecodingTests {
         #expect(p.outlook?.drawdown == nil)
         #expect(p.outlook?.assessments == nil)
         #expect(p.liveTrack == nil)
+        #expect(p.liveTrackDd5 == nil)
+        #expect(p.liveTrack?.note == nil)
+        #expect(p.phaseSummary == nil)
+    }
+
+    @Test func partialPhaseSummary() throws {
+        let json = #"{"up":{},"dd5":{"cycles":{}}}"#
+        let summary = try API.decoder.decode(OutlookPage.PhaseSummary.self, from: Data(json.utf8))
+        #expect(summary.asOf == nil && summary.modelVersion == nil && summary.computedAt == nil)
+        #expect(summary.phases == nil && summary.up?.mean == nil && summary.dd5?.cycles?.total == nil)
+    }
+
+    @Test func partialDd5LiveTrack() throws {
+        let track = try API.decoder.decode(OutlookPage.Dd5LiveTrack.self, from: Data(#"{"groups":[{}]}"#.utf8))
+        #expect(track.realtime == nil && track.delayed == nil && track.unknown == nil && track.note == nil)
+        let group = try #require(track.groups?.first)
+        #expect(group.modelVersion == nil && group.n == nil && group.tooFew == nil)
+        #expect(group.brier == nil && group.brierBase == nil && group.bss == nil && group.eventShare == nil)
     }
 
     @Test func outlookL01() throws {

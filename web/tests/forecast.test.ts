@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Series } from "../src/lib/analytics.ts";
-import { DEFAULT_MODEL, EVAL_SEED, HORIZON, condOfPick, drawdownScored, returnQuantiles, targetOutlookOf, MIN_CELL_ROWS, MIN_CELL_RUNS, MIN_EPISODES, MIN_VALID_REPLICATES, buildObservations, buildOutlook, callOf, cellEvaluations, cellGateOf, conditionalRate, evaluateRows, mulberry32, pickProbability, sdOf, stationaryBootstrapIndices, VRP_MODEL, SEASON_MODEL, isWinter, VRP_MIN_VALUES, vrpAt, vrpHighSeries, walkForward, walkForwardRows, wilson, type CellEval, type ModelConfig, type Observation, type WalkRow } from "../src/lib/forecast.ts";
+import { DEFAULT_MODEL, EVAL_SEED, HORIZON, condOfPick, drawdownGateOf, drawdownScored, returnQuantiles, targetOutlookOf, MIN_CELL_ROWS, MIN_CELL_RUNS, MIN_EPISODES, MIN_VALID_REPLICATES, buildObservations, buildOutlook, callOf, cellEvaluations, cellGateOf, conditionalRate, evaluateRows, mulberry32, pickProbability, sdOf, stationaryBootstrapIndices, VRP_MODEL, SEASON_MODEL, isWinter, VRP_MIN_VALUES, vrpAt, vrpHighSeries, walkForward, walkForwardRows, wilson, type CellEval, type CellGate, type ModelConfig, type Observation, type WalkRow } from "../src/lib/forecast.ts";
 import { PHASES, bssOf, nullPairedBss, pairedBrierDiffMcStdErr, pairedBrierDiffPhase, pairedMcStdErr, pairedPhaseAveraged, phaseGrid, pointInTimeCalls } from "../src/lib/forecast-eval.ts";
 
 const day = (i: number) => new Date(Date.UTC(2015, 0, 1) + i * 864e5).toISOString().slice(0, 10);
@@ -261,7 +261,7 @@ test("walkForward = evaluateRows(walkForwardRows)；只有趨勢旗標的模型�
   const o = buildOutlook(series(spx), series(vix), trendOnly)!;
   assert.equal(o.modelVersion, "test-trend");
   assert.equal(o.pick.basis, "trend");
-  assert.equal(buildOutlook(series(spx), series(vix))!.modelVersion, "2026-10-l01");
+  assert.equal(buildOutlook(series(spx), series(vix))!.modelVersion, "2026-10-g09r1");
 
   // dates 只算指定日期。
   const some = rows.slice(0, 3).map((r) => r.date);
@@ -587,6 +587,86 @@ test("G09 計分判定：全域 bssLow > 0 且所用 cell nEff ≥ 30、段數 �
   assert.equal(drawdownScored({ ...pick, conditional: { ...pick.conditional!, episodes: 7 } }, ev), false);
 });
 
+test("R2-5：G09 全域條件通過，cell 的列數、連續區段或 BSS 下界未過仍不能計分", () => {
+  const obs = dd5Obs(4000);
+  const pick = pickProbability(obs, day(3999), { aboveSma200: true, vixStress: true }, DEFAULT_MODEL, "dd5")!;
+  const ev = walkForward(obs, 504, undefined, undefined, DEFAULT_MODEL, "dd5");
+  assert.equal(drawdownScored(pick, ev), true);
+  const pass: CellGate = { rows: 30, runs: 8, bssLow: 0.01, validReplicates: 2000, passed: true };
+  assert.deepEqual(drawdownGateOf(pick, ev, pass), {
+    globalBssLow: ev.bssLow, nEff: pick.conditional!.nEff, episodes: pick.conditional!.episodes, failed: [],
+  });
+  const cases: [Partial<CellGate>, string][] = [
+    [{ rows: 29 }, "b-cell-rows"],
+    [{ runs: 7 }, "c-cell-runs"],
+    [{ bssLow: 0 }, "d-cell-bss"],
+    [{ bssLow: null, validReplicates: 1899 }, "d-cell-bss"],
+  ];
+  for (const [change, reason] of cases) {
+    const gate = drawdownGateOf(pick, ev, { ...pass, ...change, passed: false });
+    assert.deepEqual(gate.failed, [reason]);
+    assert.ok(gate.failed.length > 0);
+  }
+});
+
+test("R2-5：記錄 G09 全域未通過原因，並依 (a)–(d) 順序列出", () => {
+  const obs = dd5Obs(4000);
+  const pick = pickProbability(obs, day(3999), { aboveSma200: true, vixStress: true }, DEFAULT_MODEL, "dd5")!;
+  const ev = walkForward(obs, 504, undefined, undefined, DEFAULT_MODEL, "dd5");
+  const cell: CellGate = { rows: 29, runs: 7, bssLow: 0, validReplicates: 2000, passed: false };
+  const thin = { ...pick, conditional: { ...pick.conditional!, nEff: 29, episodes: 7 } };
+  for (const bssLow of [0, -0.01, null]) {
+    assert.deepEqual(drawdownGateOf(thin, { ...ev, bssLow }, cell), {
+      globalBssLow: bssLow, nEff: 29, episodes: 7,
+      failed: ["a-global-bss", "a-n-eff", "a-episodes", "b-cell-rows", "c-cell-runs", "d-cell-bss"],
+    });
+  }
+  const cfg = { ...DEFAULT_MODEL, minEffectiveN: pick.conditional!.nEff + 1, minEpisodes: pick.conditional!.episodes + 1 };
+  assert.deepEqual(drawdownGateOf(pick, ev, { ...cell, rows: 30, runs: 8, bssLow: 0.01, passed: true }, cfg).failed, ["a-n-eff", "a-episodes"]);
+});
+
+test("R2-5：多組合成序列的 dd5 已計分，等於 G09 全域條件且 cell 閘門通過", () => {
+  const rand = mulberry32(19);
+  let px = 100;
+  const noise = Array.from({ length: 4000 }, () => (px *= 1 + (rand() - 0.48) * 0.05));
+  for (const closes of [growth(1200), alternating(8000, 300), noise]) {
+    const vixes = closes.map((_, i) => Math.floor(i / 170) % 3 === 2 ? 35 : 15);
+    const d = buildOutlook(series(closes), series(vixes))!.drawdown;
+    const globalPassed = drawdownScored(d.pick, d.evaluation);
+    assert.equal(d.scored, globalPassed && d.cellGate.passed);
+    assert.equal(d.scored, d.gate.failed.length === 0);
+    assert.equal(d.gate.globalBssLow, d.evaluation.bssLow);
+    if (globalPassed && !d.cellGate.passed) assert.equal(d.scored, false);
+  }
+});
+
+test("R2-5：全域有預測力但今天 cell 未通過，兩個計算入口都不計分", () => {
+  let px = 100;
+  const closes = Array.from({ length: 8000 }, (_, i) => (px *= Math.floor(i / 170) % 2 === 0 ? 1.005 : 0.995));
+  const spx = series(closes);
+  const vix = series(closes.map((_, i) => Math.floor(i / 170) % 3 === 2 ? 35 : 15));
+  const d = buildOutlook(spx, vix)!.drawdown;
+  assert.equal(drawdownScored(d.pick, d.evaluation), true);
+  assert.equal(d.cellGate.passed, false);
+  assert.deepEqual(d.gate.failed, ["b-cell-rows", "c-cell-runs", "d-cell-bss"]);
+  assert.equal(d.scored, false);
+  const target = targetOutlookOf(buildObservations(spx, vix), DEFAULT_MODEL, "dd5")!;
+  assert.equal(target.scored, false);
+  assert.deepEqual(target.gate, d.gate);
+});
+
+test("R2-5：今天退回基準率時，base cell BSS 為 0，不能通過 (d)", () => {
+  const closes = growth(1200);
+  const d = buildOutlook(series(closes), series(closes.map(() => 15)))!.drawdown;
+  assert.equal(d.pick.cell, "base");
+  assert.equal(d.pick.p, d.pick.base.p);
+  assert.equal(d.cellGate.bssLow, 0);
+  assert.equal(d.gate.nEff, d.pick.base.nEff);
+  assert.equal(d.gate.episodes, d.pick.base.episodes);
+  assert.ok(d.gate.failed.includes("d-cell-bss"));
+  assert.equal(d.scored, false);
+});
+
 test("returnQuantiles：已知分佈的 10／50／90 百分位，只用 asOf 已知且符合條件的列", () => {
   const obs: Observation[] = Array.from({ length: 150 }, (_, i) => ({
     date: day(i), close: 100, regime: { aboveSma200: i < 100, vixStress: false }, up: true, knownOn: day(i + 21), dd5: false, ret: i < 100 ? i / 100 : 9,
@@ -611,7 +691,7 @@ test("buildOutlook 帶 drawdown 與 returnQuantiles（加法式），up 的欄�
   assert.ok(o.drawdown.cellGate && o.drawdown.evaluation.points > 0);
   assert.ok(o.returnQuantiles.all!.p10 < o.returnQuantiles.all!.p50 && o.returnQuantiles.all!.p50 < o.returnQuantiles.all!.p90);
   assert.ok(o.returnQuantiles.cell!.n > 0);
-  assert.equal(o.modelVersion, "2026-10-l01");
+  assert.equal(o.modelVersion, "2026-10-g09r1");
 });
 
 // ---- T11 review：不變量守護 ----
@@ -846,7 +926,7 @@ test("targetOutlookOf(dd5) 與 buildOutlook 的 drawdown、returnQuantiles 完�
   const o = buildOutlook(series(closes), series(vixes))!;
   const d = targetOutlookOf(buildObservations(series(closes), series(vixes)), DEFAULT_MODEL, "dd5")!;
   assert.equal(d.asOf, o.asOf);
-  assert.deepEqual({ pick: d.pick, evaluation: d.evaluation, cellGate: d.cellGate, scored: d.scored }, o.drawdown);
+  assert.deepEqual({ pick: d.pick, evaluation: d.evaluation, cellGate: d.cellGate, gate: d.gate, scored: d.scored }, o.drawdown);
   assert.deepEqual(d.returnQuantiles, o.returnQuantiles);
   assert.ok(o.drawdown.evaluation.points > 0);
 });

@@ -460,11 +460,11 @@ struct OutlookView: View {
                 // Two targets, two labelled blocks: o.evaluation is the up model, drawdown.evaluation is dd5.
                 if let ev = o.drawdown?.evaluation {
                     evaluationSection(ev, horizon: p.horizon, title: "滾動驗證：跌幅機率（dd5）",
-                                      target: "目標：\(Copy.dd5Definition(horizon: p.horizon))。", id: "dd5")
+                                      target: "目標：\(Copy.dd5Definition(horizon: p.horizon))。", id: "dd5", phase: p.phaseSummary?.dd5)
                 }
                 if let ev = o.evaluation {
                     evaluationSection(ev, horizon: p.horizon, title: "滾動驗證：上漲機率",
-                                      target: "目標：\(Copy.upTargetLabel(horizon: p.horizon))。", id: "up")
+                                      target: "目標：\(Copy.upTargetLabel(horizon: p.horizon))。", id: "up", phase: p.phaseSummary?.up)
                 }
             } else {
                 Notice(kind: .warn, text: Copy.outlookUnavailable(
@@ -476,6 +476,8 @@ struct OutlookView: View {
                 )).noticeRow()
             }
             forecastSection(p)
+
+            dd5TrackSection(p)
 
             Section("機構觀點（背景資訊，不放進上面的機率）") {
                 DisclosureGroup("如何看待機構目標") {
@@ -591,14 +593,21 @@ struct OutlookView: View {
     }
 
     /// One walk-forward block per target, with a stable accessibility identifier.
-    private func evaluationSection(_ ev: OutlookPage.Outlook.Evaluation, horizon: Int, title: String, target: String, id: String) -> some View {
+    private func evaluationSection(_ ev: OutlookPage.Outlook.Evaluation, horizon: Int, title: String, target: String, id: String, phase: OutlookPage.PhaseSummary.Target?) -> some View {
         Section {
             DisclosureGroup(title) {
+            if let phase, let summary = state.value?.phaseSummary {
+                LabeledContent("相位平均（\(summary.phases.map { String($0) } ?? "—") 個起始相位）", value: Fmt.num(phase.mean, 3))
+                Text("\(Self.skillInterval) \(Fmt.num(phase.low, 3))～\(Fmt.num(phase.high, 3)) · 資料截至 \(summary.asOf ?? "—") · 模型 \(summary.modelVersion ?? "—")")
+                    .font(.footnote).foregroundStyle(.secondary)
+            } else {
+                Text("相位平均尚未計算").font(.footnote).foregroundStyle(.secondary)
+            }
             Text("\(target)\(ev.firstDate.map(Fmt.fullDate) ?? "—")～\(ev.lastDate.map(Fmt.fullDate) ?? "—")，每 \(horizon) 個交易日預測一次（共 \(ev.points) 次）")
                 .font(.footnote).foregroundStyle(.secondary)
             LabeledContent("Brier（越低越好）", value: Fmt.num(ev.brier, 4))
             LabeledContent("只用基準率的 Brier", value: Fmt.num(ev.brierBase, 4))
-            LabeledContent("BSS") {
+            LabeledContent("BSS（單一相位 offset 0）") {
                 VStack(alignment: .trailing, spacing: 1) {
                     Text(Fmt.num(ev.bss, 3)).monospacedDigit()
                 Text("\(Self.skillInterval) \(Fmt.num(ev.bssLow, 3))～\(Fmt.num(ev.bssHigh, 3))").font(.footnote).foregroundStyle(.secondary)
@@ -662,6 +671,32 @@ struct OutlookView: View {
             Text(p.liveTrack == nil ? "實際發出的預測" : "上線後實際紀錄：上漲機率")
         } footer: {
             if p.liveTrack != nil { Text("合併所有已發布的模型版本；每列以紀錄日收盤為起點。這是和樣本內、滾動驗證分開的第三種分數。") }
+            if let note = p.liveTrack?.note { Text(note) }
+        }
+    }
+
+    @ViewBuilder
+    private func dd5TrackSection(_ p: OutlookPage) -> some View {
+        if let lt = p.liveTrackDd5 {
+            Section {
+                if let groups = lt.groups, !groups.isEmpty {
+                    ForEach(Array(groups.enumerated()), id: \.offset) { _, g in
+                        if g.tooFew == true {
+                            Text("模型 \(g.modelVersion ?? "—")：樣本太少，只有 \(g.n.map { String($0) } ?? "—") 個獨立月份")
+                        } else {
+                            Text("模型 \(g.modelVersion ?? "—")：BSS \(Fmt.num(g.bss, 3))（對照紀錄當時存下的基準率）· n = \(g.n.map { String($0) } ?? "—") 個獨立月份 · 實際發生 \(ratio(g.eventShare))")
+                        }
+                    }
+                } else {
+                    Text("每天收盤後記錄一次，21 個交易日後才能對帳；目前還沒有到期的紀錄")
+                }
+                Text("延遲補記 \(lt.delayed.map { String($0) } ?? "—") 列、資格不明 \(lt.unknown.map { String($0) } ?? "—") 列，保留、不計分")
+            } header: {
+                Text("上線後實際紀錄：跌幅機率（dd5）")
+            } footer: {
+                if let note = lt.note { Text(note) }
+            }
+            .font(.footnote)
         }
     }
 

@@ -107,7 +107,7 @@ function loadBatches(root: string): Batch[] {
       const answers = readJson<Record<string, unknown>>(join(dir, "answers.json"));
       const receipt = readJson<Receipt>(join(dir, "receipt.json"));
       if (!manifest && !tasks && !answers && !receipt) continue;
-      const date = kind === "daily" ? manifest?.snapshot?.date ?? null : manifest?.pulledAt.slice(0, 10) ?? null;
+      const date = kind === "daily" ? manifest?.snapshot?.date ?? null : manifest ? easternDate(new Date(manifest.pulledAt)) : null;
       batches.push({ kind, directory, date, manifest, tasks: tasks ?? [], answers: answers ?? {}, receipt });
     }
   }
@@ -223,13 +223,13 @@ function audit(month: string, batches: Batch[], cases: string[]) {
       earnings: "公司 prompt 的新聞分類含「財報」，不以標題關鍵字判斷",
       population: "只採 receipt.accepted，回執鍵去重；missing、rejected、unavailable 與 --case 另列問題案例，不占樣本名額；若另批曾 accepted，其寫入證據仍保留在全集",
       duplicateKeys: "重複 accepted 回執鍵取 manifest.pushedAt（尚未記錄則 pulledAt）最後者；同時間依批次目錄升冪取最後者",
-      coverage: "交易日到美東今天；daily 用 snapshot.date，translate 用 pulledAt 日期；只讀 receipt.run.status，同日保留所有批次且呈現最差狀態",
+      coverage: "交易日到美東今天；daily 用 snapshot.date，translate 用 pulledAt 的美東日期；只讀 receipt.run.status，同日保留所有批次且呈現最差狀態",
       evidence: "無回執狀態為 unknown，無日期批次另列不可判定；缺檔或已清除的歷史不能證明是否寫入，不以 Orca completed 或檔案 mtime 推定",
     },
     coverage: {
       from, to,
       sessions: sessions.map((date) => ({ date, daily: coverageFor(selectedBatches, date, "daily"), translate: coverageFor(selectedBatches, date, "translate") })),
-      undatedBatches: batches.filter((batch) => batch.date === null && (batch.receipt || batch.tasks.length)).map((batch) => ({ ...source(batch), reason: "缺 manifest 或 daily snapshot.date，無法判定月份與交易日" })),
+      undatedBatches: batches.filter((batch) => batch.date === null && (batch.receipt || batch.tasks.length || batch.manifest?.unavailable?.length)).map((batch) => ({ ...source(batch), reason: "缺 manifest 或 daily snapshot.date，無法判定月份與交易日" })),
     },
     population,
     samples,

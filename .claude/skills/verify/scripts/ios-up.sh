@@ -16,9 +16,9 @@ COUNT=$(/usr/bin/jq 'length' <<<"$MATCHES")
 UDID=$(/usr/bin/jq -r '.[0].udid' <<<"$MATCHES")
 CURRENT_UDID=""
 if [ -f "$RUN/sim.udid" ]; then CURRENT_UDID=$(cat "$RUN/sim.udid"); fi
-BOOTED_MO=$(/usr/bin/jq -r --arg current "$CURRENT_UDID" \
-  '.devices[][] | select((.name | startswith("MO ")) and .state == "Booted" and .udid != $current) | "\(.name) (\(.udid))"' <<<"$DEVICES")
-[ -z "$BOOTED_MO" ] || die "${BOOTED_MO} 已開機，可能有別的驗證在用；確認後 xcrun simctl shutdown <UDID> 再重跑"
+ACTIVE_MO=$(/usr/bin/jq -r --arg current "$CURRENT_UDID" \
+  '.devices[][] | select((.name | startswith("MO ")) and .state != "Shutdown" and .udid != $current) | "\(.name) (\(.udid))"' <<<"$DEVICES")
+[ -z "$ACTIVE_MO" ] || die "${ACTIVE_MO} 尚未關機，可能有別的驗證在用；確認後 xcrun simctl shutdown <UDID> 再重跑"
 if [ -n "$CURRENT_UDID" ] && [ "$CURRENT_UDID" != "$UDID" ] && \
   /usr/bin/jq -e --arg current "$CURRENT_UDID" \
     'any(.devices[][]; .udid == $current and .state == "Booted")' <<<"$DEVICES" >/dev/null; then

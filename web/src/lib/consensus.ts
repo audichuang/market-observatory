@@ -5,6 +5,7 @@ export interface ViewRow {
   symbol: string;
   asOf: string;
   price: number | null;
+  priceDate?: string | null;
   targetMean: number | null;
   buy: number;
   hold: number;
@@ -13,10 +14,19 @@ export interface ViewRow {
   epsDown: number | null;
 }
 
+interface Coverage {
+  symbols: number;
+  weightPct: number;
+}
+
 export interface Consensus {
   symbols: number;
-  /** 有資料的成分股占指數權重（%） */
+  /** Index weight (%) of symbols with at least one usable metric. */
   coveredWeightPct: number;
+  /** Rows that enter each metric's weighted average. */
+  coverage: { target: Coverage; ratings: Coverage; revisions: Coverage };
+  /** Fresh rows with no usable metric. */
+  noData: Coverage;
   /** 權重加權的目標價隱含漲幅（%），只算有價格與目標價的個股 */
   impliedUpsidePct: number | null;
   /** 權重加權的「買進」評等占比（%） */
@@ -25,54 +35,92 @@ export interface Consensus {
   revisionBreadth: number | null;
   oldest: string | null;
   newest: string | null;
+  priceOldest: string | null;
+  priceNewest: string | null;
 }
 
-export function aggregateConsensus(rows: ViewRow[], weights: Map<string, number>, today: string, maxAgeDays = 7): Consensus {
-  const cutoff = new Date(Date.parse(`${today}T12:00:00Z`) - maxAgeDays * 86400000).toISOString().slice(0, 10);
-  // 每檔只取最新一列。
+export const CONSENSUS_MAX_AGE_DAYS = 7;
+
+export function consensusCutoff(today: string, maxAgeDays = CONSENSUS_MAX_AGE_DAYS): string {
+  return new Date(Date.parse(`${today}T12:00:00Z`) - maxAgeDays * 86400000).toISOString().slice(0, 10);
+}
+
+export function freshLatestViews(rows: ViewRow[], weights: Map<string, number>, cutoff: string): ViewRow[] {
   const latest = new Map<string, ViewRow>();
   for (const r of rows) {
     if (r.asOf < cutoff || !weights.has(r.symbol)) continue;
     const prev = latest.get(r.symbol);
     if (!prev || r.asOf > prev.asOf) latest.set(r.symbol, r);
   }
+  return [...latest.values()];
+}
+
+export function aggregateConsensus(rows: ViewRow[], weights: Map<string, number>, today: string, maxAgeDays = CONSENSUS_MAX_AGE_DAYS): Consensus {
+  const latest = freshLatestViews(rows, weights, consensusCutoff(today, maxAgeDays));
   let covered = 0;
-  let upW = 0;
+  let symbols = 0;
+  const coverage = {
+    target: { symbols: 0, weightPct: 0 },
+    ratings: { symbols: 0, weightPct: 0 },
+    revisions: { symbols: 0, weightPct: 0 },
+  };
+  const noData = { symbols: 0, weightPct: 0 };
   let upSum = 0;
-  let buyW = 0;
   let buySum = 0;
-  let revW = 0;
   let revSum = 0;
   let oldest: string | null = null;
   let newest: string | null = null;
-  for (const r of latest.values()) {
+  let priceOldest: string | null = null;
+  let priceNewest: string | null = null;
+  for (const r of latest) {
     const w = weights.get(r.symbol)!;
-    covered += w;
+    let usable = false;
     if (!oldest || r.asOf < oldest) oldest = r.asOf;
     if (!newest || r.asOf > newest) newest = r.asOf;
     if (r.price && r.targetMean && r.price > 0) {
-      upW += w;
+      coverage.target.symbols++;
+      coverage.target.weightPct += w;
+      usable = true;
       upSum += w * (r.targetMean / r.price - 1);
+      if (r.priceDate) {
+        if (!priceOldest || r.priceDate < priceOldest) priceOldest = r.priceDate;
+        if (!priceNewest || r.priceDate > priceNewest) priceNewest = r.priceDate;
+      }
     }
     const ratings = r.buy + r.hold + r.sell;
     if (ratings > 0) {
-      buyW += w;
+      coverage.ratings.symbols++;
+      coverage.ratings.weightPct += w;
+      usable = true;
       buySum += (w * r.buy) / ratings;
     }
     const revisions = (r.epsUp ?? 0) + (r.epsDown ?? 0);
     if (revisions > 0) {
-      revW += w;
+      coverage.revisions.symbols++;
+      coverage.revisions.weightPct += w;
+      usable = true;
       revSum += (w * ((r.epsUp ?? 0) - (r.epsDown ?? 0))) / revisions;
+    }
+    if (usable) {
+      symbols++;
+      covered += w;
+    } else {
+      noData.symbols++;
+      noData.weightPct += w;
     }
   }
   return {
-    symbols: latest.size,
+    symbols,
     coveredWeightPct: covered,
-    impliedUpsidePct: upW ? (upSum / upW) * 100 : null,
-    buyPct: buyW ? (buySum / buyW) * 100 : null,
-    revisionBreadth: revW ? revSum / revW : null,
+    coverage,
+    noData,
+    impliedUpsidePct: coverage.target.weightPct ? (upSum / coverage.target.weightPct) * 100 : null,
+    buyPct: coverage.ratings.weightPct ? (buySum / coverage.ratings.weightPct) * 100 : null,
+    revisionBreadth: coverage.revisions.weightPct ? revSum / coverage.revisions.weightPct : null,
     oldest,
     newest,
+    priceOldest,
+    priceNewest,
   };
 }
 

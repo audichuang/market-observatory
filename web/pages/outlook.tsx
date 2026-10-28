@@ -7,6 +7,7 @@ import type { Assessments, Evaluation } from "../src/lib/forecast.ts";
 import type { Props } from "./outlook.server";
 
 const pct = (v: number | null | undefined, d = 0) => (v === null || v === undefined || !Number.isFinite(v) ? "—" : `${(v * 100).toFixed(d)}%`);
+const coverageText = ({ symbols, weightPct }: { symbols: number; weightPct: number }) => `${symbols} 檔 · ${num(weightPct, 0)}% 權重${weightPct < 50 ? "（不到一半，數字不完整）" : ""}`;
 
 const BASIS: Record<string, string> = {
   base: "歷史基準率",
@@ -261,14 +262,14 @@ export default function OutlookPage({ outlook, cells, liveTrack, frequency, rece
 
       <div className="panel" style={{ marginBottom: "1rem" }}>
         <h2>由下而上：個股目標價按指數權重反推</h2>
-        <p className="sub">S&amp;P 500 是市值加權指數，把每檔成分股的 12 個月共識目標價按權重加總，就得到「分析師隱含的指數目標」。</p>
+        <p className="sub">把涵蓋到的成分股 12 個月共識目標價的隱含漲幅按 SPY 權重平均，再套到 S&amp;P 500 收盤，推算「分析師隱含的指數目標」。這是涵蓋子集的外推，各檔股價日不同，不是全部成分股同一天的加總。</p>
         <div className="grid kpis" style={{ marginTop: ".6rem" }}>
           <div className="kpi">
             <div className="label">本站反推（權重前 200 檔）</div>
             <div className="value">{consensus?.impliedIndexTarget ? num(consensus.impliedIndexTarget, 0) : "—"}</div>
             <div className="delta">
               <Delta value={consensus?.impliedUpsidePct ?? null} percent digits={1} />{" "}
-              <span className="sub">涵蓋 {consensus ? `${num(consensus.coveredWeightPct, 0)}%` : "—"} 權重</span>
+              <span className="sub">涵蓋 {consensus ? `${num(consensus.coverage.target.weightPct, 0)}%` : "—"} 權重 · 以 SPX {consensus?.indexCloseDate ?? "—"} 收盤推算</span>
             </div>
           </div>
           <div className="kpi">
@@ -304,17 +305,18 @@ export default function OutlookPage({ outlook, cells, liveTrack, frequency, rece
         <div className="panel">
           <h2>成分股分析師共識</h2>
           {!consensus ? (
-            <p className="sub">還沒有資料。每 4 小時輪流更新 SPY 權重前 200 檔中的 16 檔。</p>
+            <p className="sub">7 天內沒有更新的分析師共識。每 4 小時輪流更新 SPY 權重前 200 檔中的 16 檔。</p>
           ) : (
             <>
               <div className="grid kpis" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))" }}>
-                <div className="kpi"><div className="label">目標價隱含漲幅</div><div className="value" style={{ fontSize: "1.2rem" }}><Delta value={consensus.impliedUpsidePct} percent digits={1} /></div></div>
-                <div className="kpi"><div className="label">買進評等占比</div><div className="value" style={{ fontSize: "1.2rem" }}>{consensus.buyPct === null ? "—" : `${num(consensus.buyPct, 0)}%`}</div></div>
-                <div className="kpi"><div className="label">EPS 修正廣度</div><div className="value" style={{ fontSize: "1.2rem" }}><Delta value={consensus.revisionBreadth === null ? null : consensus.revisionBreadth * 100} digits={0} /></div><div className="delta sub">−100～+100</div></div>
+                <div className="kpi"><div className="label">目標價隱含漲幅</div><div className="value" style={{ fontSize: "1.2rem" }}><Delta value={consensus.impliedUpsidePct} percent digits={1} /></div><div className="delta sub">{coverageText(consensus.coverage.target)}</div></div>
+                <div className="kpi"><div className="label">買進評等占比</div><div className="value" style={{ fontSize: "1.2rem" }}>{consensus.buyPct === null ? "—" : `${num(consensus.buyPct, 0)}%`}</div><div className="delta sub">{coverageText(consensus.coverage.ratings)}</div></div>
+                <div className="kpi"><div className="label">EPS 修正廣度</div><div className="value" style={{ fontSize: "1.2rem" }}><Delta value={consensus.revisionBreadth === null ? null : consensus.revisionBreadth * 100} digits={0} /></div><div className="delta sub">−100～+100</div><div className="delta sub">{coverageText(consensus.coverage.revisions)}</div></div>
               </div>
               <p className="meta" style={{ margin: ".5rem 0" }}>
-                涵蓋 {consensus.symbols} 檔、約占指數 {num(consensus.coveredWeightPct, 0)}% 權重（{consensus.oldest}～{consensus.newest} 更新）。依 SPY 權重加權；目標價為 12 個月共識。買進占比是 Nasdaq 收錄的評等按權重平均，和 FactSet 全部評等的口徑不同，數字會有落差。
-                {consensus.coveredWeightPct < 50 && " 涵蓋不到一半權重，數字還不完整。"}
+                有可用數字的 {consensus.symbols} 檔約占指數 {num(consensus.coveredWeightPct, 0)}% 權重；
+                {consensus.noData.symbols > 0 && <>另有 {consensus.noData.symbols} 檔（{num(consensus.noData.weightPct, 0)}%）沒有可用數字，例如 Nasdaq 沒有分析師資料；</>}
+                分析師資料 {consensus.oldest}～{consensus.newest} 抓取；股價日 {consensus.priceOldest ?? "—"}～{consensus.priceNewest ?? "—"}，各檔不同日；權重用 SPY {consensus.weightsAsOf ?? "—"} 持股。目標價為 12 個月共識。買進占比是 Nasdaq 收錄的評等按權重平均，和 FactSet 全部評等的口徑不同，數字會有落差。
               </p>
               <div className="table-wrap">
                 <table>
@@ -324,8 +326,8 @@ export default function OutlookPage({ outlook, cells, liveTrack, frequency, rece
                       <tr key={v.symbol}>
                         <td className="mono">{v.symbol}</td>
                         <td className="num">{num(v.weightPct, 2)}%</td>
-                        <td className="num">{num(v.price)}</td>
-                        <td className="num">{num(v.targetMean)}</td>
+                        <td className="num">{num(v.price)}<div className="meta">{v.priceDate?.slice(5) ?? "—"}</div></td>
+                        <td className="num">{v.targetMean === null && v.buy + v.hold + v.sell === 0 ? "Nasdaq 無資料" : num(v.targetMean)}</td>
                         <td className="num"><Delta value={v.upsidePct} percent digits={1} /></td>
                         <td className="num hide-sm">{v.buy}/{v.hold}/{v.sell}</td>
                       </tr>

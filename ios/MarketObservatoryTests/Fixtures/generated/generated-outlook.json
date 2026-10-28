@@ -261,16 +261,37 @@
   "consensus": {
     "symbols": 1,
     "coveredWeightPct": 6,
+    "coverage": {
+      "target": {
+        "symbols": 1,
+        "weightPct": 6
+      },
+      "ratings": {
+        "symbols": 1,
+        "weightPct": 6
+      },
+      "revisions": {
+        "symbols": 1,
+        "weightPct": 6
+      }
+    },
+    "noData": {
+      "symbols": 1,
+      "weightPct": 2
+    },
     "impliedUpsidePct": 19.999999999999996,
     "buyPct": 76.92307692307692,
     "revisionBreadth": 0.6,
     "oldest": "2026-10-28",
     "newest": "2026-10-28",
+    "priceOldest": "2026-10-27",
+    "priceNewest": "2026-10-27",
     "top": [
       {
         "symbol": "NVDA",
         "asOf": "2026-10-28",
         "price": 100,
+        "priceDate": "2026-10-27",
         "targetMean": 120,
         "buy": 10,
         "hold": 2,
@@ -279,8 +300,24 @@
         "epsDown": 1,
         "weightPct": 6,
         "upsidePct": 19.999999999999996
+      },
+      {
+        "symbol": "AVGO",
+        "asOf": "2026-10-28",
+        "price": null,
+        "priceDate": null,
+        "targetMean": null,
+        "buy": 0,
+        "hold": 0,
+        "sell": 0,
+        "epsUp": null,
+        "epsDown": null,
+        "weightPct": 2,
+        "upsidePct": null
       }
     ],
+    "weightsAsOf": "2026-10-28",
+    "indexCloseDate": "2026-10-28",
     "impliedIndexTarget": 3411.7050378032363
   },
   "factset": [],

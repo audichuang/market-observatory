@@ -61,14 +61,19 @@ test("同一交易日第二次寫入不覆蓋；新欄位都有值", async () =>
   assert.deepEqual(detail.drawdown.cellGate, outlook.drawdown.cellGate);
   const view = await outlookView({ env: { DB: db }, req: { query: () => undefined, url: "http://x/outlook" } });
   assert.ok(view.outlook!.drawdown.pick && view.outlook!.returnQuantiles.all);
+  assert.equal(view.outlookUnavailable, null);
 });
 
 test("VIX 過期：outlookView 的 outlook 為 null，但共識、策略師、預測紀錄仍在", async () => {
-  const { db, sql } = await seed();
+  const { db, sql, days } = await seed();
   await recordForecast(db);
   sql.prepare("DELETE FROM prices WHERE symbol = 'VIX' AND date > (SELECT date FROM (SELECT date FROM prices WHERE symbol = 'VIX' ORDER BY date DESC LIMIT 1 OFFSET 8))").run();
   const v = await outlookView({ env: { DB: db }, req: { query: () => undefined, url: "http://x/outlook" } });
   assert.equal(v.outlook, null);
+  assert.equal(v.outlookUnavailable?.reason, "vix-stale");
+  assert.equal(v.outlookUnavailable?.staleSessions, 8);
+  assert.equal(v.outlookUnavailable?.vixDate, days.at(-9));
+  assert.equal(v.outlookUnavailable?.spxDate, days.at(-1));
   assert.deepEqual(v.cells, []);
   assert.ok(v.strategists && v.strategists.list.length > 0);
   // Additive strategist metadata reaches the payload; existing fields keep their types.

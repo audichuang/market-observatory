@@ -28,6 +28,7 @@ struct FixtureDecodingTests {
     @Test func generatedOutlook() throws {
         let p = try decodeFixture("generated-outlook", as: OutlookPage.self)
         #expect(p.outlook?.drawdown != nil)
+        #expect(p.outlookUnavailable == nil)
         #expect(p.strategists?.staleAfterDays == 45)
         #expect(p.strategists?.list.contains { $0.targetLow != nil && $0.verifiedOn != nil } == true)
     }
@@ -56,6 +57,7 @@ struct FixtureDecodingTests {
     // 舊版（沒有 L01 欄位）的 fixture 要照樣解得開，新欄位全是 optional。
     @Test func oldOutlookHasNoNewFields() throws {
         let p = try decodeFixture("outlook", as: OutlookPage.self)
+        #expect(p.outlookUnavailable == nil)
         #expect(p.outlook?.drawdown == nil)
         #expect(p.outlook?.assessments == nil)
         #expect(p.liveTrack == nil)
@@ -102,6 +104,14 @@ struct FixtureDecodingTests {
         let f = try API.decoder.decode(ForecastBrief.self, from: Data(json.utf8))
         #expect(f.drawdown?.scored == false)
         #expect(f.drawdown?.base == 0.17)
+    }
+
+    @Test func outlookUnavailable() throws {
+        let json = #"{"reason":"vix-stale","spxDate":"2026-10-27","vixDate":"2026-10-20","staleSessions":5,"maxStaleSessions":3}"#
+        let u = try API.decoder.decode(OutlookPage.Unavailable.self, from: Data(json.utf8))
+        #expect(u.reason == "vix-stale")
+        #expect(u.spxDate == "2026-10-27" && u.vixDate == "2026-10-20")
+        #expect(u.staleSessions == 5 && u.maxStaleSessions == 3)
     }
 
     @Test func watchlist() throws { _ = try decodeFixture("watchlist", as: Watchlist.self) }

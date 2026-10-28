@@ -32,4 +32,23 @@ struct CopyTests {
         #expect(Copy.forecastPendingNote(forecastDate: "A", snapshotDate: "B") == "最新收盤 B 的預測還沒記錄（通常是在等當天的 VIX 或 S&P 500 收盤核對），這裡先顯示 A 收盤的紀錄；展望頁用最新資料即時試算，數字可能不同。")
         #expect(Copy.forecastPendingBadge == "待更新")
     }
+
+    @Test func outlookVixStaleCopyMatchesWeb() {
+        #expect(Copy.outlookUnavailable(reason: "vix-stale", spxDate: "2026-10-27", vixDate: "2026-10-20", staleSessions: 5, maxStaleSessions: 3) == "VIX 最新只到 2026-10-20，比 S&P 500（2026-10-27）落後 5 個交易日，超過 3 個交易日的上限，今天不產生預測。下方的過去預測紀錄與機構觀點照常顯示。")
+    }
+
+    @Test func outlookMissingVixCopyMatchesWeb() {
+        #expect(Copy.outlookUnavailable(reason: "vix-stale", spxDate: "2026-10-27", vixDate: nil, staleSessions: nil, maxStaleSessions: 3) == "還沒有 VIX 資料，今天不產生預測。下方的過去預測紀錄與機構觀點照常顯示。")
+    }
+
+    @Test func outlookInsufficientCopyMatchesWeb() {
+        #expect(Copy.outlookUnavailable(reason: "insufficient", spxDate: nil, vixDate: nil, staleSessions: nil, maxStaleSessions: 3) == "歷史資料還不夠計算條件與驗證，今天不產生預測。下方的過去預測紀錄與機構觀點照常顯示。")
+    }
+
+    @Test func outlookUnavailableFallbackMatchesWeb() {
+        let fallback = "資料不足，或 VIX 超過 3 個交易日未更新，今天沒有產生預測；下方的機構觀點與過去的預測紀錄照常顯示。"
+        #expect(Copy.outlookUnavailableFallback == fallback)
+        #expect(Copy.outlookUnavailable(reason: nil, spxDate: nil, vixDate: nil, staleSessions: nil, maxStaleSessions: nil) == fallback)
+        #expect(Copy.outlookUnavailable(reason: "future-reason", spxDate: "2026-10-27", vixDate: "2026-10-20", staleSessions: 5, maxStaleSessions: 3) == fallback)
+    }
 }

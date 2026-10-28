@@ -10,6 +10,7 @@
 - `outlook-conditions`：條件表、目前條件有標記。
 - `outlook-legend`：機率條的可見圖例列出目前機率、歷史基準、50% 中線與歷史比例 95% 區間，390px 觸控寬度也看得到。
 - `outlook-records`：上線後實際紀錄：上漲機率（forecast 工作寫入；每列以紀錄日收盤為起點）。
+- `outlook-unavailable`：`outlook` 為 null 時，網頁與 App 依 `outlookUnavailable` 說明 VIX 最新日、落後的 SPX 交易日數與上限；完全沒有 VIX 或歷史資料不足時各有提示。App 顯示橘色 Notice，兩端的過去預測紀錄與機構觀點照常顯示；舊後端缺欄位或未知 reason 用原有網頁提示。有展望時 `outlookUnavailable` 為 null，版面順序不變，M5 上限仍為 3 個交易日。
 - `outlook-views`：機構觀點區塊有內容或明確空狀態。
 - `outlook-strategists`：投行年底目標價表。中位數＝API `strategists.median`、家數＝`medianCount`（一家一票、只算年底目標：UBS GWM 與 Wells Fargo Investment Institute 標「不計入中位數」）；每列有「資料日期」、「已核對原文」或「媒體轉述，待原文核對」標章，資料日期超過 `staleAfterDays`（45）天的列標「待重新核對」（中性灰，不是紅綠）；WFII 顯示「區間 7,800–8,000 的中點」；註腳有一家一票規則與全表核對日 `checked`。App 同一區塊用小字列出同樣的標章。
 - `outlook-overview-card`：總覽卡片先列 dd5，再列上漲機率；只在看最新日且有 forecast 時顯示，數字取已存預測，不重算。卡片「資料日」取 `/api/v1/overview` 的 `forecast.trade_date`（網頁 `dateWithWeekday`、App `Fmt.fullDate`）；早於 `snapshot.data.tradeDate` 時顯示橘色「待更新」與完整說明。展望頁用最新資料即時試算，可能與卡片不同。
@@ -31,6 +32,7 @@ Preconditions:
 - **紅漲綠跌與圖例（網頁）。** 本機 forecasts 準備 call=up 的上線紀錄，bump data_version 後開展望頁，確認該列徽章是紅色（tone-pos）；call=down 為綠色（tone-neg）。設 viewport 390px，機率條下四項圖例均可見並截圖。
 - **App。** walkthrough 的 `08-outlook.png`、`08b-outlook-more.png`。
 - **總覽入口與預測日期。** 依 [總覽的展望資料日與待更新驗證](overview.md#driving-it-with-ego-browser--xcuitest) 準備同日與落後兩種狀態；核對卡片資料日、標籤與說明後，網頁及 App 各從總覽卡片進入下月展望。卡片機率對 `/api/v1/overview` 的已存 forecast，展望頁機率對 `/api/v1/outlook` 的即時計算，不要求兩者數字相等；驗完還原本機 forecasts 與 data_version。
+- **無法產生展望。** 僅在本機 worktree D1，先確認沒有 `verify_held_vix`，暫停 prices 工作，執行 `CREATE TABLE verify_held_vix AS SELECT * FROM prices WHERE symbol='VIX' AND date > (SELECT date FROM prices WHERE symbol='VIX' ORDER BY date DESC LIMIT 1 OFFSET 5); DELETE FROM prices WHERE symbol='VIX' AND date IN (SELECT date FROM verify_held_vix);` 並 bump `data_version`。兩端從導覽入口進入下月展望，確認同句「VIX 最新只到 …落後 5 個交易日…超過 3 個交易日的上限」，App 為橘色 Notice；網頁「上線後實際紀錄」與 App「實際發出的預測／上線後實際紀錄」仍在。儲存 `outlook-unavailable.png`、`outlook-unavailable.api.json` 與 App 截圖，對帳 `outlook === null`、`outlookUnavailable.reason === "vix-stale"`、兩個日期、落後天數及 `recent` 筆數。驗完執行 `INSERT INTO prices SELECT * FROM verify_held_vix; DROP TABLE verify_held_vix;` 再 bump，確認兩端正常版面與 `outlookUnavailable === null`，App 再跑 `test12_Outlook`。iOS 操作須持有全域模擬器鎖並重用既有 MO 裝置，依本輪整合流程執行。
 - **Proof。** `outlook.png`、`outlook.api.json`、App 兩張截圖。
 
 ## Gotchas

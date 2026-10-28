@@ -1,6 +1,7 @@
 // 溝通與對帳層（L09／L11）：純函式，不碰 D1。頁面三種分數（樣本內、滾動驗證、上線後實際紀錄）各自獨立，永不合併。
 
-import { HORIZON, type Rate } from "./forecast.ts";
+import type { Series } from "./analytics.ts";
+import { DEFAULT_MODEL, HORIZON, vixAt, type ModelConfig, type Rate } from "./forecast.ts";
 
 /** 上線後實際紀錄至少要有幾個獨立月份才報分數。 */
 export const LIVE_MIN_N = 12;
@@ -110,4 +111,35 @@ export const FORECAST_PENDING_BADGE = "待更新";
 /** Dates are already formatted by the caller for its display. */
 export function forecastPendingNote(forecastDate: string, snapshotDate: string): string {
   return `最新收盤 ${snapshotDate} 的預測還沒記錄（通常是在等當天的 VIX 或 S&P 500 收盤核對），這裡先顯示 ${forecastDate} 收盤的紀錄；展望頁用最新資料即時試算，數字可能不同。`;
+}
+
+export interface OutlookUnavailable {
+  reason: "vix-stale" | "insufficient";
+  spxDate: string | null;
+  vixDate: string | null;
+  staleSessions: number | null;
+  maxStaleSessions: number | null;
+}
+
+/** Explain a null outlook using the model's existing VIX freshness rule. */
+export function outlookUnavailable(spx: Series, vix: Series, cfg: ModelConfig = DEFAULT_MODEL): OutlookUnavailable {
+  const last = spx.length - 1;
+  const spxDate = spx.last()?.date ?? null;
+  const vixDate = spxDate === null ? null : vix.onOrBefore(spxDate)?.date ?? null;
+  return {
+    reason: spxDate !== null && vixAt(spx, vix, last, cfg.vixMaxStaleSessions) === null ? "vix-stale" : "insufficient",
+    spxDate,
+    vixDate,
+    staleSessions: vixDate === null ? null : last - spx.floorIndex(vixDate),
+    maxStaleSessions: cfg.vixMaxStaleSessions,
+  };
+}
+
+export function outlookUnavailableText(u: OutlookUnavailable | null | undefined): string {
+  if (u?.reason === "vix-stale") {
+    if (u.vixDate === null) return "還沒有 VIX 資料，今天不產生預測。下方的過去預測紀錄與機構觀點照常顯示。";
+    return `VIX 最新只到 ${u.vixDate}，比 S&P 500（${u.spxDate}）落後 ${u.staleSessions} 個交易日，超過 ${u.maxStaleSessions} 個交易日的上限，今天不產生預測。下方的過去預測紀錄與機構觀點照常顯示。`;
+  }
+  if (u?.reason === "insufficient") return "歷史資料還不夠計算條件與驗證，今天不產生預測。下方的過去預測紀錄與機構觀點照常顯示。";
+  return "資料不足，或 VIX 超過 3 個交易日未更新，今天沒有產生預測；下方的機構觀點與過去的預測紀錄照常顯示。";
 }

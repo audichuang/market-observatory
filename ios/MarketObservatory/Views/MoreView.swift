@@ -462,10 +462,16 @@ struct OutlookView: View {
                     evaluationSection(ev, horizon: p.horizon, title: "滾動驗證：上漲機率",
                                       target: "目標：\(Copy.upTargetLabel(horizon: p.horizon))。", showHitRate: true)
                 }
-                forecastSection(p)
             } else {
-                Text("資料不足，還無法產生展望。").foregroundStyle(.secondary)
+                Notice(kind: .warn, text: Copy.outlookUnavailable(
+                    reason: p.outlookUnavailable?.reason,
+                    spxDate: p.outlookUnavailable?.spxDate,
+                    vixDate: p.outlookUnavailable?.vixDate,
+                    staleSessions: p.outlookUnavailable?.staleSessions,
+                    maxStaleSessions: p.outlookUnavailable?.maxStaleSessions
+                )).noticeRow()
             }
+            forecastSection(p)
 
             Section("機構觀點（背景資訊，不放進上面的機率）") {
                 DisclosureGroup("如何看待機構目標") {

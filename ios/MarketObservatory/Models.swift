@@ -413,6 +413,12 @@ struct Etfs: Decodable, Sendable {
 // MARK: - 下月展望
 
 struct OutlookPage: Decodable, Sendable {
+    struct Unavailable: Decodable, Sendable {
+        let reason: String
+        let spxDate, vixDate: String?
+        let staleSessions, maxStaleSessions: Int?
+    }
+
     struct Outlook: Decodable, Sendable {
         struct Pick: Decodable, Sendable {
             struct Base: Decodable, Sendable {
@@ -625,6 +631,7 @@ struct OutlookPage: Decodable, Sendable {
     }
 
     let outlook: Outlook?
+    let outlookUnavailable: Unavailable?
     let cells: [Cell]
     let track: Track?
     let liveTrack: LiveTrack?

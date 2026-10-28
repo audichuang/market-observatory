@@ -392,3 +392,22 @@ extension Copy {
         "最新收盤 \(snapshotDate) 的預測還沒記錄（通常是在等當天的 VIX 或 S&P 500 收盤核對），這裡先顯示 \(forecastDate) 收盤的紀錄；展望頁用最新資料即時試算，數字可能不同。"
     }
 }
+
+extension Copy {
+    static let outlookUnavailableFallback = "資料不足，或 VIX 超過 3 個交易日未更新，今天沒有產生預測；下方的機構觀點與過去的預測紀錄照常顯示。"
+
+    static func outlookUnavailable(reason: String?, spxDate: String?, vixDate: String?, staleSessions: Int?, maxStaleSessions: Int?) -> String {
+        switch reason {
+        case "vix-stale":
+            guard let vixDate else {
+                return "還沒有 VIX 資料，今天不產生預測。下方的過去預測紀錄與機構觀點照常顯示。"
+            }
+            guard let spxDate, let staleSessions, let maxStaleSessions else { return outlookUnavailableFallback }
+            return "VIX 最新只到 \(vixDate)，比 S&P 500（\(spxDate)）落後 \(staleSessions) 個交易日，超過 \(maxStaleSessions) 個交易日的上限，今天不產生預測。下方的過去預測紀錄與機構觀點照常顯示。"
+        case "insufficient":
+            return "歷史資料還不夠計算條件與驗證，今天不產生預測。下方的過去預測紀錄與機構觀點照常顯示。"
+        default:
+            return outlookUnavailableFallback
+        }
+    }
+}

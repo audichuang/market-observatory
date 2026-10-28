@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { FORECAST_PENDING_BADGE, LIVE_MIN_N, NO_INCREMENTAL_SKILL, PROPORTION_INTERVAL, SKILL_INTERVAL, dd5Definition, dd5ShortLabel, forecastPendingNote, frequencySentences, upTargetLabel, liveTrackOf, naturalFrequency, outOfCent, outOfTen } from "../src/lib/communication.ts";
 import { DEFAULT_MODEL, assessmentsOf, reasonsOf, buildOutlook, type Assessments, type CellGate } from "../src/lib/forecast.ts";
 import { Series } from "../src/lib/analytics.ts";
+import * as communication from "../src/lib/communication.ts";
 
 const day = (i: number) => new Date(Date.UTC(2020, 0, 1) + i * 864e5).toISOString().slice(0, 10);
 const rate = (p: number, episodes: number) => ({ p, days: 1000, nEff: 47, episodes, low: p - 0.1, high: p + 0.1 });
@@ -186,4 +187,39 @@ test("總覽預測待更新：標籤與說明區分預測資料日及最新收�
     "最新收盤 B 的預測還沒記錄（通常是在等當天的 VIX 或 S&P 500 收盤核對），這裡先顯示 A 收盤的紀錄；展望頁用最新資料即時試算，數字可能不同。",
   );
   assert.equal(FORECAST_PENDING_BADGE, "待更新");
+});
+
+test("展望無法產生：SPX 只有 50 筆且 VIX 齊全時是 insufficient；SPX 缺資料優先於 VIX", () => {
+  const spx = new Series(points.slice(0, 50));
+  const vix = new Series(spx.points.map((p) => ({ ...p, close: 20 })));
+  assert.equal(buildOutlook(spx, vix), null);
+  assert.deepEqual(communication.outlookUnavailable(spx, vix), {
+    reason: "insufficient", spxDate: day(49), vixDate: day(49), staleSessions: 0, maxStaleSessions: 3,
+  });
+  assert.deepEqual(communication.outlookUnavailable(new Series([]), new Series([])), {
+    reason: "insufficient", spxDate: null, vixDate: null, staleSessions: null, maxStaleSessions: 3,
+  });
+  assert.deepEqual(communication.outlookUnavailable(spx, new Series([])), {
+    reason: "vix-stale", spxDate: day(49), vixDate: null, staleSessions: null, maxStaleSessions: 3,
+  });
+});
+
+test("展望無法產生：三種原因的完整提示與舊後端 fallback", () => {
+  const unavailable = { reason: "vix-stale" as const, spxDate: "2026-10-27", vixDate: "2026-10-20", staleSessions: 5, maxStaleSessions: 3 };
+  assert.equal(
+    communication.outlookUnavailableText(unavailable),
+    "VIX 最新只到 2026-10-20，比 S&P 500（2026-10-27）落後 5 個交易日，超過 3 個交易日的上限，今天不產生預測。下方的過去預測紀錄與機構觀點照常顯示。",
+  );
+  assert.equal(
+    communication.outlookUnavailableText({ ...unavailable, vixDate: null, staleSessions: null }),
+    "還沒有 VIX 資料，今天不產生預測。下方的過去預測紀錄與機構觀點照常顯示。",
+  );
+  assert.equal(
+    communication.outlookUnavailableText({ ...unavailable, reason: "insufficient" }),
+    "歷史資料還不夠計算條件與驗證，今天不產生預測。下方的過去預測紀錄與機構觀點照常顯示。",
+  );
+  const fallback = "資料不足，或 VIX 超過 3 個交易日未更新，今天沒有產生預測；下方的機構觀點與過去的預測紀錄照常顯示。";
+  assert.equal(communication.outlookUnavailableText(undefined), fallback);
+  assert.equal(communication.outlookUnavailableText(null), fallback);
+  assert.equal(communication.outlookUnavailableText({ ...unavailable, reason: "future-reason" } as never), fallback);
 });

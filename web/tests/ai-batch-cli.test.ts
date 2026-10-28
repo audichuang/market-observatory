@@ -132,11 +132,42 @@ test("manifest 以腳本所在 repo 記錄 commit 與 dirty；push 指定的模�
   assert.equal(f.posts[0].model, "test-alias");
   assert.equal(JSON.parse(readFileSync(manifestFile, "utf8")).requestedModel, "test-alias");
   assert.equal((f.posts[0].run.manifest as { requestedModel: string }).requestedModel, "test-alias");
+  const script = join(f.root, "scripts/ai-batch.ts");
+  writeFileSync(script, readFileSync(script, "utf8") + "\n// Tracked batch source changed.\n");
   assert.equal((await f.run(["pull", "translate"], f.batch, "pull-alias")).code, 0);
   const next = JSON.parse(readFileSync(manifestFile, "utf8"));
   assert.equal(next.gitDirty, true);
   assert.equal(next.gitCommit, commit);
   assert.equal(next.requestedModel, "pull-alias");
+});
+
+test("manifest gitDirty 只看批次相關追蹤檔，忽略未追蹤檔及無關的已追蹤文件", async (t) => {
+  const f = await fixture(t);
+  const git = (...args: string[]) => execFileSync("git", ["-C", f.root, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  writeFileSync(join(f.root, "README.md"), "說明\n");
+  writeFileSync(join(f.root, "package.json"), '{"type":"module"}\n');
+  writeFileSync(join(f.root, "package-lock.json"), "{}\n");
+  git("init");
+  git("add", ".");
+  git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "-c", "core.hooksPath=/dev/null", "-c", "commit.gpgSign=false", "commit", "-m", "測試初始狀態");
+  writeFileSync(join(f.root, "README.md"), "更新說明\n");
+  writeFileSync(join(f.root, "unrelated.txt"), "記錄\n");
+  writeFileSync(join(f.root, "scripts/untracked.ts"), "// Untracked scratch file.\n");
+  const pullDirty = async () => {
+    const result = await f.run(["pull", "translate"]);
+    assert.equal(result.code, 0, result.out);
+    return JSON.parse(readFileSync(join(f.batch, "translate/manifest.json"), "utf8")).gitDirty;
+  };
+  assert.equal(await pullDirty(), false);
+  for (const file of ["scripts/ai-batch.ts", "package.json", "package-lock.json"]) {
+    const path = join(f.root, file);
+    writeFileSync(path, readFileSync(path, "utf8") + "\n");
+    assert.equal(await pullDirty(), true, `${file} 未暫存變更`);
+    git("add", file);
+    assert.equal(await pullDirty(), true, `${file} 已暫存變更`);
+    git("restore", "--staged", "--worktree", file);
+  }
+  assert.equal(await pullDirty(), false);
 });
 
 test("再次 pull 會歸檔上一批答案，保留任務、提示詞與回執", async (t) => {

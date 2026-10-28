@@ -152,7 +152,7 @@ if (cmd === "pull") {
     const { tasks, unavailable, points, snapshot } = await buildTasks(cookie);
     for (const task of tasks) task.id += `-${runId.slice(-4)}`;
     const tasksJson = JSON.stringify(tasks, null, 2);
-    const dirty = gitOutput(["status", "--porcelain"]);
+    const dirty = gitOutput(["status", "--porcelain", "--untracked-files=no", "--", "src", "scripts", "package.json", "package-lock.json"]);
     const manifest: BatchManifest = {
       runId, kind, pulledAt, gitCommit: gitOutput(["rev-parse", "HEAD"]) ?? "unknown", gitDirty: dirty === undefined ? "unknown" : dirty.length > 0,
       promptSourceSha256: sha256(readFileSync(join(import.meta.dirname, "../src/lib/news-ai.ts"))),

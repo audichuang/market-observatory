@@ -14,7 +14,7 @@ import { Series } from "../src/lib/analytics.ts";
 import { buildSnapshot } from "../src/lib/snapshot.ts";
 import { DEFAULT_WATCHLIST } from "../src/lib/universe.ts";
 import { marketPrompt } from "../src/lib/news-ai.ts";
-import { type ImportReceipt, MARKET_KEY, dailyWork, importResults, translateWork } from "../src/server/ai-batch.ts";
+import { type ImportReceipt, MARKET_KEY, aiPipelineStatus, dailyWork, importResults, translateWork } from "../src/server/ai-batch.ts";
 import { saveSnapshots } from "../src/server/repo.ts";
 import { migratedDb } from "./helpers/fake-cloudflare.ts";
 
@@ -71,6 +71,25 @@ test("每日新聞按收盤時間分兩桶：大盤與公司只用 A 解釋收�
   assert.deepEqual(aapl.unconfirmed, unconfirmed);
 });
 
+test("每日摘要兩桶各自取最新 N 則：大量盤後與時間不明新聞不擠掉收盤前來源", async () => {
+  const { db, sql } = await timingSeeded();
+  sql.prepare("DELETE FROM news").run();
+  const insert = sql.prepare("INSERT INTO news (id, symbols, title, title_zh, url, publisher, published_at, source, fetched_at, published_ago, category, focus) VALUES (?, 'SPY,NVDA', ?, ?, 'https://example.test/news', 'p', ?, 'nasdaq', ?, ?, '總經與市場', 'SPY,NVDA')");
+  for (let i = 0; i < 12; i++) {
+    const minute = String(i).padStart(2, "0");
+    insert.run(`before-${i}`, `Before ${i}`, `收盤前 ${i}`, D2, `2026-10-23T18:${minute}:00Z`, "2 hours ago");
+    insert.run(`unconfirmed-${i}`, `Unconfirmed ${i}`, `待確認 ${i}`, D2, `2026-10-23T23:${minute}:00Z`, i % 2 ? null : "1 hours ago");
+  }
+  const work = await dailyWork(db, D2);
+  const company = work.digests.find((d) => d.key === "NVDA")!;
+  assert.deepEqual(company.news.map((n) => n.id), ["before-11", "before-10", "before-9", "before-8", "before-7", "before-6", "before-5", "before-4"]);
+  assert.deepEqual(company.unconfirmed?.map((n) => n.id), ["unconfirmed-11", "unconfirmed-10", "unconfirmed-9", "unconfirmed-8", "unconfirmed-7", "unconfirmed-6", "unconfirmed-5", "unconfirmed-4"]);
+  assert.deepEqual(company.unconfirmed?.map((n) => n.timing), ["unknown", "after-close", "unknown", "after-close", "unknown", "after-close", "unknown", "after-close"]);
+  assert.deepEqual(work.market?.newsIds, ["before-11", "before-10", "before-9", "before-8", "before-7", "before-6", "before-5", "before-4", "before-3", "before-2"]);
+  assert.deepEqual(work.market?.news, ["收盤前 11", "收盤前 10", "收盤前 9", "收盤前 8", "收盤前 7", "收盤前 6", "收盤前 5", "收盤前 4", "收盤前 3", "收盤前 2"]);
+  assert.deepEqual(work.market?.unconfirmed?.map((n) => n.id), ["unconfirmed-11", "unconfirmed-10", "unconfirmed-9", "unconfirmed-8", "unconfirmed-7", "unconfirmed-6", "unconfirmed-5", "unconfirmed-4", "unconfirmed-3", "unconfirmed-2"]);
+});
+
 test("CLI pull daily：公司與大盤保留兩桶來源 ID，tasks.md 含分段、小標與完整時間規則", async (t) => {
   const { db, sql } = await timingSeeded();
   sql.prepare("UPDATE news SET points_zh = '[\"已有重點\"]'").run();
@@ -117,6 +136,47 @@ test("CLI pull daily：公司與大盤保留兩桶來源 ID，tasks.md 含分段
 });
 
 const translated = (n: number, zh: string, focus: string[], category = "財報") => ({ n, title_zh: zh, tone: "negative", category, focus });
+
+for (const stage of ["select", "batch", "finish"] as const) {
+  test(`匯入途中 D1 ${stage} 失敗：批次結束為 failed 並向呼叫端拋出錯誤`, async (t) => {
+    const { db, sql } = await seeded();
+    const failure = new Error(`D1 ${stage} failed`);
+    let injected = false;
+    const prepare = db.prepare.bind(db);
+    const batch = db.batch.bind(db);
+    t.mock.method(db, "prepare", (query: string) => {
+      if (!injected && ((stage === "select" && query.startsWith("SELECT id, symbols")) || (stage === "finish" && query.startsWith("UPDATE runs SET")))) {
+        injected = true;
+        throw failure;
+      }
+      return prepare(query);
+    });
+    t.mock.method(db, "batch", (statements: D1PreparedStatement[]) => {
+      if (stage === "batch" && !injected) {
+        injected = true;
+        throw failure;
+      }
+      return batch(statements);
+    });
+    const run = {
+      id: `d1-${stage}`, kind: "translate" as const, expected: ["translate:n1"], missing: [],
+      unavailable: [{ key: "points:n2", reason: "fetch-failed" }], manifest: { requestedModel: "test" },
+    };
+    await assert.rejects(importResults(db, {
+      translate: [{ ids: ["n1"], answer: { items: [translated(1, "中文標題", ["NVDA"])] } }], run,
+    }), (error) => error === failure);
+    assert.equal(injected, true);
+    const health = await aiPipelineStatus(db, new Date("2026-10-24T00:00:00Z"));
+    assert.equal(health.translate.lastRun?.status, "failed");
+    assert.ok(health.translate.lastRun?.finishedAt);
+    assert.equal(health.translate.lastRun?.summary, failure.message);
+    const row = sql.prepare("SELECT detail FROM runs WHERE job = 'ai-translate'").get() as { detail: string };
+    assert.deepEqual(JSON.parse(row.detail), {
+      runId: run.id, expected: run.expected, accepted: stage === "finish" ? ["translate:n1"] : [],
+      missing: [], rejected: [], unavailable: run.unavailable, manifest: run.manifest,
+    });
+  });
+}
 
 async function adminApi() {
   const { db, sql } = await seeded();

@@ -13,6 +13,56 @@ const items = [
 ];
 const user = (id = "u1", isOwner = false): Viewer => ({ id, email: `${id}@x.com`, name: id, isOwner });
 const NVDA = { key: "NVDA", company: "NVIDIA", tickers: ["NVDA"] };
+
+function timingSections(prompt: string) {
+  for (const anchor of ["無法確認在收盤前發布", "不能當成這天收盤漲跌的原因", "公布後立即"]) assert.ok(prompt.includes(anchor), anchor);
+  assert.match(prompt, /新聞本身.*說法/);
+  assert.match(prompt, /〔具名來源〕認為／指出/);
+  assert.match(prompt, /沒有盤中資料.*盤中逆轉/);
+  const [before, unconfirmed] = prompt.split("\n收盤前已發布的新聞：\n")[1]?.split("\n無法確認在收盤前發布的新聞：\n") ?? [];
+  assert.ok(before && unconfirmed, "兩個新聞段落必須明確分開");
+  return { before, unconfirmed };
+}
+
+test("公司提示詞：收盤前、盤後、時間不明分段，舊 Worker 未標時間的新聞也禁止收盤因果句", () => {
+  const news = (title: string) => ({ titleZh: title, title: `English ${title}`, summary: `摘要 ${title}`, tone: "neutral", category: "財報" });
+  const p = digestPrompt({
+    key: "NVDA", company: "NVIDIA", date: "2026-10-23", returnPct: -1, contributionPts: -2,
+    news: [{ ...news("已確認新聞 A"), timing: "before-close" }, news("舊版新聞 D")],
+    unconfirmed: [{ ...news("盤後新聞 B"), timing: "after-close" }, { ...news("時間不明新聞 C"), timing: "unknown" }],
+  }).user;
+  const { before, unconfirmed } = timingSections(p);
+  assert.match(before, /已確認新聞 A/);
+  assert.doesNotMatch(before, /盤後新聞 B|時間不明新聞 C|舊版新聞 D/);
+  assert.doesNotMatch(unconfirmed, /已確認新聞 A/);
+  assert.match(unconfirmed, /\[收盤後\].*盤後新聞 B/);
+  assert.match(unconfirmed, /\[時間不明\].*時間不明新聞 C/);
+  assert.match(unconfirmed, /\[時間不明\].*舊版新聞 D/);
+  assert.match(unconfirmed, /English 盤後新聞 B/);
+  assert.match(unconfirmed, /摘要 時間不明新聞 C/);
+});
+
+test("大盤提示詞：新 Worker 分兩桶，舊 Worker 未給 unconfirmed 時所有標題列為時間不明", () => {
+  const market = {
+    date: "2026-10-23", close: 7560, changePts: -40, returnPct: -0.53,
+    vix: 18, vixChange: 1, spreadPct: -0.3, movers: [], restPts: -40, news: ["大盤新聞 A"],
+  };
+  const current = timingSections(marketPrompt({ ...market, unconfirmed: [
+    { id: "B", title: "大盤盤後 B", timing: "after-close" },
+    { id: "C", title: "大盤不明 C", timing: "unknown" },
+  ] }).user);
+  assert.match(current.before, /大盤新聞 A/);
+  assert.doesNotMatch(current.before, /大盤盤後 B|大盤不明 C/);
+  assert.doesNotMatch(current.unconfirmed, /大盤新聞 A/);
+  assert.match(current.unconfirmed, /\[收盤後\].*大盤盤後 B/);
+  assert.match(current.unconfirmed, /\[時間不明\].*大盤不明 C/);
+  const legacy = timingSections(marketPrompt(market).user);
+  assert.doesNotMatch(legacy.before, /大盤新聞 A/);
+  assert.match(legacy.unconfirmed, /\[時間不明\].*大盤新聞 A/);
+  const empty = timingSections(marketPrompt({ ...market, unconfirmed: [] }).user);
+  assert.match(empty.before, /大盤新聞 A/);
+  assert.doesNotMatch(empty.unconfirmed, /大盤新聞 A/);
+});
 const AAPL = { key: "AAPL", company: "Apple", tickers: ["AAPL"] };
 const GOOG = { key: "GOOG", company: "Alphabet", tickers: ["GOOG", "GOOGL"] };
 

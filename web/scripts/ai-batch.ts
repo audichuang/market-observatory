@@ -92,7 +92,13 @@ async function buildTasks(cookie: string): Promise<{ tasks: Task[]; unavailable:
     return { tasks: buildTranslateTasks(translate), unavailable: [] };
   }
   const work = await api<DailyWork>(cookie, "GET", "/api/admin/ai?kind=daily");
-  return buildDailyTasks(work, readArticle);
+  const built = await buildDailyTasks(work, readArticle);
+  const unconfirmedIds = new Map(work.digests.map((d) => [d.key, (d.unconfirmed ?? []).map((n) => n.id)]));
+  if (work.market) unconfirmedIds.set("SPX", (work.market.unconfirmed ?? []).map((n) => n.id));
+  for (const task of built.tasks) {
+    if (task.meta.type === "digest") task.meta.newsIds.push(...unconfirmedIds.get(task.meta.key)!);
+  }
+  return built;
 }
 
 function archivePrevious() {

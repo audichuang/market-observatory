@@ -1,8 +1,14 @@
 // 新聞 AI 排程（src/server/ai-batch.ts）：待辦只給還沒做的、答案驗證後寫進 D1、格式不對的略過，大盤那段存成 SPX。
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { createServer } from "node:http";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
 import { Hono } from "hono";
-import { POST } from "../routes/api/admin/ai.ts";
+import { GET, POST } from "../routes/api/admin/ai.ts";
+import type { Task } from "../scripts/ai-batch-lib.ts";
 import { easternDate } from "../src/lib/calendar.ts";
 import { Series } from "../src/lib/analytics.ts";
 import { buildSnapshot } from "../src/lib/snapshot.ts";
@@ -17,7 +23,7 @@ const D2 = "2026-10-23";
 
 async function seeded() {
   const { db, sql } = await migratedDb();
-  const ins = sql.prepare("INSERT INTO news (id, symbols, title, url, publisher, published_at, source, fetched_at, summary, primary_symbol) VALUES (?, ?, ?, ?, 'p', ?, 'nasdaq', 'x', ?, ?)");
+  const ins = sql.prepare("INSERT INTO news (id, symbols, title, url, publisher, published_at, source, fetched_at, published_ago, summary, primary_symbol) VALUES (?, ?, ?, ?, 'p', ?, 'nasdaq', '2026-10-23T18:00:00Z', '2 hours ago', ?, ?)");
   ins.run("n1", "SPY,NVDA", "Nvidia beats estimates", "https://e.com/n1", D2, "Rev up", "NVDA");
   ins.run("n2", "NVDA", "3 AI Stocks to Buy", "https://e.com/n2", D2, null, "DELL");
   ins.run("n3", "SPY", "Fed holds rates", "https://e.com/n3", D2, null, null);
@@ -31,6 +37,84 @@ async function seeded() {
   await saveSnapshots(db, [snap], "測試");
   return { db, sql };
 }
+
+async function timingSeeded() {
+  const { db, sql } = await seeded();
+  sql.prepare("DELETE FROM news").run();
+  const ins = sql.prepare("INSERT INTO news (id, symbols, title, title_zh, url, publisher, published_at, source, fetched_at, published_ago, summary, tone, category, focus) VALUES (?, 'SPY,NVDA,AAPL', ?, ?, 'https://example.test/news', 'p', ?, 'nasdaq', ?, ?, '新聞摘要', 'neutral', '總經與市場', ?)");
+  ins.run("A", "Before close", "收盤前新聞 A", D2, "2026-10-23T18:00:00Z", "2 hours ago", "SPY,NVDA");
+  ins.run("B", "After close", "收盤後新聞 B", D2, "2026-10-23T23:00:00Z", "1 hours ago", "SPY,NVDA,AAPL");
+  ins.run("C", "Unknown time", "時間不明新聞 C", D2, "2026-10-23T22:00:00Z", null, "SPY,NVDA,AAPL");
+  return { db, sql };
+}
+
+test("每日新聞按收盤時間分兩桶：大盤與公司只用 A 解釋收盤，保留 B、C 與只有未確認新聞的公司", async () => {
+  const { db } = await timingSeeded();
+  const work = await dailyWork(db, D2);
+  assert.ok(work.market);
+  assert.deepEqual(work.market.news, ["收盤前新聞 A"]);
+  assert.deepEqual(work.market.newsIds, ["A"]);
+  assert.deepEqual(work.market.unconfirmed, [
+    { id: "B", title: "收盤後新聞 B", timing: "after-close" },
+    { id: "C", title: "時間不明新聞 C", timing: "unknown" },
+  ]);
+  const nvda = work.digests.find((d) => d.key === "NVDA")!;
+  assert.deepEqual(nvda.news, [{ id: "A", titleZh: "收盤前新聞 A", title: "Before close", summary: "新聞摘要", tone: "neutral", category: "總經與市場", timing: "before-close" }]);
+  const unconfirmed = [
+    { id: "B", titleZh: "收盤後新聞 B", title: "After close", summary: "新聞摘要", tone: "neutral", category: "總經與市場", timing: "after-close" },
+    { id: "C", titleZh: "時間不明新聞 C", title: "Unknown time", summary: "新聞摘要", tone: "neutral", category: "總經與市場", timing: "unknown" },
+  ];
+  assert.deepEqual(nvda.unconfirmed, unconfirmed);
+  const aapl = work.digests.find((d) => d.key === "AAPL");
+  assert.ok(aapl, "只有未確認新聞仍須產生公司摘要任務");
+  assert.deepEqual(aapl.news, []);
+  assert.deepEqual(aapl.unconfirmed, unconfirmed);
+});
+
+test("CLI pull daily：公司與大盤保留兩桶來源 ID，tasks.md 含分段、小標與完整時間規則", async (t) => {
+  const { db, sql } = await timingSeeded();
+  sql.prepare("UPDATE news SET points_zh = '[\"已有重點\"]'").run();
+  const app = new Hono<{ Bindings: { DB: D1Database; OWNER_EMAIL: string }; Variables: { user: { id: string; email: string } } }>();
+  app.use("*", async (c, next) => {
+    c.set("user", { id: "owner", email: "owner@example.test" });
+    await next();
+  });
+  app.get("/api/admin/ai", GET as never);
+  const server = createServer(async (req, res) => {
+    if (req.url === "/api/auth/sign-in/email") {
+      res.setHeader("set-cookie", "session=test; Path=/");
+      res.end("{}");
+      return;
+    }
+    const response = await app.request(`http://localhost${req.url}`, undefined, { DB: db, OWNER_EMAIL: "owner@example.test" });
+    res.writeHead(response.status, { "content-type": "application/json" });
+    res.end(await response.text());
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise<void>((resolve) => server.close(() => resolve())));
+  const dir = mkdtempSync(join(tmpdir(), "mo-l2-t4-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const web = join(import.meta.dirname, "..");
+  const port = (server.address() as { port: number }).port;
+  const child = spawn(process.execPath, ["scripts/ai-batch.ts", "pull", "daily"], {
+    cwd: web,
+    env: { ...process.env, MO_URL: `http://127.0.0.1:${port}`, MO_EMAIL: "owner@example.test", MO_PASSWORD: "test-password", MO_AI_BATCH_DIR: dir },
+  });
+  let output = "";
+  child.stdout.on("data", (data) => output += data);
+  child.stderr.on("data", (data) => output += data);
+  const code = await new Promise<number | null>((resolve, reject) => { child.on("error", reject); child.on("close", resolve); });
+  assert.equal(code, 0, output);
+  const tasks = JSON.parse(readFileSync(join(dir, "daily/tasks.json"), "utf8")) as Task[];
+  assert.deepEqual(Object.fromEntries(tasks.map((task) => {
+    assert.equal(task.meta.type, "digest");
+    return [task.meta.key, task.meta.newsIds];
+  })), { SPX: ["A", "B", "C"], NVDA: ["A", "B", "C"], AAPL: ["B", "C"] });
+  const markdown = readFileSync(join(dir, "daily/tasks.md"), "utf8");
+  for (const text of ["收盤前已發布的新聞", "無法確認在收盤前發布的新聞", "[收盤後]", "[時間不明]", "不能當成這天收盤漲跌的原因", "公布後立即", "〔具名來源〕認為／指出"]) {
+    assert.equal(markdown.split(text).length - 1 >= 3, true, text);
+  }
+});
 
 const translated = (n: number, zh: string, focus: string[], category = "財報") => ({ n, title_zh: zh, tone: "negative", category, focus });
 
@@ -238,8 +322,11 @@ test("每日：重點只給 AI 判定重要的；公司重點與大盤各一份�
   assert.equal(work.date, D2);
   assert.deepEqual(work.points.map((p) => p.id).sort(), ["n1", "n3"], "選股文（focus 空）不寫重點");
   assert.deepEqual(work.digests.map((d) => [d.key, d.news.map((n) => n.id)]), [["NVDA", ["n1"]]]);
+  assert.equal(work.digests[0].news[0].timing, "before-close");
+  assert.deepEqual(work.digests[0].unconfirmed, []);
   assert.ok(work.market);
   assert.deepEqual(work.market.news, ["聯準會按兵不動"]);
+  assert.deepEqual(work.market.unconfirmed, []);
   assert.equal(work.market.movers[0].key, "NVDA");
 
   const r = await importResults(db, {

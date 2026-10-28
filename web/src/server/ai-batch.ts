@@ -3,6 +3,7 @@
 // 這裡不呼叫任何模型，也不打外部請求；只讀寫 D1。
 import { addDays } from "../lib/calendar.ts";
 import { type EnrichInput, isImportant, newsFingerprint, parseDigest, parseEnrich, parsePoints } from "../lib/news-ai.ts";
+import { newsTiming } from "../lib/news-time.ts";
 import { type Db, finishRun, getSnapshot, nowIso, startRun } from "./repo.ts";
 import { loadTrackedMembers } from "./watchlist.ts";
 
@@ -29,8 +30,10 @@ interface NewsRow {
   focus: string | null;
   points_zh: string | null;
   published_at: string;
+  fetched_at: string;
+  published_ago: string | null;
 }
-const COLS = "id, symbols, title, url, summary, primary_symbol, title_zh, tone, category, focus, points_zh, published_at";
+const COLS = "id, symbols, title, url, summary, primary_symbol, title_zh, tone, category, focus, points_zh, published_at, fetched_at, published_ago";
 const placeholders = (n: number) => Array.from({ length: n }, () => "?").join(",");
 const toInput = (r: NewsRow): EnrichInput => ({ id: r.id, title: r.title, summary: r.summary, symbols: r.symbols.split(","), primarySymbol: r.primary_symbol });
 
@@ -40,7 +43,8 @@ export interface DigestWork {
   date: string;
   returnPct: number | null;
   contributionPts: number | null;
-  news: { id: string; titleZh: string; title: string; summary: string | null; tone: string; category: string }[];
+  news: { id: string; titleZh: string; title: string; summary: string | null; tone: string; category: string; timing: "before-close" }[];
+  unconfirmed?: { id: string; titleZh: string; title: string; summary: string | null; tone: string; category: string; timing: "after-close" | "unknown" }[];
 }
 
 export interface MarketWork {
@@ -55,6 +59,7 @@ export interface MarketWork {
   restPts: number | null;
   news: string[];
   newsIds: string[];
+  unconfirmed?: { id: string; title: string; timing: "after-close" | "unknown" }[];
 }
 
 export async function translateWork(db: Db, today: string): Promise<EnrichInput[]> {
@@ -88,26 +93,40 @@ export async function dailyWork(db: Db, today: string) {
   const have = new Set(
     (await db.prepare("SELECT symbol FROM news_digests WHERE date = ?").bind(date).all<{ symbol: string }>()).results.map((r) => r.symbol),
   );
-  const onDate = (await db.prepare(`SELECT ${COLS} FROM news WHERE published_at = ? ORDER BY fetched_at DESC`).bind(date).all<NewsRow>()).results;
+  const onDate = (await db.prepare(`SELECT ${COLS} FROM news WHERE published_at = ? ORDER BY fetched_at DESC`).bind(date).all<NewsRow>()).results
+    .map((n) => ({ ...n, timing: newsTiming(n, date) }));
   const digests: DigestWork[] = members
     .filter((m) => !have.has(m.key))
     .map((m) => {
       const row = s.mag7.find((x) => x.key === m.key);
-      const news = onDate.filter((n) => isImportant(n, [m.key], m.tickers)).slice(0, 8);
+      const selected = onDate.filter((n) => isImportant(n, [m.key], m.tickers)).slice(0, 8);
+      const news: DigestWork["news"] = [];
+      const unconfirmed: NonNullable<DigestWork["unconfirmed"]> = [];
+      for (const n of selected) {
+        const item = { id: n.id, titleZh: n.title_zh ?? n.title, title: n.title, summary: n.summary, tone: n.tone ?? "neutral", category: n.category ?? "未分類" };
+        if (n.timing === "before-close") news.push({ ...item, timing: n.timing });
+        else unconfirmed.push({ ...item, timing: n.timing });
+      }
       return {
         key: m.key,
         company: m.company,
         date,
         returnPct: row?.returnPct ?? null,
         contributionPts: row?.contributionPts ?? null,
-        news: news.map((n) => ({ id: n.id, titleZh: n.title_zh ?? n.title, title: n.title, summary: n.summary, tone: n.tone ?? "neutral", category: n.category ?? "未分類" })),
+        news,
+        unconfirmed,
       };
     })
-    .filter((d) => d.news.length > 0);
+    .filter((d) => d.news.length + d.unconfirmed.length > 0);
 
   let market: MarketWork | null = null;
   if (!have.has(MARKET_KEY)) {
     const macro = onDate.filter((n) => n.focus !== null && n.focus.split(",").includes("SPY") && n.category === "總經與市場").slice(0, 10);
+    const beforeClose = macro.filter((n) => n.timing === "before-close");
+    const unconfirmed: NonNullable<MarketWork["unconfirmed"]> = [];
+    for (const n of macro) {
+      if (n.timing !== "before-close") unconfirmed.push({ id: n.id, title: n.title_zh ?? n.title, timing: n.timing });
+    }
     market = {
       date,
       close: s.index.close,
@@ -122,8 +141,9 @@ export async function dailyWork(db: Db, today: string) {
         .sort((a, b) => Math.abs(b.contributionPts ?? 0) - Math.abs(a.contributionPts ?? 0))
         .map((r) => ({ key: r.key, company: r.company, returnPct: r.returnPct, contributionPts: r.contributionPts })),
       restPts: s.rest.contributionPts,
-      news: macro.map((n) => n.title_zh ?? n.title),
-      newsIds: macro.map((n) => n.id),
+      news: beforeClose.map((n) => n.title_zh ?? n.title),
+      newsIds: beforeClose.map((n) => n.id),
+      unconfirmed,
     };
   }
   return { date, points, digests, market };

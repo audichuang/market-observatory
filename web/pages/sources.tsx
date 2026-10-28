@@ -10,6 +10,8 @@ const JOB_LABEL: Record<string, string> = {
   crosscheck: "Nasdaq 交叉核對",
   weights: "SPY 持股權重",
   news: "新聞",
+  "ai-translate": "新聞 AI 標題翻譯",
+  "ai-daily": "新聞 AI 每日重點",
   events: "財報與總經日程",
   analysts: "分析師共識（16 檔）",
   factset: "FactSet 週報",
@@ -44,7 +46,14 @@ const DATA_NOTES = [
   "投行策略師年底目標表是人工維護的背景資訊，不進方向預測模型：標「已核對原文」的列對過機構官方原文，其餘取自媒體報導。",
 ];
 
-export default function SourcesPage({ expected, freshness, mismatches, runs, weights, counts, jobs, tolerance, calendar, links }: Props) {
+function AiLastRun({ run }: { run: Props["ai"]["daily"]["lastRun"] }) {
+  return run ? <div className="meta">
+    最近一次：<RunStatusBadge status={run.status} /> {taipeiTime(run.finishedAt)}
+    {run.summary && <div>{run.summary}</div>}
+  </div> : <div className="meta">尚無執行紀錄</div>;
+}
+
+export default function SourcesPage({ expected, freshness, mismatches, runs, weights, counts, jobs, tolerance, calendar, links, ai }: Props) {
   const router = useRouter();
   const { isOwner } = useShared();
   const [busy, setBusy] = useState<string | null>(null);
@@ -126,6 +135,30 @@ export default function SourcesPage({ expected, freshness, mismatches, runs, wei
       </div>
 
       <div className="panel section">
+        <h2>新聞 AI（本機排程）</h2>
+        <ul className="list">
+          <li>
+            <strong>每日重點</strong>
+            <AiLastRun run={ai.daily.lastRun} />
+            <div className="meta">最後完整成功：{taipeiTime(ai.daily.lastOkAt)}</div>
+            <div className="meta">{ai.daily.latestTradeDate
+              ? `${ai.daily.latestTradeDate} 的大盤重點：${ai.daily.marketDigestWritten ? "已寫入" : "還沒寫入"}`
+              : "尚無交易日快照"}</div>
+          </li>
+          <li>
+            <strong>標題翻譯</strong>
+            <AiLastRun run={ai.translate.lastRun} />
+            <div className="meta">最後完整成功：{taipeiTime(ai.translate.lastOkAt)}</div>
+            <div className="meta">待翻譯 {ai.translate.backlog.count} 則{ai.translate.backlog.oldestFetchedAt && `，最早 ${taipeiTime(ai.translate.backlog.oldestFetchedAt)} 抓到`}</div>
+          </li>
+          <li>
+            <strong>新聞來源</strong>
+            <div className="meta">最後成功抓取：{taipeiTime(ai.news.lastOkAt)}</div>
+          </li>
+        </ul>
+      </div>
+
+      <div className="panel section">
         <h2>資料性質</h2>
         <ul className="list">
           {DATA_NOTES.map((n) => <li key={n} className="meta">{n}</li>)}
@@ -178,7 +211,7 @@ export default function SourcesPage({ expected, freshness, mismatches, runs, wei
               <div style={{ display: "flex", gap: ".5rem", alignItems: "center", flexWrap: "wrap" }}>
                 <RunStatusBadge status={r.status} />
                 <strong>{label(r.job)}</strong>
-                <span className="meta">{taipeiTime(r.started_at)} · {r.trigger.startsWith("cron") ? "排程" : "手動"}</span>
+                <span className="meta">{taipeiTime(r.started_at)} · {r.trigger === "local" ? "本機" : r.trigger === "cron" ? "排程" : "手動"}</span>
               </div>
               <div className="meta">{r.summary}</div>
             </li>

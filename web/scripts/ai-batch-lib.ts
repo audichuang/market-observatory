@@ -5,11 +5,22 @@ export type BatchKind = "translate" | "daily";
 export type DailyWork = Awaited<ReturnType<typeof dailyWork>>;
 export type UnavailableReason = "search-failed" | "no-match" | "fetch-failed" | "not-html" | "too-short";
 export interface Unavailable { key: string; reason: UnavailableReason }
+export interface PointSource { key: string; url: string; bodyChars: number; truncated: boolean }
 export interface BatchManifest {
   runId: string;
   kind: BatchKind;
   pulledAt: string;
   unavailable: Unavailable[];
+  gitCommit?: string;
+  gitDirty?: boolean | "unknown";
+  promptSourceSha256?: string;
+  schemaSha256?: { translate: string; points: string; digest: string };
+  tasksSha256?: string;
+  requestedModel?: string;
+  snapshot?: { date: string | null; revision: number | null };
+  points?: PointSource[];
+  answersWrittenAt?: string;
+  pushedAt?: string;
 }
 
 export interface Task {
@@ -83,9 +94,10 @@ export function buildTranslateTasks(translate: EnrichInput[]): Task[] {
   return tasks;
 }
 
-export async function buildDailyTasks(work: DailyWork, readArticle: (title: string, symbols: string[]) => Promise<ArticleResult>): Promise<{ tasks: Task[]; unavailable: Unavailable[] }> {
+export async function buildDailyTasks(work: DailyWork, readArticle: (title: string, symbols: string[]) => Promise<ArticleResult>): Promise<{ tasks: Task[]; unavailable: Unavailable[]; points: PointSource[] }> {
   const tasks: Task[] = [];
   const unavailable: Unavailable[] = [];
+  const points: PointSource[] = [];
   if (work.market) {
     const { newsIds, ...market } = work.market;
     tasks.push({ id: "m1", title: `大盤：${market.date} 為什麼漲跌`, prompt: marketPrompt(market), schema: DIGEST_SCHEMA, meta: { type: "digest", key: "SPX", date: market.date, newsIds } });
@@ -100,13 +112,14 @@ export async function buildDailyTasks(work: DailyWork, readArticle: (title: stri
     if ("unavailable" in result) {
       unavailable.push({ key: `points:${point.id}`, reason: result.unavailable });
     } else {
+      points.push({ key: `points:${point.id}`, url: result.url, bodyChars: result.body.length, truncated: result.truncated });
       tasks.push({
         id: `p${i + 1}`, title: `文章重點：${point.title}`, prompt: pointsPrompt({ title: point.title, body: result.body, summary: point.summary, symbols: point.symbols }), schema: POINTS_SCHEMA,
         meta: { type: "points", id: point.id },
       });
     }
   });
-  return { tasks, unavailable };
+  return { tasks, unavailable, points };
 }
 
 export async function hasDailyWork(work: DailyWork, canReadArticle: (point: DailyWork["points"][number]) => Promise<boolean>): Promise<boolean> {
@@ -122,12 +135,20 @@ export function receiptKeys(task: Task): string[] {
 }
 
 export function preparePush(tasks: Task[], answers: Record<string, unknown>, manifest: BatchManifest, model: string): ImportBody & { run: NonNullable<ImportBody["run"]> } {
+  // Keep local evidence out of the POST even if extra fields were added to the file.
+  const { runId, kind, pulledAt, gitCommit, gitDirty, promptSourceSha256, schemaSha256, tasksSha256, requestedModel, snapshot, points, unavailable, answersWrittenAt, pushedAt } = manifest;
+  const summary = {
+    runId, kind, pulledAt, gitCommit, gitDirty, promptSourceSha256, schemaSha256, tasksSha256, requestedModel,
+    snapshot: snapshot && { date: snapshot.date, revision: snapshot.revision },
+    points: points?.map(({ key, url, bodyChars, truncated }) => ({ key, url, bodyChars, truncated })),
+    unavailable: unavailable.map(({ key, reason }) => ({ key, reason })), answersWrittenAt, pushedAt,
+  };
   const body = {
     model,
     translate: [] as NonNullable<ImportBody["translate"]>,
     points: [] as NonNullable<ImportBody["points"]>,
     digests: [] as NonNullable<ImportBody["digests"]>,
-    run: { id: manifest.runId, kind: manifest.kind, expected: tasks.flatMap(receiptKeys), missing: [] as string[], unavailable: manifest.unavailable, manifest },
+    run: { id: manifest.runId, kind: manifest.kind, expected: tasks.flatMap(receiptKeys), missing: [] as string[], unavailable: manifest.unavailable, manifest: summary },
   };
   for (const task of tasks) {
     if (!Object.hasOwn(answers, task.id)) {

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -8,6 +9,7 @@ import { test, type TestContext } from "node:test";
 import * as batchLib from "../scripts/ai-batch-lib.ts";
 import type { DailyWork, Task } from "../scripts/ai-batch-lib.ts";
 import type { ImportBody } from "../src/server/ai-batch.ts";
+import { DIGEST_SCHEMA, ENRICH_SCHEMA, POINTS_SCHEMA } from "../src/lib/news-ai.ts";
 
 const web = join(import.meta.dirname, "..");
 const emptyDaily = { date: null, points: [], digests: [], market: null };
@@ -48,10 +50,13 @@ async function fixture(t: TestContext) {
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   t.after(() => new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())));
   const port = (server.address() as { port: number }).port;
-  const run = async (args: string[], batchDir = batch) => {
+  const run = async (args: string[], batchDir = batch, model?: string) => {
+    const env: NodeJS.ProcessEnv = { ...process.env, MO_URL: `http://127.0.0.1:${port}`, MO_EMAIL: "owner@example.test", MO_PASSWORD: "test-password", MO_AI_BATCH_DIR: batchDir };
+    delete env.AI_BATCH_MODEL;
+    if (model !== undefined) env.AI_BATCH_MODEL = model;
     const child = spawn(process.execPath, [join(root, "scripts/ai-batch.ts"), ...args], {
       cwd: web,
-      env: { ...process.env, MO_URL: `http://127.0.0.1:${port}`, MO_EMAIL: "owner@example.test", MO_PASSWORD: "test-password", MO_AI_BATCH_DIR: batchDir },
+      env,
     });
     let out = "";
     child.stdout.on("data", (data) => out += data);
@@ -61,6 +66,76 @@ async function fixture(t: TestContext) {
   };
   return { root, batch, state, posts, requests, run };
 }
+
+test("pull manifest 記錄來源、schema、任務 hash、未知模型與 daily 快照，push 補答案 mtime 與送出時間", async (t) => {
+  const f = await fixture(t);
+  f.state.daily = { ...emptyDaily, date: "2026-10-27", revision: 3, digests: [digest("NVDA")] };
+  const pull = await f.run(["pull", "daily"]);
+  assert.equal(pull.code, 0, pull.out);
+  const dir = join(f.batch, "daily");
+  const manifestFile = join(dir, "manifest.json");
+  const manifest = JSON.parse(readFileSync(manifestFile, "utf8"));
+  const sha256 = (value: string | Buffer) => createHash("sha256").update(value).digest("hex");
+  assert.equal(manifest.kind, "daily");
+  assert.match(manifest.runId, /^daily-.*Z-[a-z0-9]{4}$/);
+  assert.ok(Number.isFinite(Date.parse(manifest.pulledAt)));
+  assert.equal(manifest.gitCommit, "unknown", "複製到沒有 git 的目錄，不能記到呼叫者 cwd 的 commit");
+  assert.equal(manifest.gitDirty, "unknown");
+  assert.equal(manifest.promptSourceSha256, sha256(readFileSync(join(web, "src/lib/news-ai.ts"))));
+  assert.deepEqual(manifest.schemaSha256, {
+    translate: sha256(JSON.stringify(ENRICH_SCHEMA)), points: sha256(JSON.stringify(POINTS_SCHEMA)), digest: sha256(JSON.stringify(DIGEST_SCHEMA)),
+  });
+  assert.equal(manifest.tasksSha256, sha256(readFileSync(join(dir, "tasks.json"))));
+  assert.equal(manifest.requestedModel, "unknown");
+  assert.deepEqual(manifest.snapshot, { date: "2026-10-27", revision: 3 });
+  assert.deepEqual(manifest.points, []);
+  assert.deepEqual(manifest.unavailable, []);
+  assert.equal("pushedAt" in manifest, false);
+  const [task] = JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"));
+  const answersFile = join(dir, "answers.json");
+  writeFileSync(answersFile, JSON.stringify({ [task.id]: { summary: "每日重點摘要", tone: "neutral" } }));
+  const answersWrittenAt = statSync(answersFile).mtime.toISOString();
+  // Only the documented metadata may leave the local manifest.
+  writeFileSync(manifestFile, JSON.stringify({ ...manifest, body: "私有正文", prompt: "私有提示詞" }));
+  const push = await f.run(["push", "daily"]);
+  assert.equal(push.code, 0, push.out);
+  const saved = JSON.parse(readFileSync(manifestFile, "utf8"));
+  assert.equal(saved.answersWrittenAt, answersWrittenAt);
+  assert.ok(Date.parse(saved.pushedAt) >= Date.parse(saved.pulledAt));
+  assert.equal(f.posts[0].model, "claude-orca");
+  assert.deepEqual(f.posts[0].run.manifest, { ...manifest, answersWrittenAt, pushedAt: saved.pushedAt });
+  assert.doesNotMatch(JSON.stringify(f.posts[0].run.manifest), /私有正文|私有提示詞|"body"|"prompt"/);
+  assert.equal((await f.run(["pull", "daily"])).code, 0);
+  assert.deepEqual(JSON.parse(readFileSync(join(dir, "runs", manifest.runId, "manifest.json"), "utf8")), saved);
+});
+
+test("manifest 以腳本所在 repo 記錄 commit 與 dirty；push 指定的模型 alias 同步到 manifest", async (t) => {
+  const f = await fixture(t);
+  const git = (...args: string[]) => execFileSync("git", ["-C", f.root, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  git("init");
+  git("add", ".");
+  git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "-c", "core.hooksPath=/dev/null", "-c", "commit.gpgSign=false", "commit", "-m", "測試初始狀態");
+  const commit = git("rev-parse", "HEAD");
+  assert.equal((await f.run(["pull", "translate"])).code, 0);
+  const dir = join(f.batch, "translate");
+  const manifestFile = join(dir, "manifest.json");
+  const manifest = JSON.parse(readFileSync(manifestFile, "utf8"));
+  assert.equal(manifest.gitCommit, commit);
+  assert.equal(manifest.gitDirty, false);
+  assert.equal("snapshot" in manifest, false);
+  assert.equal(manifest.requestedModel, "unknown");
+  const [task] = JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"));
+  writeFileSync(join(dir, "answers.json"), JSON.stringify({ [task.id]: { items: [] } }));
+  assert.equal((await f.run(["push", "translate"], f.batch, "test-alias")).code, 0);
+  assert.equal(f.posts[0].model, "test-alias");
+  assert.equal(JSON.parse(readFileSync(manifestFile, "utf8")).requestedModel, "test-alias");
+  assert.equal((f.posts[0].run.manifest as { requestedModel: string }).requestedModel, "test-alias");
+  assert.equal((await f.run(["pull", "translate"], f.batch, "pull-alias")).code, 0);
+  const next = JSON.parse(readFileSync(manifestFile, "utf8"));
+  assert.equal(next.gitDirty, true);
+  assert.equal(next.gitCommit, commit);
+  assert.equal(next.requestedModel, "pull-alias");
+});
 
 test("再次 pull 會歸檔上一批答案，保留任務、提示詞與回執", async (t) => {
   const f = await fixture(t);
@@ -310,6 +385,7 @@ test("正文不可得以 points:<id> 列入 unavailable，不建立任務也不�
     ? { unavailable: "not-html" }
     : { body: "可用正文", url: point.url, truncated: false });
   assert.deepEqual(built.tasks.map((task) => task.meta), [{ type: "points", id: "n1" }]);
+  assert.deepEqual(built.points, [{ key: "points:n1", url: point.url, bodyChars: 4, truncated: false }]);
   assert.deepEqual(built.unavailable, [{ key: "points:n2", reason: "not-html" }]);
   const manifest = { runId: "daily-test-abcd", kind: "daily" as const, pulledAt: "2026-10-27T00:00:00Z", unavailable: built.unavailable };
   const body = batchLib.preparePush(built.tasks, { p1: { points: ["答案"], tone: "neutral" } }, manifest, "test");

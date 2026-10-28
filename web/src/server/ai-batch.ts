@@ -1,7 +1,7 @@
 // 新聞 AI 的排程版：本機的 Orca 排程（Claude 訂閱，不用 API key）跑 scripts/ai-batch.ts，
 // 先從這裡拿待辦（pendingWork），在本機產生提示詞交給 agent，答案再送回來由 importResults 驗證、寫進 D1。
 // 這裡不呼叫任何模型，也不打外部請求；只讀寫 D1。
-import { addDays } from "../lib/calendar.ts";
+import { addDays, easternDate } from "../lib/calendar.ts";
 import { type EnrichInput, isImportant, newsFingerprint, parseDigest, parseEnrich, parsePoints } from "../lib/news-ai.ts";
 import { newsTiming } from "../lib/news-time.ts";
 import { type Db, finishRun, getSnapshot, nowIso, startRun } from "./repo.ts";
@@ -13,6 +13,7 @@ export const MARKET_KEY = "SPX";
 /** 一次最多翻幾則（每 20 則一個提示詞）；只翻最近幾天的，舊的不補。 */
 const TRANSLATE_LIMIT = 100;
 const TRANSLATE_DAYS = 7;
+const TRANSLATE_WHERE = "(title_zh IS NULL OR enriched_at IS NULL) AND published_at >= ?";
 /** 一次最多替幾則重要新聞寫重點；只看最近幾天。 */
 const POINTS_LIMIT = 15;
 const POINTS_DAYS = 3;
@@ -64,14 +65,47 @@ export interface MarketWork {
 
 export async function translateWork(db: Db, today: string): Promise<EnrichInput[]> {
   const rows = await db
-    .prepare(`SELECT ${COLS} FROM news WHERE (title_zh IS NULL OR enriched_at IS NULL) AND published_at >= ? ORDER BY published_at DESC, fetched_at DESC LIMIT ?`)
+    .prepare(`SELECT ${COLS} FROM news WHERE ${TRANSLATE_WHERE} ORDER BY published_at DESC, fetched_at DESC LIMIT ?`)
     .bind(addDays(today, -TRANSLATE_DAYS), TRANSLATE_LIMIT)
     .all<NewsRow>();
   return rows.results.map(toInput);
 }
 
+/** Public pipeline health comes from persisted results, never local scheduler heartbeats. */
+export async function aiPipelineStatus(db: Db, now: Date = new Date()) {
+  const lastOkAt = async (job: string) => (await db.prepare("SELECT MAX(finished_at) AS at FROM runs WHERE job = ? AND status = 'ok'").bind(job).first<{ at: string | null }>())!.at;
+  const jobStatus = async (job: string) => {
+    const [lastRun, okAt] = await Promise.all([
+      db.prepare("SELECT status, finished_at AS finishedAt, summary FROM runs WHERE job = ? ORDER BY started_at DESC, id DESC LIMIT 1")
+        .bind(job).first<{ status: string; finishedAt: string | null; summary: string | null }>(),
+      lastOkAt(job),
+    ]);
+    return { lastRun, lastOkAt: okAt };
+  };
+  const [daily, translate, newsOkAt, snapshot, backlog] = await Promise.all([
+    jobStatus("ai-daily"),
+    jobStatus("ai-translate"),
+    lastOkAt("news"),
+    db.prepare("SELECT trade_date, EXISTS(SELECT 1 FROM news_digests WHERE symbol = ? AND date = snapshots.trade_date) AS written FROM snapshots ORDER BY trade_date DESC, revision DESC LIMIT 1")
+      .bind(MARKET_KEY).first<{ trade_date: string; written: number }>(),
+    db.prepare(`SELECT COUNT(*) AS count, MIN(fetched_at) AS oldestFetchedAt FROM news WHERE ${TRANSLATE_WHERE}`)
+      .bind(addDays(easternDate(now), -TRANSLATE_DAYS)).first<{ count: number; oldestFetchedAt: string | null }>(),
+  ]);
+  return {
+    daily: { ...daily, latestTradeDate: snapshot?.trade_date ?? null, marketDigestWritten: snapshot?.written === 1 },
+    translate: { ...translate, backlog: backlog! },
+    news: { lastOkAt: newsOkAt },
+  };
+}
+
 /** 每日的待辦：重要新聞的重點、最新交易日每家追蹤公司的重點（有新聞才寫）、大盤那段。已寫過的不再給。 */
-export async function dailyWork(db: Db, today: string) {
+export async function dailyWork(db: Db, today: string): Promise<{
+  date: string | null;
+  revision?: number;
+  points: { id: string; title: string; url: string; summary: string | null; symbols: string[] }[];
+  digests: DigestWork[];
+  market: MarketWork | null;
+}> {
   const members = await loadTrackedMembers(db);
   const keys = members.map((m) => m.key);
   const tickers = members.flatMap((m) => m.tickers);
@@ -146,7 +180,7 @@ export async function dailyWork(db: Db, today: string) {
       unconfirmed,
     };
   }
-  return { date, points, digests, market };
+  return { date, revision: snap.revision, points, digests, market };
 }
 
 export interface ImportBody {

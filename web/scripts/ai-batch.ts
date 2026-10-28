@@ -7,13 +7,13 @@
 // 提示詞用 src/lib/news-ai.ts 的同一套（用語規則一致）；伺服器端見 src/server/ai-batch.ts、routes/api/admin/ai.ts。
 // 帳密：MO_EMAIL／MO_PASSWORD，沒設就用 1Password 的 Agent vault（~/.config/op/agent-sa.env）。
 import { execFileSync } from "node:child_process";
-import { randomInt } from "node:crypto";
+import { createHash, randomInt } from "node:crypto";
 import { get as httpsGet } from "node:https";
 import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { EnrichInput } from "../src/lib/news-ai.ts";
-import { type BatchManifest, type DailyWork, type Receipt, type Task, type Unavailable, article, buildDailyTasks, buildTranslateTasks, createYahooSearch, hasDailyWork, preparePush, renderTasks, summarizeReceipt } from "./ai-batch-lib.ts";
+import { DIGEST_SCHEMA, ENRICH_SCHEMA, type EnrichInput, POINTS_SCHEMA } from "../src/lib/news-ai.ts";
+import { type BatchManifest, type DailyWork, type PointSource, type Receipt, type Task, type Unavailable, article, buildDailyTasks, buildTranslateTasks, createYahooSearch, hasDailyWork, preparePush, renderTasks, summarizeReceipt } from "./ai-batch-lib.ts";
 
 const base = (process.env.MO_URL ?? "https://market-observatory.kzfvvwnwhp.workers.dev").replace(/\/$/, "");
 const [cmd, kind] = process.argv.slice(2);
@@ -86,10 +86,10 @@ function getText(url: string, hops = 3): Promise<{ status: number; type: string;
 const searchYahoo = createYahooSearch(getText);
 const readArticle = (title: string, symbols: string[]) => article(title, symbols, getText, searchYahoo);
 
-async function buildTasks(cookie: string): Promise<{ tasks: Task[]; unavailable: Unavailable[] }> {
+async function buildTasks(cookie: string): Promise<{ tasks: Task[]; unavailable: Unavailable[]; points: PointSource[]; snapshot?: BatchManifest["snapshot"] }> {
   if (kind === "translate") {
     const { translate } = await api<{ translate: EnrichInput[] }>(cookie, "GET", "/api/admin/ai?kind=translate");
-    return { tasks: buildTranslateTasks(translate), unavailable: [] };
+    return { tasks: buildTranslateTasks(translate), unavailable: [], points: [] };
   }
   const work = await api<DailyWork>(cookie, "GET", "/api/admin/ai?kind=daily");
   const built = await buildDailyTasks(work, readArticle);
@@ -98,7 +98,17 @@ async function buildTasks(cookie: string): Promise<{ tasks: Task[]; unavailable:
   for (const task of built.tasks) {
     if (task.meta.type === "digest") task.meta.newsIds.push(...unconfirmedIds.get(task.meta.key)!);
   }
-  return built;
+  return { ...built, snapshot: { date: work.date, revision: work.revision ?? null } };
+}
+
+const sha256 = (content: string | Buffer) => createHash("sha256").update(content).digest("hex");
+
+function gitOutput(args: string[]): string | undefined {
+  try {
+    return execFileSync("git", args, { cwd: join(import.meta.dirname, ".."), encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+  } catch {
+    return undefined;
+  }
 }
 
 function archivePrevious() {
@@ -139,13 +149,21 @@ if (cmd === "pull") {
   } else {
     const pulledAt = new Date().toISOString();
     const runId = `${kind}-${pulledAt.replace(/[-:.]/g, "")}-${randomInt(36 ** 4).toString(36).padStart(4, "0")}`;
-    const { tasks, unavailable } = await buildTasks(cookie);
+    const { tasks, unavailable, points, snapshot } = await buildTasks(cookie);
     for (const task of tasks) task.id += `-${runId.slice(-4)}`;
+    const tasksJson = JSON.stringify(tasks, null, 2);
+    const dirty = gitOutput(["status", "--porcelain"]);
+    const manifest: BatchManifest = {
+      runId, kind, pulledAt, gitCommit: gitOutput(["rev-parse", "HEAD"]) ?? "unknown", gitDirty: dirty === undefined ? "unknown" : dirty.length > 0,
+      promptSourceSha256: sha256(readFileSync(join(import.meta.dirname, "../src/lib/news-ai.ts"))),
+      schemaSha256: { translate: sha256(JSON.stringify(ENRICH_SCHEMA)), points: sha256(JSON.stringify(POINTS_SCHEMA)), digest: sha256(JSON.stringify(DIGEST_SCHEMA)) },
+      tasksSha256: sha256(tasksJson), requestedModel: process.env.AI_BATCH_MODEL ?? "unknown", snapshot, points, unavailable,
+    };
     archivePrevious();
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, "answers.json"), "{}\n");
-    writeFileSync(join(dir, "tasks.json"), JSON.stringify(tasks, null, 2));
-    writeFileSync(join(dir, "manifest.json"), JSON.stringify({ runId, kind, pulledAt, unavailable }, null, 2));
+    writeFileSync(join(dir, "tasks.json"), tasksJson);
+    writeFileSync(join(dir, "manifest.json"), JSON.stringify(manifest, null, 2));
     if (!tasks.length) {
       writeFileSync(join(dir, "tasks.md"), "沒有待辦。\n");
       console.log(`沒有待辦（${kind}），不用做任何事。`);
@@ -169,6 +187,10 @@ if (cmd === "pull") {
     const manifest: BatchManifest = existsSync(manifestFile)
       ? JSON.parse(readFileSync(manifestFile, "utf8"))
       : { runId: `legacy-${pulledAt}`, kind, pulledAt, unavailable: [] };
+    manifest.requestedModel = process.env.AI_BATCH_MODEL ?? manifest.requestedModel ?? "unknown";
+    manifest.answersWrittenAt = statSync(join(dir, "answers.json")).mtime.toISOString();
+    manifest.pushedAt = new Date().toISOString();
+    writeFileSync(manifestFile, JSON.stringify(manifest, null, 2));
     const body = preparePush(tasks, answers, manifest, process.env.AI_BATCH_MODEL ?? "claude-orca");
     const cookie = await signIn();
     const receipt = await api<Receipt>(cookie, "POST", "/api/admin/ai", body);

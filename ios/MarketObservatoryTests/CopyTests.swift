@@ -58,6 +58,10 @@ struct CopyTests {
         #expect(PlanCopy.reviewLabel == "檢討門檻 ±%")
         #expect(PlanCopy.reviewValue(20) == "±20%")
         #expect(PlanCopy.reviewValue(0) == "0%")
+        #expect(PlanCopy.reviewValue(12.5) == "±13%")
+        #expect(PlanCopy.reviewValue(0.5) == "±1%")
+        #expect(PlanCopy.reviewValue(2.5) == "±3%")
+        #expect(PlanCopy.reviewValue(0.4) == "±0%")
         #expect(PlanCopy.note == "只是規劃，不是持倉或交易紀錄；漲跌達門檻時自己檢討，App 不會監看或提醒。")
     }
 }

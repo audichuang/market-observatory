@@ -29,7 +29,7 @@ Preconditions:
 - **月額下限。** 開 `/etfs?monthly=0.4`，畫面與 API `sim.monthlyTwd` 都是 1；歷史資料足夠時仍可試算。儲存後 `plan.monthlyTwd` 讀回 1，直接送 API 月額 0 應回 400。測完改回原預設並讀回。
 - **我的規劃（網頁）。** 欄位是「加碼研究預算」「單筆加碼」「檢討門檻 ±%」「待定事項與備註」，按鈕「儲存規劃」。欄位沒有 name，用整頁 `input[type=number]` 的順序：0＝每月投入（定投試算）、1＝研究預算、2＝單筆加碼、3＝檢討門檻（取第 n 個的寫法照 `ego-browser skill`）。單筆加碼改 60000、按 `button:text-is("儲存規劃")`，`fetch("/api/v1/etfs")` 的 `plan.trancheTwd` 讀回；改回 50000 再讀回一次（F5）。檢討門檻填 150 按儲存，看錯誤訊息與 `plan.exitConsiderationPct` 沒變（F4）。
 - **App。** walkthrough 的 `07-etfs.png`、`07b-dca.png`；`ios-test.sh … VerifyInteractionTests/test06_EtfsPlan`：`F2-periods.txt`、`F3-dca.png`／`.txt`（IVV／2 年／5000 的結果對 API `dca`）、`F3b-reopen.txt`（離開再進來仍是「標的、IVV」「期間、2 年」「已是我的預設」）、`F4-exit150.txt`（「儲存 enabled=false」＋中文範圍說明）、`F5-reopen.txt`（60000），結束時改回 VOO／3 年／10000、每批 50000。
-  App 把手：試算區的 Picker 按鈕 label「標的、VOO」「期間、3 年」，每月投入欄位 label「每月投入」，試算按鈕 label「每月投入、試算」；「設為我的預設／已是我的預設」在清單下方，要先捲出來。清單「我的規劃」顯示「檢討門檻 ±%　±20%」（對 API `plan.exitConsiderationPct`＝20；0 顯示「0%」），footer 是「只是規劃，不是持倉或交易紀錄；漲跌達門檻時自己檢討，App 不會監看或提醒。」。右上「我的規劃」的欄位 label 是「研究預算」「每批投入」「檢討門檻 ±%」，按鈕「儲存」「取消」。
+  App 把手：試算區的 Picker 按鈕 label「標的、VOO」「期間、3 年」，每月投入欄位 label「每月投入」，試算按鈕 label「每月投入、試算」；「設為我的預設／已是我的預設」在清單下方，要先捲出來。清單「我的規劃」顯示「檢討門檻 ±%　±20%」（對 API `plan.exitConsiderationPct`＝20；0 顯示「0%」；小數取整與網頁相同：12.5 →「±13%」、0.5 →「±1%」、2.5 →「±3%」、0.4 →「±0%」），footer 是「只是規劃，不是持倉或交易紀錄；漲跌達門檻時自己檢討，App 不會監看或提醒。」。右上「我的規劃」的欄位 label 是「研究預算」「每批投入」「檢討門檻 ±%」，按鈕「儲存」「取消」。
 - **Proof。** `etfs-table.png`、`dca-ivv.png`、`plan-saved.png`、`plan-exit150-after-save.png`、`plan-saved.api.json`、還原後的 API JSON、App 截圖與 `.txt`。
 
 ## Gotchas

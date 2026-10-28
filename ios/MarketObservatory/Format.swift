@@ -419,6 +419,7 @@ enum PlanCopy {
     static let note = "只是規劃，不是持倉或交易紀錄；漲跌達門檻時自己檢討，App 不會監看或提醒。"
 
     static func reviewValue(_ pct: Double) -> String {
-        Fmt.pct(pct, 0).replacingOccurrences(of: "+", with: "±")
+        let s = abs(pct).rounded().formatted(.number.precision(.fractionLength(0)))
+        return pct > 0 ? "±\(s)%" : pct < 0 ? "−\(s)%" : "\(s)%"
     }
 }

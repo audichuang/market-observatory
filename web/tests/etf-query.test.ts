@@ -3,24 +3,34 @@ import { test } from "node:test";
 import { DEFAULT_PLAN, PlanSchema, etfsView } from "../src/server/views.ts";
 import { migratedDb } from "./helpers/fake-cloudflare.ts";
 
-test("資金類型只影響呈現，同一使用者切換時定投數字不變", async () => {
+test("資金類型在共用快取外解析，不同使用者與切換查詢時定投數字不變", async () => {
   const { db, sql } = await migratedDb();
+  const originalCaches = Object.getOwnPropertyDescriptor(globalThis, "caches");
+  const cached = new Map<string, Response>();
+  let hits = 0;
+  Object.defineProperty(globalThis, "caches", { configurable: true, value: { default: {
+    match: async (key: string) => { const response = cached.get(key); if (response) hits++; return response?.clone(); },
+    put: async (key: string, response: Response) => { cached.set(key, response.clone()); },
+  } } });
   try {
     const price = sql.prepare("INSERT INTO prices (symbol, date, close, source, fetched_at) VALUES (?, ?, ?, 'test', '2040-02-02')");
     for (const [i, date] of ["2037-02-02", "2040-01-16", "2040-02-02"].entries()) {
       for (const symbol of ["SPX", "VOO", "USDTWD"]) price.run(symbol, date, symbol === "USDTWD" ? 31 : 100 + i * 20);
     }
-    const viewer = { id: "funding-query", email: "etf@example.test", name: "", isOwner: false };
     const results = [];
-    for (const funding of [undefined, "lump", "xyz"]) {
+    for (const [id, funding] of [["funding-a", "lump"], ["funding-b", undefined], ["funding-a", "xyz"], ["funding-a", "lump"]] as const) {
+      const viewer = { id, email: "etf@example.test", name: "", isOwner: false };
       const query = new URLSearchParams(funding ? { funding } : {});
       results.push(await etfsView({ env: { DB: db }, req: { query: (key) => query.get(key) ?? undefined, url: `http://localhost/etfs?${query}` } }, viewer));
     }
+    assert.equal(cached.size, 1, "不同資金類型須寫入同一份行情快取，不能略過快取路徑");
+    assert.equal(hits, 3, "後續請求須確實命中第一位使用者建立的共用快取");
     assert.ok(results[0].dca, "合成價格須產生實際試算，避免只比對 null");
-    assert.deepEqual(results.map((data) => data.funding), ["monthly", "lump", "monthly"]);
-    assert.deepEqual(results[1].dca, results[0].dca);
-    assert.deepEqual(results[2].dca, results[0].dca);
+    assert.deepEqual(results.map((data) => data.funding), ["lump", "monthly", "monthly", "lump"]);
+    for (const result of results.slice(1)) assert.deepEqual(result.dca, results[0].dca);
   } finally {
+    if (originalCaches) Object.defineProperty(globalThis, "caches", originalCaches);
+    else Reflect.deleteProperty(globalThis, "caches");
     sql.close();
   }
 });

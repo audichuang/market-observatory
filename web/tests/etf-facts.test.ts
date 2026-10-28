@@ -32,7 +32,7 @@ test("ETFS 每檔 facts 存在、domicile 非空、sourceUrl 以 https:// 開頭
     assert.ok(facts, `${etf.ticker} facts 必須存在`);
     assert.ok(typeof facts.domicile === "string" && facts.domicile.length > 0, `${etf.ticker} domicile 必須非空`);
     assert.ok(typeof facts.sourceUrl === "string" && facts.sourceUrl.startsWith("https://"), `${etf.ticker} sourceUrl 必須以 https:// 開頭`);
-    assert.ok(!isNaN(Date.parse(facts.checkedAt)), `${etf.ticker} checkedAt 必須為合法 ISO 日期`);
+    assert.ok(/^\d{4}-\d{2}-\d{2}$/.test(facts.checkedAt) && new Date(facts.checkedAt + "T00:00:00Z").toISOString().slice(0, 10) === facts.checkedAt, `${etf.ticker} checkedAt 必須為合法 ISO 日期 YYYY-MM-DD`);
   }
 });
 

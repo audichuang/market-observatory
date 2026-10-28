@@ -257,6 +257,38 @@ test("成本 issue 的網址重建表單，切標的、期間、月額與資金�
   }
 });
 
+test("同頁導覽會同步成本 issue 的查詢、返回合法值與清除，重新渲染保留未送出的編輯", () => {
+  const valid = costs();
+  const ui = pageWithAction(undefined, { costScenario: valid });
+  const input = (rendered: unknown, name: string) => {
+    const field = nodes(rendered).find((n) => n.type === "input" && n.props.name === name);
+    assert.ok(field, name);
+    return field;
+  };
+  let rendered = ui.render();
+  assert.equal(input(rendered, "costFee").props.value, "0.1");
+  (input(rendered, "costFee").props.onChange as Function)({ target: { value: "0.2" } });
+  assert.equal(input(ui.render(), "costFee").props.value, "0.2", "相同 props 的渲染不應覆蓋尚未送出的編輯");
+
+  for (const fee of ["9", "8"]) {
+    const query = { costFee: fee, costFx: "0.7" };
+    const issue = parseCostQuery((key) => query[key as keyof typeof query]);
+    assert.ok(issue && "issue" in issue);
+    rendered = ui.render({ costScenario: issue }, query);
+    assert.equal(input(rendered, "costFee").props.value, fee, "issue 導覽必須更新表單，不能沿用上一頁的費率");
+    assert.equal(input(rendered, "costFx").props.value, "0.7");
+    assert.ok(nodes(rendered).some((n) => n.props.role === "alert" && pageText(n) === issue.issue));
+    (input(rendered, "costFee").props.onChange as Function)({ target: { value: "0.3" } });
+    assert.equal(input(ui.render(), "costFee").props.value, "0.3");
+  }
+
+  rendered = ui.render({ costScenario: valid }, { costFee: "0.1", costFx: "0.5" });
+  assert.equal(input(rendered, "costFee").props.value, "0.1", "返回合法情境時恢復該次假設");
+  rendered = ui.render({ costScenario: null }, {});
+  assert.equal(input(rendered, "costFee").props.value, "0", "清除情境後表單也要重設");
+  assert.equal(input(rendered, "costFx").props.value, "0");
+});
+
 test("成本之後的稅務面板以兩份可展開清單呈現 API 文字、來源日期與 footer，不收金額", () => {
   const rendered = pageWithAction(undefined, { checklists: TAX_CHECKLISTS }).render();
   const panels = nodes(rendered).filter((n) => n.props.className === "panel section");

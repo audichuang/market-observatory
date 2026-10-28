@@ -1,5 +1,6 @@
 import { Link, useRouter } from "@void/react";
 import LineChart from "../src/ui/LineChart.tsx";
+import ResearchPanel from "../src/ui/ResearchPanel.tsx";
 import { REST_LABEL, REST_LABEL_SHORT } from "../src/lib/snapshot.ts";
 import { Delta } from "../src/ui/bits.tsx";
 import { num } from "../src/ui/format.ts";
@@ -52,6 +53,8 @@ export default function HistoryPage({ symbol, watch, months, ranges, symbols, pr
           ]}
         />
       </div>
+
+      {watch.includes(symbol) && <ResearchPanel company={label} ticker={symbol} />}
 
       <div className="panel section">
         <div className="head-row">

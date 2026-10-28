@@ -34,3 +34,13 @@ Preconditions:
 - 圖是 canvas（TradingView Lightweight Charts），DOM 裡沒有線，只能用截圖判斷，數字用統計卡片比。
 - 本機只回補了 60 天快照：近 40 日貢獻圖有資料；更早日子的名單貢獻沒有（價格有十年）。
 - App 的區間標籤要讀成「1 個月」而不是「1 月」（C2 曾經的 fail）。
+
+## 研究表與原始資料（網頁，L6-T5）
+
+- `history-research`：主圖後只在 `watch.includes(symbol)` 時顯示「研究表與原始資料」；SPX、VIX、RSP 與 ETF 不顯示。沿用走勢頁資料，不改 API，也沒有輸入框或儲存。
+- 入口：登入測試帳號後，從名單點 NVIDIA 的「走勢」，或開 `/history?symbol=NVDA`。確認面板在主圖下、相對報酬圖上；「SEC EDGAR 申報清單」另開 NVIDIA CORP 申報清單，「公司投資人關係（IR）」另開 `https://investor.nvidia.com/`；兩者均有 `target="_blank" rel="noreferrer"`。
+- 展開 `summary:text-is("研究表範本（7 題）")`，依序看到企業驅動、盈餘假設、與共識的差異、估值敏感度、下一個核對事件、反證、論點失效條件；底部有「這張表只整理研究問題，不是評等、目標價或買賣建議；本站不保存你填的內容。」。
+- 複製：整頁導覽後先依 verify 的 Drive 等 hydrate，再點 `button:text-is("複製範本")`，看到「已複製，可貼到你自己的筆記保存」。讀剪貼簿前先 `page.cdp('Browser.grantPermissions', {permissions:['clipboardReadWrite']})`；比對 `researchTemplate({company: 'NVIDIA', ticker: 'NVDA', date: 裝置點擊當下的本地日期})`，包含每題後空行，結尾不換行。不讀剪貼簿時逐題比對展開文字；模擬 `navigator.clipboard.writeText` 回傳 rejected Promise 後重點，確認顯示「無法複製，請手動選取上方文字」。
+- 隱藏與未收錄 IR：依序開 `/history?symbol=SPX`、`/history?symbol=VIX`、`/history?symbol=RSP`、`/history?symbol=VOO`，皆無研究面板。暫時把 AVGO 加入測試帳號名單後，開 `/history?symbol=AVGO`，只有 EDGAR 外連並顯示「這家公司未收錄 IR 網址；可從 EDGAR 的年報（10-K）找到公司網站。」；複製文字也省略「公司 IR」行。測完移除 AVGO 並確認名單還原。
+- Proof：`history-research-nvda.png`（主圖與面板位置）、`history-research-expanded.png`（七題）、`history-research-copied.png`／`history-research-copy-failed.png`（結果提示）、剪貼簿文字（可讀時）、兩個外連的落地頁截圖、非公司標的無面板的截圖、`history-research-avgo.png` 與名單還原的讀回證據。
+- Gotchas：EDGAR 用內部連字號 `BRK-B`，不可轉成 `BRK.B`；SEC 會擋 curl，外連落地頁只能用瀏覽器驗。IR 只收錄預設七家在 2026-10-28 核對過的網址。剪貼簿需 https 或 localhost；日期只在點擊時計算，SSR 不輸出日期。

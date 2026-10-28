@@ -1,6 +1,6 @@
 {
   "outlook": {
-    "modelVersion": "2026-10-l01",
+    "modelVersion": "2026-10-g09r1",
     "asOf": "2026-10-28",
     "horizonDays": 21,
     "regime": {
@@ -85,6 +85,18 @@
         "bssLow": null,
         "validReplicates": 0,
         "passed": false
+      },
+      "gate": {
+        "globalBssLow": null,
+        "nEff": 32.38095238095238,
+        "episodes": 1,
+        "failed": [
+          "a-global-bss",
+          "a-episodes",
+          "b-cell-rows",
+          "c-cell-runs",
+          "d-cell-bss"
+        ]
       },
       "scored": false
     },

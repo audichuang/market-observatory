@@ -560,7 +560,7 @@ export async function recordForecast(db: D1Database): Promise<ForecastRecord> {
           vixDate: S, vix: vixToday, spxCheck: status, recordedLagSessions: lag,
           cellGate: outlook.cellGate,
           assessments: outlook.assessments,
-          drawdown: { p: outlook.drawdown.pick.p, base: outlook.drawdown.pick.base.p, scored: outlook.drawdown.scored, cellGate: outlook.drawdown.cellGate },
+          drawdown: { p: outlook.drawdown.pick.p, base: outlook.drawdown.pick.base.p, scored: outlook.drawdown.scored, cellGate: outlook.drawdown.cellGate, gate: outlook.drawdown.gate },
         }),
       )
       .run();

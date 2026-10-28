@@ -59,6 +59,8 @@ test("同一交易日第二次寫入不覆蓋；新欄位都有值", async () =>
   assert.equal(detail.drawdown.base, outlook.drawdown.pick.base.p);
   assert.equal(detail.drawdown.scored, outlook.drawdown.scored);
   assert.deepEqual(detail.drawdown.cellGate, outlook.drawdown.cellGate);
+  assert.ok(detail.drawdown.gate);
+  assert.deepEqual(detail.drawdown.gate, outlook.drawdown.gate);
   const view = await outlookView({ env: { DB: db }, req: { query: () => undefined, url: "http://x/outlook" } });
   assert.ok(view.outlook!.drawdown.pick && view.outlook!.returnQuantiles.all);
 });

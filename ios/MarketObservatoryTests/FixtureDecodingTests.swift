@@ -47,6 +47,7 @@ struct FixtureDecodingTests {
         #expect(p.costScenario?.perBuy?.costPct != nil)
         #expect(p.overlap?.exposure != nil)
         let overlap = try #require(p.overlap)
+        #expect(overlap.weightsStale == nil)
         #expect(overlap.proxy == "SPY" && overlap.applicable == true)
         #expect(overlap.members?.first { $0.key == "GOOGL" }?.weightPct == 7.5)
         #expect(overlap.totalWeight == 34 && overlap.top10CompanyWeight == 36)
@@ -281,7 +282,7 @@ struct FixtureDecodingTests {
 
     @Test func overlapAllowsIssueAndMissingFields() throws {
         let empty = try API.decoder.decode(Overlap.self, from: Data("{}".utf8))
-        #expect(empty.members == nil && empty.exposure == nil && empty.notes == nil)
+        #expect(empty.members == nil && empty.exposure == nil && empty.notes == nil && empty.weightsStale == nil)
         let partial = try API.decoder.decode(Overlap.self, from: Data(#"{"members":[{}],"exposure":{"members":[{}]},"inputs":{}}"#.utf8))
         #expect(partial.members?.first?.key == nil && partial.members?.first?.weightPct == nil)
         #expect(partial.exposure?.members?.first?.combinedTwd == nil)
@@ -298,5 +299,14 @@ struct FixtureDecodingTests {
         let zero = try API.decoder.decode(Overlap.self, from: Data(#"{"exposure":{"members":[{"key":"NVDA","viaEtfTwd":0,"directTwd":0,"combinedTwd":0,"sharePct":null}],"totalTwd":0,"watchlistSharePct":null,"otherViaEtfTwd":0}}"#.utf8))
         #expect(zero.exposure?.totalTwd == 0 && zero.exposure?.watchlistSharePct == nil)
         #expect(zero.exposure?.members?.first?.combinedTwd == 0 && zero.exposure?.members?.first?.sharePct == nil)
+    }
+
+    @Test func overlapDecodesOptionalWeightsStale() throws {
+        let note = "權重未更新：最新 SPY 持股停在 2026-10-22，到 2026-10-28 已落後 4 個交易日（通常落後 1～2 個），成分與股數變動沒有反映"
+        let data = try JSONSerialization.data(withJSONObject: ["weightsStale": note])
+        let stale = try API.decoder.decode(Overlap.self, from: data)
+        #expect(stale.weightsStale == note)
+        let fresh = try API.decoder.decode(Overlap.self, from: Data(#"{"weightsStale":null}"#.utf8))
+        #expect(fresh.weightsStale == nil)
     }
 }

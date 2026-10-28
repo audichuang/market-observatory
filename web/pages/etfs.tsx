@@ -381,6 +381,7 @@ export default function EtfPage({ asOf, catalogAsOf, rows, periods, plan, sim, d
       <div className="panel section" id="watchlist-overlap" style={{ minWidth: 0, overflowWrap: "anywhere" }}>
         <h2>與觀察名單的重疊</h2>
         {overlap.notes.map((note) => <p className="meta" key={note}>{note}</p>)}
+        {overlap.weightsStale && <div className="notice warn">{overlap.weightsStale}</div>}
         <table style={{ tableLayout: "fixed" }}>
           <thead><tr><th style={{ whiteSpace: "normal" }}>公司</th><th style={{ whiteSpace: "normal" }}>代號</th><th style={{ whiteSpace: "normal", textAlign: "right" }}>指數權重</th></tr></thead>
           <tbody>

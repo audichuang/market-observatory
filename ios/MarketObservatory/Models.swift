@@ -841,6 +841,8 @@ struct Checklist: Decodable, Sendable, Identifiable {
 }
 
 struct Overlap: Decodable, Sendable {
+    let weightsStale: String?
+
     struct Member: Decodable, Sendable {
         let key: String?
         let company: String?

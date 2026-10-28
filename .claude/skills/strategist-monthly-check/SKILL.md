@@ -62,18 +62,25 @@ console.table(table.list.map(({ institution, firm, department, target, targetLow
 1. 查核日、範圍、程式版本、全表現況輸出與沿用的 stale 政策。
 2. 逐列表格：機構／部門、舊值與候選點位或區間、原文目標期間、首次調整日、發布／重申日、候選 asOf、結果、一手／二手、候選 verified／verifiedOn、stale／inMedian、證據定位。所有列都列出，未查列明記「未查」。
 3. 各列來源網址、實際讀到的段落短摘錄、來源衝突與未核實缺口；跨年候選另列阻擋原因，不放入可套用 diff。
-4. 針對 `web/src/lib/strategists.ts` 的候選 diff（沒有變更也明說），每個欄位能回連證據。conflict／unverified 列維持原值，列為待處理；未經使用者同意只把 diff 寫進報告，不改資料檔。
+4. 針對 `web/src/lib/strategists.ts` 的候選 diff（沒有變更也明說），每個欄位能回連證據。`web/tests/strategists.test.ts` 中釘住現有資料的斷言是資料快照：verified 名單、中位數、WFII 區間、stale／inMedian 等預期值，須依候選資料重算，把受影響的斷言 diff 一起列出供使用者同意；日期判定沿用測試固定的參考日期，不換成月檢當天。保留規則類斷言。conflict／unverified 列維持原值，列為待處理；未經使用者同意只把 diff 寫進報告，不改這兩個檔案。
 
 報告與候選 diff 交付後，取得使用者對具體變更的同意再進入下一步；沒有同意就停在報告完成。每一列都實際查過（含留下 conflict／unverified 證據的列）才可候選更新 `STRATEGIST_TARGETS_CHECKED` 為查核日；只查部分列或仍有「未查」就保留原日期。全表查核日不代表全表 verified。
 
 ## 5. 同意後套用與驗證
 
-只套用使用者同意的候選變更到 `web/src/lib/strategists.ts`，保留尚待釐清列；再按順序驗證：
+只套用使用者同意的候選變更到 `web/src/lib/strategists.ts` 與 `web/tests/strategists.test.ts` 的資料快照斷言，保留尚待釐清列與規則類斷言；再按順序驗證：
 
-1. 在 `web/` 跑 `node --test tests/strategists.test.ts`（入口：`web/tests/strategists.test.ts`）。失敗就查原因，先修本次資料問題，不繼續更新 fixture。
+1. 在 `web/` 跑 `node --test tests/strategists.test.ts`（入口：`web/tests/strategists.test.ts`）。只有規則類測試（一家一票、只算年底、45 天、區間中點等）失敗才停下回報，不繼續更新 fixture。資料快照仍有差異時，依已同意的 diff 與測試固定參考日期校正斷言，重跑至通過；不倒改已同意的資料或放寬規則來消除差異。
 2. 在 `web/` 跑 `node --test tests/api-contract.test.ts`（入口：`web/tests/api-contract.test.ts`）。若失敗，先看 assertion 與 fixture 差異；僅當差異只在本次策略師列及其衍生中位數／家數／全表查核日等策略師資料時，才跑 `MO_UPDATE_API_FIXTURES=1 node --test tests/api-contract.test.ts`。其他差異停下回報，不用更新掩蓋。
 3. 審閱 `ios/MarketObservatoryTests/Fixtures/generated/generated-outlook.json` 的 diff，確認只有核准的策略師資料；檢查整份 git diff，其他 generated fixture 不應變。再重跑不帶更新旗標的 API contract 測試。
-4. 跑 iOS `MarketObservatoryTests` 確認 Codable 解碼相容。此工作流程用 `/Users/audichuang/.local/state/mo-crew/ios-gate.sh <worktree> l7-skills` 取得共用鎖並執行測試、關機；不自行啟動或新增模擬器。若環境沒有此 gate，回報缺少的執行入口，不跳過驗證宣告完成。
-5. 依 `.claude/skills/verify/features/outlook.md` 的 `outlook-strategists`，在網頁與 App 開展望頁，核對點位／區間中點、日期、原文／二手標章、stale、inMedian、中位數、家數與全表核對日，留畫面及同帳號 API 證據。UI 取得模擬器須依當次工作流程的共用鎖與驗證規則；gate 單元測試不等於 UI 驗證。
+4. 跑 iOS `MarketObservatoryTests` 確認 Codable 解碼相容。模擬器依 `AGENTS.md` 與 `.claude/skills/verify/SKILL.md` 的 Launch：用 `ios-up.sh <run-id> 16-plus|18-pro-max` 重用既有 `MO iPhone 16 Plus` 或 `MO iPhone 18 Pro Max`，一次只開一台、不新增裝置。從本輪 `sim.udid` 取得 UDID，在 `ios/` 依 `ios/README.md` 執行：
+
+   ```sh
+   xcodebuild -project MarketObservatory.xcodeproj -scheme MarketObservatory \
+     -destination 'id=<模擬器 UDID>' -derivedDataPath build CODE_SIGNING_ALLOWED=NO \
+     -only-testing:MarketObservatoryTests test
+   ```
+
+5. 依 `.claude/skills/verify/features/outlook.md` 的 `outlook-strategists`，在網頁與 App 開展望頁，核對點位／區間中點、日期、原文／二手標章、stale、inMedian、中位數、家數與全表核對日，留畫面及同帳號 API 證據。App 沿用上一步的 MO 模擬器；iOS 單元測試不等於 UI 驗證。本輪結束（含失敗中斷）依 verify 的 Cleanup 跑 `down.sh <run-id>`，將本輪裝置關機並保留。
 
 把實際指令、結果與證據路徑補回報告，通過才回報套用完成。做不到的項目明寫「未驗證：缺什麼」；此流程不自行 commit、push 或發布。

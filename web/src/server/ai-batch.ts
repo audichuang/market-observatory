@@ -238,6 +238,19 @@ export async function importResults(db: Db, body: ImportBody): Promise<ImportRec
       rejected.push({ key: `digest:${d.key}:${d.date}`, reason: "格式不對" });
       continue;
     }
+    const snapshot = await db.prepare("SELECT trade_date FROM snapshots WHERE trade_date = ? LIMIT 1").bind(d.date).first();
+    if (!snapshot) {
+      rejected.push({ key: `digest:${d.key}:${d.date}`, reason: "日期不是交易日快照" });
+      continue;
+    }
+    const sources = await db.prepare("SELECT id, published_at FROM news WHERE id IN (SELECT value FROM json_each(?))")
+      .bind(JSON.stringify(d.newsIds)).all<Pick<NewsRow, "id" | "published_at">>();
+    const sourceDates = new Map(sources.results.map((n) => [n.id, n.published_at]));
+    const invalidSources = d.newsIds.filter((id) => sourceDates.get(id) !== d.date);
+    if (invalidSources.length) {
+      rejected.push({ key: `digest:${d.key}:${d.date}`, reason: `來源新聞不存在或日期不符：${invalidSources.join(",")}` });
+      continue;
+    }
     writes.push({ stmt: insert.bind(d.key, d.date, out.summary, out.tone, d.newsIds.join(","), newsFingerprint(d.newsIds), model, now), kind: "digests", key: `digest:${d.key}:${d.date}` });
   }
 

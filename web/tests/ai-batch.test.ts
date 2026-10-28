@@ -274,6 +274,70 @@ test("每日重點回執：新增與覆寫都依 D1 實際命中計一筆", asyn
   }
 });
 
+test("每日重點回執：來源新聞不存在就拒收整筆摘要", async () => {
+  const { db } = await seeded();
+  const r = await importResults(db, { digests: [{
+    key: "NVDA", date: D2, newsIds: ["nonexistent-source"], answer: { summary: "缺少來源的摘要", tone: "neutral" },
+  }] });
+  assert.equal(r.digests, 0);
+  assert.deepEqual(r.accepted, []);
+  assert.deepEqual(r.rejected, [{ key: `digest:NVDA:${D2}`, reason: "來源新聞不存在或日期不符：nonexistent-source" }]);
+});
+
+test("每日重點回執：日期格式合法且來源同日，沒有該日交易日快照仍拒收", async () => {
+  const { db, sql } = await seeded();
+  sql.prepare("UPDATE news SET published_at = ? WHERE id = 'n1'").run(D1);
+  const r = await importResults(db, { digests: [{
+    key: "NVDA", date: D1, newsIds: ["n1"], answer: { summary: "沒有快照的摘要", tone: "neutral" },
+  }] });
+  assert.equal(r.digests, 0);
+  assert.deepEqual(r.accepted, []);
+  assert.deepEqual(r.rejected, [{ key: `digest:NVDA:${D1}`, reason: "日期不是交易日快照" }]);
+});
+
+test("每日重點回執：來源有異日新聞就拒收整筆，列出所有不存在或異日的 ID", async () => {
+  const { db } = await seeded();
+  const r = await importResults(db, { digests: [{
+    key: "NVDA", date: D2, newsIds: ["n1", "old", "nonexistent-source"], answer: { summary: "混入異日來源的摘要", tone: "neutral" },
+  }] });
+  assert.equal(r.digests, 0);
+  assert.deepEqual(r.accepted, []);
+  assert.deepEqual(r.rejected, [{ key: `digest:NVDA:${D2}`, reason: "來源新聞不存在或日期不符：old,nonexistent-source" }]);
+});
+
+test("每日重點回執：所有來源都存在且同日就接受", async () => {
+  const { db } = await seeded();
+  const r = await importResults(db, { digests: [{
+    key: "NVDA", date: D2, newsIds: ["n1", "n2", "n3"], answer: { summary: "同日來源的摘要", tone: "neutral" },
+  }] });
+  assert.equal(r.digests, 1);
+  assert.deepEqual(r.accepted, [`digest:NVDA:${D2}`]);
+  assert.deepEqual(r.rejected, []);
+});
+
+test("每日重點回執：大盤沒有新聞來源仍可接受", async () => {
+  const { db } = await seeded();
+  const r = await importResults(db, { digests: [{
+    key: MARKET_KEY, date: D2, newsIds: [], answer: { summary: "依快照整理大盤表現", tone: "neutral" },
+  }] });
+  assert.equal(r.digests, 1);
+  assert.deepEqual(r.accepted, [`digest:SPX:${D2}`]);
+  assert.deepEqual(r.rejected, []);
+});
+
+test("管理 API：不存在的摘要來源回傳拒收，沒有寫進新聞摘要", async () => {
+  const { sql, request } = await adminApi();
+  const response = await request({ digests: [{
+    key: "NVDA", date: D2, newsIds: ["nonexistent-source"], answer: { summary: "不應顯示的摘要", tone: "neutral" },
+  }] });
+  assert.equal(response.status, 200);
+  const r = await response.json() as ImportReceipt;
+  assert.equal(r.digests, 0);
+  assert.deepEqual(r.accepted, []);
+  assert.deepEqual(r.rejected, [{ key: `digest:NVDA:${D2}`, reason: "來源新聞不存在或日期不符：nonexistent-source" }]);
+  assert.equal((sql.prepare("SELECT COUNT(*) AS n FROM news_digests").get() as { n: number }).n, 0);
+});
+
 test("管理 API：驗證 run 的種類、型別與長度上限，超限不寫入", async () => {
   const { sql, request } = await adminApi();
   const run = { id: "limit-test", kind: "daily", expected: [], missing: [], unavailable: [] };

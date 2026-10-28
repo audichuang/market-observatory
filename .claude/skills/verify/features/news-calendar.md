@@ -6,6 +6,7 @@
 
 - `news-digest-tone`（E9）：公司每日重點在公司名稱旁顯示「利多／利空／中性」，色條不朗讀；新聞篩選 chip 選中時帶 isSelected trait。
 - `news-digest-dates`（L2-T5）：App 每列公司重點顯示資料日。全部代號時，「今日重點 · M/D（週）」只列 `/api/v1/news.latestTradeDate` 當天的摘要，前 3 家直接顯示，其餘收在「其餘 N 家」；其他日期收在預設收合的「較早的重點」。後端沒給 `latestTradeDate` 時，全部改列單一「公司重點」中性段落；單股段落保留原結構並顯示日期。
+- `news-digest-import`（L2-T6）：摘要匯入日期必須有交易日快照，每個來源新聞 ID 都必須存在且發布日等於摘要日；不符者逐筆回傳 `rejected`，不寫入摘要。大盤摘要可沒有新聞來源；只檢查格式、來源與日期，不判斷語意。
 
 - `news-list`（E1）：標題、來源、時間。網頁與 App 都把 `important: true` 的新聞排前面，其餘收在「其他 N 則」：第一筆＝API `/api/v1/news` 的 `news` 裡**第一個 `important` 為 true** 的 `title`（不是 `news[0]`）。
 - `news-open`（E2）：點新聞開原文，回來時列表位置合理。
@@ -32,7 +33,8 @@ Preconditions:
 - **Proof。** `news-list.png`、`news-nvda.png`、API JSON、App 的 E3／E4／E5 截圖與 `.txt`。
 
 - **語氣與篩選無障礙（App）。** `test15_DigestToneLabels` 一般與最大字級各檢查 `news-digest-<symbol>` 的文字與利多／利空 staticTexts，並確認選中篩選 chip 的 `isSelected`；截圖 `E9-tone-normal`／`E9-tone-largest`。本機需有 `latestTradeDate` 當天、依 `keys` 排序的前 3 家名單公司 positive/negative 重點，日期須落在 API 近三天的摘要範圍，缺資料測試明確失敗。
-- **摘要資料日（L2-T5，App）。** 在本機用站長 `POST /api/admin/ai` 準備最新快照交易日 2 家、前一交易日另一家摘要，日期須落在 API 近三天的摘要範圍。讀 `/api/v1/news`，逐筆對照 `latestTradeDate` 與 `digests[].date`：「今日重點 · M/D（週）」只有最新日的 2 家；「較早的重點」初始收合，展開後只有前一日那家。每列（含單股篩選）有 `M/D（週）` 日期，最大字級不裁切，identifier 保持 `news-digest-<symbol>` 且 label 含利多／利空。另驗最新日沒有摘要時沒有今日段、全部在較早段；舊回應缺 `latestTradeDate` 時只有「公司重點」。留 `news-digest-dates-normal.png`／`news-digest-dates-largest.png`、展開較早段截圖及 API JSON；驗完還原本輪資料。
+- **摘要資料日（L2-T5，App）。** 在本機用站長 `POST /api/admin/ai` 準備最新快照交易日 2 家、前一交易日另一家摘要；兩日都須在本機 `snapshots.trade_date` 存在，`newsIds` 使用本機 `news` 實際存在且 `published_at` 等於摘要日的新聞 ID，日期須落在 API 近三天的摘要範圍。讀 `/api/v1/news`，逐筆對照 `latestTradeDate` 與 `digests[].date`：「今日重點 · M/D（週）」只有最新日的 2 家；「較早的重點」初始收合，展開後只有前一日那家。每列（含單股篩選）有 `M/D（週）` 日期，最大字級不裁切，identifier 保持 `news-digest-<symbol>` 且 label 含利多／利空。另驗最新日沒有摘要時沒有今日段、全部在較早段；舊回應缺 `latestTradeDate` 時只有「公司重點」。留 `news-digest-dates-normal.png`／`news-digest-dates-largest.png`、展開較早段截圖及 API JSON；驗完還原本輪資料。
+- **摘要匯入拒收（L2-T6）。** 本機站長送 `POST /api/admin/ai`：用存在的快照交易日搭配 `newsIds: ["nonexistent-source"]`，確認 `digests === 0`、`accepted` 為空，`rejected` 含 `digest:<key>:<date>` 與「來源新聞不存在或日期不符：nonexistent-source」；來源有異日新聞也拒收。日期格式合法卻沒有快照時回「日期不是交易日快照」。再驗同日有效來源可接受、大盤空 `newsIds` 可接受；讀 `/api/v1/news` 並看網頁與 App 新聞頁，拒收的摘要不能出現。保留請求、回執與讀回的 API JSON；成功案例驗完還原本輪資料。
 
 - App 一般及最大字級檢查新聞標題與事件列完整換行、摘要展開後可讀；大字月曆用「選擇日期」開啟原生 sheet，以單欄日期與事件標記選取，選完自動關閉並在原位置呈現當日事件。`test16_Readability` 檢查換月、回今天、選取事件日與關閉狀態；實看 `UI-<variant>-calendar-selected.png`，確認不用再捲過整月才能看到結果。
 - 新聞詳情使用大型原生 sheet 閱讀；`test16_Readability` 點一則新聞、捲到「開啟原文」、關閉回列表。截圖 `UI-<variant>-news-detail*.png` 檢查標題、段落、來源與原文入口。
@@ -40,6 +42,6 @@ Preconditions:
 
 ## Gotchas
 
-- 本機沒有翻譯與 AI 重點（那是本機 Orca 排程寫進正式站的），標題是英文；要驗 AI 文字的呈現（例如 iOS 的「今天為什麼漲跌」展開）要用正式站一次性帳號，或用站長 `POST /api/admin/ai` 在本機寫一筆。
+- 本機沒有翻譯與 AI 重點（那是本機 Orca 排程寫進正式站的），標題是英文；要驗 AI 文字的呈現（例如 iOS 的「今天為什麼漲跌」展開）要用正式站一次性帳號，或用站長 `POST /api/admin/ai` 在本機寫一筆。摘要日期須有本機交易日快照，`newsIds` 須是本機實際存在、發布日相同的新聞。要驗「缺來源」的舊格式摘要，只能直接寫入本機 D1，API 會拒收；驗完還原，不能寫進正式站。
 - FOMC、CPI、非農日期是 `src/lib/calendar.ts` 人工維護的靜態資料（聯準會與 BLS 官方日程頁抄入，BLS 頁面對 curl 回 403）；`events` 排程的摘要是「總經事件 N 筆（FOMC a、CPI b、非農 c）」；財報日來自 Nasdaq／Zacks，本機跑 `daily-reference` 當天抓到的才有。
 - 點新聞會開外部網頁；ego-browser 會出現 popup，驗完關掉那個 Page。

@@ -48,12 +48,16 @@ type OutlookData = NonNullable<Props["outlook"]>;
 const bssRange = (ev: Evaluation) => (ev.bssLow === null ? "—" : `${f3(ev.bssLow)}～${f3(ev.bssHigh)}`);
 
 /** 一個目標的整體滾動驗證 BSS（標明目標，避免把上漲模型的數字當成 dd5 的）。 */
-function BssKpi({ label, ev }: { label: string; ev: Evaluation }) {
+function BssKpi({ label, ev, summary, target, purpose }: { label: string; ev: Evaluation; summary: Props["phaseSummary"]; target: "up" | "dd5"; purpose: string }) {
+  const phase = summary?.[target];
   return (
     <div className="panel kpi">
       <div className="label">{label}</div>
-      <div className="value" style={{ fontSize: "1.15rem" }}>{f3(ev.bss)}</div>
-      <div className="delta sub">{SKILL_INTERVAL} {bssRange(ev)}</div>
+      <div className="value" style={{ fontSize: "1.15rem" }}>{f3(phase ? phase.mean : ev.bss)}</div>
+      {phase && summary ? (
+        <div className="delta sub">相位平均（{summary.phases} 個起始相位）{SKILL_INTERVAL} {f3(phase.low)}～{f3(phase.high)} · 資料截至 {summary.asOf} · 模型 {summary.modelVersion}</div>
+      ) : <div className="delta sub">相位平均尚未計算</div>}
+      <div className="meta">單一相位（offset 0）{f3(ev.bss)}（{SKILL_INTERVAL} {bssRange(ev)}）· {purpose}</div>
     </div>
   );
 }
@@ -63,6 +67,7 @@ function WalkForwardPanel({ title, target, ev, horizon }: { title: string; targe
   return (
     <div className="panel">
       <h2>{title}</h2>
+      <p className="sub">單一相位（offset 0）</p>
       <p className="sub">
         {target}從 {ev.firstDate ?? "—"} 到 {ev.lastDate ?? "—"}，每 {horizon} 個交易日預測一次（共 {ev.points} 次），每次只用當下已知的資料。
       </p>
@@ -80,7 +85,7 @@ function WalkForwardPanel({ title, target, ev, horizon }: { title: string; targe
   );
 }
 
-function ForecastBlock({ outlook, cells, horizon, minN, minEpisodes, trackPanel, frequency }: { outlook: OutlookData; cells: Props["cells"]; horizon: number; minN: number; minEpisodes: number; trackPanel: ReactNode; frequency: Props["frequency"] }) {
+function ForecastBlock({ outlook, cells, horizon, minN, minEpisodes, trackPanel, frequency, phaseSummary }: { outlook: OutlookData; cells: Props["cells"]; horizon: number; minN: number; minEpisodes: number; trackPanel: ReactNode; frequency: Props["frequency"]; phaseSummary: Props["phaseSummary"] }) {
   const { pick, evaluation: ev } = outlook;
   const [cls, baseLabel, why] = FORECAST_CALL[outlook.call];
   // G08：沒有方向時註明最小可偵測 BSS（標準差為 0 則不寫數字）。
@@ -165,8 +170,8 @@ function ForecastBlock({ outlook, cells, horizon, minN, minEpisodes, trackPanel,
       <div className="value" style={{ fontSize: "1.15rem" }}>{num(outlook.vix)}</div>
       <div className="delta sub">{outlook.regime.vixStress ? "≥ 30（恐慌區）" : "< 30"}</div>
     </div>
-    <BssKpi label="跌幅機率（dd5）滾動驗證 BSS" ev={outlook.drawdown.evaluation} />
-    <BssKpi label="上漲機率滾動驗證 BSS" ev={ev} />
+    <BssKpi label="跌幅機率（dd5）滾動驗證 BSS" ev={outlook.drawdown.evaluation} summary={phaseSummary} target="dd5" purpose="『已計分』判定用這個" />
+    <BssKpi label="上漲機率滾動驗證 BSS" ev={ev} summary={phaseSummary} target="up" purpose="方向判定用這個" />
   </div>
 
   <div className="panel section">
@@ -204,7 +209,7 @@ function ForecastBlock({ outlook, cells, horizon, minN, minEpisodes, trackPanel,
   );
 }
 
-export default function OutlookPage({ outlook, cells, liveTrack, frequency, recent, consensus, strategists, factset, horizon, minN, minEpisodes }: Props) {
+export default function OutlookPage({ outlook, cells, liveTrack, frequency, recent, consensus, strategists, factset, horizon, minN, minEpisodes, phaseSummary }: Props) {
   const trackPanel = (
     <div className="panel">
       <h2>上線後實際紀錄：上漲機率 <span className="meta">（合併所有已發布的模型版本；每列以紀錄日收盤為起點）</span></h2>
@@ -250,7 +255,7 @@ export default function OutlookPage({ outlook, cells, liveTrack, frequency, rece
         </>
       ) : (
         <>
-          <ForecastBlock outlook={outlook} cells={cells} horizon={horizon} minN={minN} minEpisodes={minEpisodes} trackPanel={trackPanel} frequency={frequency} />
+          <ForecastBlock outlook={outlook} cells={cells} horizon={horizon} minN={minN} minEpisodes={minEpisodes} trackPanel={trackPanel} frequency={frequency} phaseSummary={phaseSummary} />
         </>
       )}
 

@@ -28,6 +28,7 @@ struct FixtureDecodingTests {
     @Test func generatedOutlook() throws {
         let p = try decodeFixture("generated-outlook", as: OutlookPage.self)
         #expect(p.outlook?.drawdown != nil)
+        #expect(p.phaseSummary?.dd5?.mean != nil)
         #expect(p.strategists?.staleAfterDays == 45)
         #expect(p.strategists?.list.contains { $0.targetLow != nil && $0.verifiedOn != nil } == true)
     }
@@ -59,6 +60,14 @@ struct FixtureDecodingTests {
         #expect(p.outlook?.drawdown == nil)
         #expect(p.outlook?.assessments == nil)
         #expect(p.liveTrack == nil)
+        #expect(p.phaseSummary == nil)
+    }
+
+    @Test func partialPhaseSummary() throws {
+        let json = #"{"up":{},"dd5":{"cycles":{}}}"#
+        let summary = try API.decoder.decode(OutlookPage.PhaseSummary.self, from: Data(json.utf8))
+        #expect(summary.asOf == nil && summary.modelVersion == nil && summary.computedAt == nil)
+        #expect(summary.phases == nil && summary.up?.mean == nil && summary.dd5?.cycles?.total == nil)
     }
 
     @Test func outlookL01() throws {

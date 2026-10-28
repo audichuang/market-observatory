@@ -624,7 +624,32 @@ struct OutlookPage: Decodable, Sendable {
         let staleAfterDays: Int?
     }
 
+    struct PhaseSummary: Decodable, Sendable {
+        struct Target: Decodable, Sendable {
+            struct Cycles: Decodable, Sendable {
+                let total: Int?
+                let used: Int?
+                let dropped: Int?
+            }
+
+            let mean: Double?
+            let low: Double?
+            let high: Double?
+            let min: Double?
+            let max: Double?
+            let cycles: Cycles?
+        }
+
+        let asOf: String?
+        let modelVersion: String?
+        let computedAt: String?
+        let phases: Int?
+        let up: Target?
+        let dd5: Target?
+    }
+
     let outlook: Outlook?
+    let phaseSummary: PhaseSummary?
     let cells: [Cell]
     let track: Track?
     let liveTrack: LiveTrack?

@@ -3,10 +3,11 @@ import { addDays } from "../lib/calendar.ts";
 import { frequencySentences, liveTrackOf } from "../lib/communication.ts";
 import { aggregateConsensus, type ViewRow } from "../lib/consensus.ts";
 import { HORIZON, MIN_EFFECTIVE_N, MIN_EPISODES, buildObservations, buildOutlook, conditionalRate, type Rate, type Regime } from "../lib/forecast.ts";
+import type { PhaseSummary } from "../lib/forecast-eval.ts";
 import { FACTSET_EARNINGS_INSIGHT_URL, REUTERS_POLL, STRATEGIST_TARGETS, STRATEGIST_TARGETS_CHECKED, strategistTable } from "../lib/strategists.ts";
 import { INDEX_SYMBOL, VIX_SYMBOL } from "../lib/universe.ts";
 import type { FactsetInsight } from "../lib/sources/factset.ts";
-import { FACTSET_HISTORY_KEY } from "./jobs.ts";
+import { FACTSET_HISTORY_KEY, FORECAST_PHASE_KEY } from "./jobs.ts";
 import { cachedPage, readDb } from "./page-cache.ts";
 import { getSetting, loadPrices } from "./repo.ts";
 import { type ViewCtx, exec } from "./views.ts";
@@ -91,6 +92,7 @@ export async function outlookView(c: ViewCtx) {
     const close = outlook?.close ?? lastSpx?.close ?? null;
     return {
       outlook,
+      phaseSummary: await getSetting<(PhaseSummary & { computedAt: string }) | null>(db, FORECAST_PHASE_KEY, null),
       cells,
       track,
       liveTrack,

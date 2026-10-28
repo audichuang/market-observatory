@@ -456,11 +456,11 @@ struct OutlookView: View {
                 // Two targets, two labelled blocks: o.evaluation is the up model, drawdown.evaluation is dd5.
                 if let ev = o.drawdown?.evaluation {
                     evaluationSection(ev, horizon: p.horizon, title: "滾動驗證：跌幅機率（dd5）",
-                                      target: "目標：\(Copy.dd5Definition(horizon: p.horizon))。", showHitRate: false)
+                                      target: "目標：\(Copy.dd5Definition(horizon: p.horizon))。", showHitRate: false, phase: p.phaseSummary?.dd5)
                 }
                 if let ev = o.evaluation {
                     evaluationSection(ev, horizon: p.horizon, title: "滾動驗證：上漲機率",
-                                      target: "目標：\(Copy.upTargetLabel(horizon: p.horizon))。", showHitRate: true)
+                                      target: "目標：\(Copy.upTargetLabel(horizon: p.horizon))。", showHitRate: true, phase: p.phaseSummary?.up)
                 }
                 forecastSection(p)
             } else {
@@ -581,9 +581,16 @@ struct OutlookView: View {
     }
 
     /// One walk-forward block per target. Hit-rate rows only make sense for the up model ("always guess up").
-    private func evaluationSection(_ ev: OutlookPage.Outlook.Evaluation, horizon: Int, title: String, target: String, showHitRate: Bool) -> some View {
+    private func evaluationSection(_ ev: OutlookPage.Outlook.Evaluation, horizon: Int, title: String, target: String, showHitRate: Bool, phase: OutlookPage.PhaseSummary.Target?) -> some View {
         Section {
             DisclosureGroup(title) {
+            if let phase, let summary = state.value?.phaseSummary {
+                LabeledContent("相位平均（\(summary.phases.map { String($0) } ?? "—") 個起始相位）", value: Fmt.num(phase.mean, 3))
+                Text("\(Self.skillInterval) \(Fmt.num(phase.low, 3))～\(Fmt.num(phase.high, 3)) · 資料截至 \(summary.asOf ?? "—") · 模型 \(summary.modelVersion ?? "—")")
+                    .font(.footnote).foregroundStyle(.secondary)
+            } else {
+                Text("相位平均尚未計算").font(.footnote).foregroundStyle(.secondary)
+            }
             Text("\(target)\(ev.firstDate.map(Fmt.fullDate) ?? "—")～\(ev.lastDate.map(Fmt.fullDate) ?? "—")，每 \(horizon) 個交易日預測一次（共 \(ev.points) 次）")
                 .font(.footnote).foregroundStyle(.secondary)
             if showHitRate {
@@ -592,7 +599,7 @@ struct OutlookView: View {
             }
             LabeledContent("Brier（越低越好）", value: Fmt.num(ev.brier, 4))
             LabeledContent("只用基準率的 Brier", value: Fmt.num(ev.brierBase, 4))
-            LabeledContent("BSS") {
+            LabeledContent("BSS（單一相位 offset 0）") {
                 VStack(alignment: .trailing, spacing: 1) {
                     Text(Fmt.num(ev.bss, 3)).monospacedDigit()
                 Text("\(Self.skillInterval) \(Fmt.num(ev.bssLow, 3))～\(Fmt.num(ev.bssHigh, 3))").font(.footnote).foregroundStyle(.secondary)

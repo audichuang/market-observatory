@@ -93,6 +93,12 @@ test("名單滿上限時，五支排程各自一次執行都不超過額度、�
   for (const file of ["daily-reference", "prices", "crosscheck", "retry", "news"]) {
     const r = await invokeCron(file, db, sql);
     assertWithinLimit(file, r);
+    if (file === "crosscheck") {
+      const phase = r.runs.find((run) => run.job === "forecast-phase");
+      assert.ok(phase, "crosscheck 排程須執行展望相位平均");
+      assert.equal(phase.status, "ok", phase.summary);
+      assert.equal(JSON.parse(phase.detail).subrequests, 0);
+    }
     t.diagnostic(`${file}：${r.requests} 個請求，同時最多 ${r.maxInFlight} 個；${r.runs.map((x) => `${x.job}=${x.status}`).join("、")}`);
     for (const run of r.runs) {
       // weights（SSGA xlsx）與 factset（PDF）在假網路裡刻意回壞資料，只看請求數；其餘工作要成功。

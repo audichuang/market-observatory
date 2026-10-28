@@ -137,6 +137,36 @@
       "目前條件下的上漲比例，信賴區間包含歷史基準率（或樣本不足），看不出差別"
     ]
   },
+  "phaseSummary": {
+    "asOf": "2026-10-28",
+    "modelVersion": "2026-10-l01",
+    "computedAt": "2026-10-28T23:00:00.000Z",
+    "phases": 21,
+    "up": {
+      "mean": -0.012,
+      "low": -0.03,
+      "high": 0.01,
+      "min": -0.04,
+      "max": 0.02,
+      "cycles": {
+        "total": 9,
+        "used": 7,
+        "dropped": 2
+      }
+    },
+    "dd5": {
+      "mean": 0.025,
+      "low": 0.005,
+      "high": 0.045,
+      "min": -0.01,
+      "max": 0.06,
+      "cycles": {
+        "total": 9,
+        "used": 7,
+        "dropped": 2
+      }
+    }
+  },
   "cells": [
     {
       "label": "全部（基準率）",

@@ -15,14 +15,35 @@ async function splitDb(days: string[]) {
   return { db, sql };
 }
 
-function refetch(t: TestContext, days: string[]) {
+function refetch(t: TestContext, days: string[], conflict?: string) {
   const upstream = new FakeUpstream();
-  const result = chartResult("QAA", days, true);
-  result.indicators.quote[0].close = days.map(() => 10);
+  const result = chartResult("QAA", conflict ? [...days, conflict] : days, true);
+  result.indicators.quote[0].close = conflict ? [...days.map(() => 10), 11] : days.map(() => 10);
   upstream.rules = [(url) => url.host === "query1.finance.yahoo.com" && url.pathname === "/v8/finance/chart/QAA" && url.searchParams.get("range") === "10y"
     ? Response.json({ chart: { result: [result], error: null } })
     : null];
   t.after(upstream.install());
+}
+
+for (const conflict of [false, true]) {
+  test(`分割重抓中段${conflict ? "衝突遭拒收" : "缺日"}：保留全部原價與待修，summary 說明缺少日期`, async (t) => {
+    const days = weekdays(7);
+    const missing = days[3];
+    const { db, sql } = await splitDb(days);
+    refetch(t, conflict ? days : days.filter((date) => date !== missing), conflict ? missing : undefined);
+
+    const result = await runJob(db, "prices", "test");
+    const pending = JSON.parse((sql.prepare("SELECT value FROM settings WHERE key = 'pending_rebase'").get() as { value: string }).value);
+    assert.deepEqual(pending, { QAA: 2 });
+    const prices = sql.prepare("SELECT date, close FROM prices WHERE symbol = 'QAA' ORDER BY date").all();
+    assert.deepEqual(prices.map((row) => ({ ...row })), days.map((date) => ({ date, close: 20 })));
+    assert.equal(result.status, "partial");
+    assert.match(result.summary, /QAA.*重抓缺少已存日期/);
+    assert.ok(result.summary.includes(missing), result.summary);
+    const recorded = sql.prepare("SELECT summary FROM runs WHERE id = ?").get(result.id) as { summary: string };
+    assert.equal(recorded.summary, result.summary);
+    t.diagnostic(`QAA：pending=${JSON.stringify(pending)}；close=${prices.map((row) => row.close).join(",")}；${result.summary}`);
+  });
 }
 
 test("分割重抓只回最後一天：保留待修與四天原價，拒絕混用基準", async (t) => {

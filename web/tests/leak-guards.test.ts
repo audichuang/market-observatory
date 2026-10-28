@@ -36,7 +36,7 @@ test("資料來源頁的 loader 不送 detail、不含 email，trigger 只剩 cr
   assert.ok(!json.includes("detail"), json);
 });
 
-test("資料來源頁命中快取後，AI 匯入未 bump data_version 仍立即反映 D1 狀態", async (t) => {
+test("資料來源頁命中快取後，AI 匯入未 bump data_version 仍立即反映 D1 狀態與執行紀錄", async (t) => {
   const { db, sql } = await migratedDb();
   const original = Object.getOwnPropertyDescriptor(globalThis, "caches");
   const stored = new Map<string, Response>();
@@ -47,14 +47,22 @@ test("資料來源頁命中快取後，AI 匯入未 bump data_version 仍立即�
   } } });
   t.after(() => { if (original) Object.defineProperty(globalThis, "caches", original); else Reflect.deleteProperty(globalThis, "caches"); });
   const { loader } = await import("../pages/sources.server.ts");
-  const load = loader as unknown as (c: unknown) => Promise<{ ai: { daily: { lastRun: { status: string; summary: string } | null } } }>;
+  const load = loader as unknown as (c: unknown) => Promise<{ runs: Record<string, unknown>[]; ai: { daily: { lastRun: { status: string; summary: string } | null } } }>;
   const ctx = { env: { DB: db } };
-  assert.equal((await load(ctx)).ai.daily.lastRun, null);
+  const before = await load(ctx);
+  assert.equal(before.ai.daily.lastRun, null);
+  assert.deepEqual(before.runs, []);
   await importResults(db, { run: { id: "cached-page-partial", kind: "daily", expected: ["points:missing"], missing: ["points:missing"], unavailable: [] } });
+  await importResults(db, { run: { id: "cached-page-translate", kind: "translate", expected: ["missing"], missing: ["missing"], unavailable: [] } });
   const out = await load(ctx);
   assert.equal(hits, 1, "第二次確實從相同版本的頁面快取讀取");
   assert.equal(out.ai.daily.lastRun?.status, "failed");
   assert.equal(out.ai.daily.lastRun?.summary, "預期 1、寫入 0、缺答案 1、拒收 0、正文取不到 0");
+  assert.deepEqual(out.runs.map(({ job, trigger, status, summary }) => ({ job, trigger, status, summary })), [
+    { job: "ai-translate", trigger: "local", status: "failed", summary: "預期 1、寫入 0、缺答案 1、拒收 0、正文取不到 0" },
+    { job: "ai-daily", trigger: "local", status: "failed", summary: "預期 1、寫入 0、缺答案 1、拒收 0、正文取不到 0" },
+  ]);
+  assert.doesNotMatch(JSON.stringify(out.runs), /detail|ai-batch|@|stack/);
   assert.equal(sql.prepare("SELECT value FROM settings WHERE key = 'data_version'").get(), undefined);
 });
 

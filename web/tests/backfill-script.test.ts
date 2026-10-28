@@ -5,8 +5,9 @@ import { createServer } from "node:http";
 import { join } from "node:path";
 import { test } from "node:test";
 
-async function runScript(args: string[], history: object) {
+async function runScript(args: string[], history: object | object[]) {
   const jobs: string[] = [];
+  let historyCalls = 0;
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? "/", "http://x");
     if (url.pathname === "/api/auth/sign-in/email") {
@@ -15,7 +16,9 @@ async function runScript(args: string[], history: object) {
     }
     const job = url.searchParams.get("job") ?? "";
     jobs.push(job);
-    const body = job === "backfill-index-history" ? history : { status: "ok", summary: "第 1/1 段" };
+    const body = job === "backfill-index-history"
+      ? Array.isArray(history) ? history[historyCalls++] : history
+      : { status: "ok", summary: "第 1/1 段" };
     res.setHeader("content-type", "application/json");
     res.end(JSON.stringify(body));
   });
@@ -32,7 +35,22 @@ async function runScript(args: string[], history: object) {
   return { code, jobs, out };
 }
 
-const SPX_SKIPPED = { status: "partial", summary: "SPX 重疊不足，略過 SPX", detail: { remaining: { SPX: 340, VIX: 0 }, inserted: { SPX: 0, VIX: 0 } } };
+const SPX_SKIPPED = { status: "partial", summary: "SPX 重疊不足，略過 SPX", detail: { remaining: { SPX: 340, VIX: 0 }, inserted: { SPX: 0, VIX: 0 }, overlapCompared: 19, overlapMismatches: 0 } };
+
+for (const args of [[], ["--history-only"]]) {
+  test(`${args[0] ?? "一般模式"}：資料衝突造成的 partial 仍持續回補，剩餘歸零才成功結束`, async () => {
+    const history = [
+      { status: "partial", summary: "拒收衝突日期 1990-01-02", detail: { remaining: { SPX: 20, VIX: 10 }, inserted: { SPX: 2400, VIX: 2400 }, overlapCompared: 250, overlapMismatches: 1, dataIssues: ["日期衝突"] } },
+      { status: "partial", summary: "拒收衝突日期 1990-01-02", detail: { remaining: { SPX: 0, VIX: 0 }, inserted: { SPX: 20, VIX: 10 }, overlapCompared: 250, overlapMismatches: 1, dataIssues: ["日期衝突"] } },
+    ];
+    const r = await runScript(args, history);
+    assert.equal(r.code, 0, r.out);
+    assert.equal(r.jobs.filter((job) => job === "backfill-index-history").length, 2);
+    assert.match(r.out, /回補完成/);
+    if (args.length) assert.deepEqual(r.jobs, ["backfill-index-history", "backfill-index-history"]);
+    else assert.ok(r.jobs.includes("snapshots"));
+  });
+}
 
 test("一般模式：歷史步驟 partial 不擋後面的步驟，全部跑完後才以非零結束並印出原因", async () => {
   const r = await runScript([], SPX_SKIPPED);

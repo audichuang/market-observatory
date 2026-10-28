@@ -2,7 +2,7 @@
 //   MO_URL=https://… MO_EMAIL=… MO_PASSWORD=… node scripts/backfill.ts [--sessions 500] [--history-only]
 // --history-only：只補 SPX／VIX 的 Cboe 更早歷史（Yahoo 十年窗口之前），不跑其他步驟。
 // 每段都寫進 runs 表；只補不存在或收盤有變的列，不會覆蓋排程寫入的核對結果。
-export {};
+import { historyOverlapTrusted } from "../src/server/jobs.ts";
 
 const base = (process.env.MO_URL ?? "http://localhost:5173").replace(/\/$/, "");
 const email = process.env.MO_EMAIL;
@@ -24,7 +24,7 @@ const cookie = login.headers.getSetCookie().map((c) => c.split(";")[0]).join("; 
 interface RunResult {
   status: string;
   summary: string;
-  detail?: { first?: string | null; inserted?: Record<string, number>; remaining?: Record<string, number> };
+  detail?: { first?: string | null; inserted?: Record<string, number>; remaining?: Record<string, number>; overlapCompared: number; overlapMismatches: number };
 }
 
 async function run(job: string, params: Record<string, string | number> = {}): Promise<RunResult> {
@@ -42,10 +42,10 @@ async function run(job: string, params: Record<string, string | number> = {}): P
 async function backfillIndexHistory() {
   for (let call = 1; call <= 60; call++) {
     const r = await run("backfill-index-history");
-    const left = r.detail?.remaining;
-    if (!left) throw new Error(`backfill-index-history ${r.status}：${r.summary}`);
+    if (!r.detail?.remaining) throw new Error(`backfill-index-history ${r.status}：${r.summary}`);
+    const left = r.detail.remaining;
     // SPX 被略過（重疊不足或與 Yahoo 不一致）就不算完成：印出原因、以非零狀態結束。
-    if (r.status === "partial") throw new Error(`backfill-index-history partial：${r.summary}`);
+    if (!historyOverlapTrusted(r.detail.overlapCompared, r.detail.overlapMismatches)) throw new Error(`backfill-index-history ${r.status}：${r.summary}`);
     if (Object.values(left).every((n) => n === 0)) return;
     const progressed = Object.values(r.detail?.inserted ?? {}).some((n) => n > 0);
     if (!progressed) throw new Error(`backfill-index-history 沒有進展（${r.status}）：${r.summary}`);

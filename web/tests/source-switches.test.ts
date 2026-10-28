@@ -2,10 +2,33 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Hono } from "hono";
 import * as http from "../src/lib/sources/http.ts";
-import { FakeUpstream } from "./helpers/fake-cloudflare.ts";
+import { FakeUpstream, migratedDb } from "./helpers/fake-cloudflare.ts";
 import { FILLERS, assertInvocation, consistentSpx, invokeCron, seededDb } from "./helpers/stress-env.ts";
 import { putSetting } from "../src/server/repo.ts";
 import { dataVersion } from "../src/server/page-cache.ts";
+
+test("非站長的資料來源 props 不含停用原因，站長先填入共用快取也不外洩", async (t) => {
+  const { db } = await migratedDb();
+  const at = "2026-10-28T22:00:00Z";
+  const reason = "僅供站長：internal-contact@example.test 的處理紀錄";
+  await putSetting(db, "source_switches", { "nasdaq-news": { disabled: true, at, reason } });
+  const original = Object.getOwnPropertyDescriptor(globalThis, "caches");
+  const cached = new Map<string, Response>();
+  let hits = 0;
+  Object.defineProperty(globalThis, "caches", { configurable: true, value: { default: {
+    match: async (key: string) => { const hit = cached.get(key); if (hit) hits++; return hit?.clone(); },
+    put: async (key: string, response: Response) => { cached.set(key, response.clone()); },
+  } } });
+  t.after(() => { if (original) Object.defineProperty(globalThis, "caches", original); else Reflect.deleteProperty(globalThis, "caches"); });
+  const { loader } = await import("../pages/sources.server.ts");
+  const loadPage = loader as unknown as (c: unknown) => Promise<{ switches: unknown }>;
+  for (const user of ["owner", "member"]) {
+    const page = await loadPage({ env: { DB: db, OWNER_EMAIL: "owner@example.test" }, get: () => ({ id: user, email: `${user}@example.test` }) });
+    assert.deepEqual(page.switches, { "nasdaq-news": { disabled: true, at } });
+    assert.doesNotMatch(JSON.stringify(page), /reason|internal-contact|僅供站長/);
+  }
+  assert.equal(hits, 1, "非站長確實讀到站長建立的共用快取");
+});
 
 test("Budget 停用規則在扣額度前拒絕來源，未命中照常請求，整組取代後可恢復", () => {
   const budget = new http.Budget(2);
@@ -167,7 +190,10 @@ test("來源開關 API 只允許站長切換 worker，驗證輸入、讀回停�
   assert.deepEqual(await (await request()).json(), saved);
   const { loader } = await import("../pages/sources.server.ts");
   const loadPage = loader as unknown as (c: unknown) => Promise<{ switches: unknown }>;
-  assert.deepEqual((await loadPage({ env: { DB: db } })).switches, saved.switches, "頁面讀回停用時間與狀態，loader 不需使用者 context");
+  assert.deepEqual((await loadPage({ env: { DB: db } })).switches, { "nasdaq-news": { disabled: true, at: saved.switches["nasdaq-news"].at } }, "頁面只讀回停用時間與狀態，原因只由站長 API 回傳");
+  const privateDenied = await request(undefined, "member");
+  assert.equal(privateDenied.status, 403);
+  assert.doesNotMatch(await privateDenied.text(), /暫停自動取得|reason/);
   const setting = sql.prepare("SELECT value FROM settings WHERE key = 'source_switches'").get() as { value: string };
   assert.ok(!setting.value.includes("@"), "不存操作者 email");
   const restored = await request({ id: "nasdaq-news", disabled: false });

@@ -4,7 +4,7 @@ import LineChart from "../src/ui/LineChart.tsx";
 import { Delta } from "../src/ui/bits.tsx";
 import { compactUsd, num, pctText } from "../src/ui/format.ts";
 import { planIssue } from "../src/lib/plan.ts";
-import { DCA_BUY_RULE, DCA_FX_RULE, DCA_LUMP_PREMISE } from "../src/lib/etf-copy.ts";
+import { DCA_BUY_RULE, DCA_FX_RULE, DCA_IDLE_CASH, DCA_LUMP_PREMISE, DCA_MONTHLY_NO_LUMP, FUNDING_LUMP_LABEL, FUNDING_MONTHLY_LABEL } from "../src/lib/etf-copy.ts";
 import type { Props } from "./etfs.server";
 
 const errorText = (e: unknown) => {
@@ -16,7 +16,7 @@ const errorText = (e: unknown) => {
   return e instanceof Error && e.message ? `操作失敗：${e.message}` : "操作失敗，請檢查網路後再試";
 };
 
-export default function EtfPage({ asOf, catalogAsOf, rows, periods, plan, sim, dca, fxLast }: Props) {
+export default function EtfPage({ asOf, catalogAsOf, rows, periods, plan, sim, dca, fxLast, funding }: Props) {
   const router = useRouter();
   const form = useForm("/etfs", { ...plan });
   const issue = planIssue(form.data);
@@ -45,9 +45,9 @@ export default function EtfPage({ asOf, catalogAsOf, rows, periods, plan, sim, d
   }
   useEffect(() => setMonthly(String(sim.monthlyTwd)), [sim.monthlyTwd]);
   const isDefault = plan.etf === sim.etf && plan.years === sim.years && plan.monthlyTwd === sim.monthlyTwd;
-  const simUrl = (patch: Partial<typeof sim>) => {
-    const next = { ...sim, ...patch };
-    return `/etfs?etf=${next.etf}&years=${next.years}&monthly=${next.monthlyTwd}`;
+  const simUrl = (patch: Partial<typeof sim & { funding: string }>) => {
+    const next = { ...sim, funding, ...patch };
+    return `/etfs?etf=${next.etf}&years=${next.years}&monthly=${next.monthlyTwd}&funding=${next.funding}`;
   };
   return (
     <>
@@ -148,7 +148,14 @@ export default function EtfPage({ asOf, catalogAsOf, rows, periods, plan, sim, d
               </select>
             </label>
             <label className="field">
-              每月投入（台幣）
+              資金類型
+              <select value={funding} onChange={(e) => router.visit(simUrl({ funding: e.target.value, monthlyTwd: Number(monthly) || sim.monthlyTwd }))}>
+                <option value="monthly">{FUNDING_MONTHLY_LABEL}</option>
+                <option value="lump">{FUNDING_LUMP_LABEL}</option>
+              </select>
+            </label>
+            <label className="field">
+              {funding === "lump" ? "每月分批金額（台幣）" : "每月投入（台幣）"}
               <input type="number" inputMode="numeric" min={1000} step={1000} enterKeyHint="go" value={monthly} onChange={(e) => setMonthly(e.target.value)} />
             </label>
             <div className="row" style={{ flexBasis: "100%" }}>
@@ -170,11 +177,12 @@ export default function EtfPage({ asOf, catalogAsOf, rows, periods, plan, sim, d
           ) : (
             <>
               <div className="grid kpis" style={{ marginTop: "1rem" }}>
-                <div className="kpi"><div className="label">投入 {dca.months} 個月</div><div className="value">{num(dca.invested, 0)}</div></div>
-                <div className="kpi"><div className="label">目前市值</div><div className="value">{num(dca.value, 0)}</div><div className="delta"><Delta value={dca.returnPct} percent /></div></div>
-                <div className="kpi"><div className="label">同金額期初單筆</div><div className="value">{num(dca.lumpSumValue, 0)}</div><div className="delta"><Delta value={dca.lumpSumReturnPct} percent /></div><div className="meta">{DCA_LUMP_PREMISE}</div></div>
-                <div className="kpi"><div className="label">最大帳面虧損</div><div className="value"><Delta value={dca.maxDrawdownPct} percent /></div></div>
+                <div className="kpi"><div className="label">{funding === "lump" ? "期初資金" : `投入 ${dca.months} 個月`}</div><div className="value">{num(dca.invested, 0)}</div></div>
+                {funding === "lump" && <div className="kpi"><div className="label">一次投入（{dca.firstBuyDate} 全部買入）</div><div className="value">{num(dca.lumpSumValue, 0)}</div><div className="delta"><Delta value={dca.lumpSumReturnPct} percent /></div></div>}
+                <div className="kpi"><div className="label">{funding === "lump" ? `分 ${dca.months} 個月投入` : "目前市值"}</div><div className="value">{num(dca.value, 0)}</div><div className="delta"><Delta value={dca.returnPct} percent /></div></div>
+                <div className="kpi"><div className="label">{funding === "lump" ? "分批的最大帳面虧損" : "最大帳面虧損"}</div><div className="value"><Delta value={dca.maxDrawdownPct} percent /></div></div>
               </div>
+              <p className="meta">{funding === "lump" ? <>{DCA_LUMP_PREMISE}{DCA_IDLE_CASH}</> : DCA_MONTHLY_NO_LUMP}</p>
               <LineChart
                 digits={0}
                 height={300}

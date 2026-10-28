@@ -6,6 +6,7 @@
 
 - `etfs-table`（F1、F2）：11 檔 VOO、IVV、SPY、SPYM、SSO、UPRO、SPXL、SH、SDS、SPXU、SPXS；報酬＝API `rows[].returns`；2×／3×／反向標示正確；期間切換 YTD、1M、5Y。
 - `dca-simulate`（F3）：選 ETF、年數、每月金額按「試算」，結果＝`/api/v1/etfs?etf=…&years=…&monthly=…` 的 `dca`；沒存前按鈕是「設為我的預設」。
+- `dca-funding`：試算的「期間」後選「資金類型」；預設「每月新收入」只列投入月數、目前市值與最大帳面虧損，附不列一次投入對照的說明。「期初已有整筆資金」列期初資金、一次投入（首筆日期全部買入）、分 N 個月投入與分批的最大帳面虧損，附期初資金前提與未投入現金不計利息。切換只影響呈現，`dca` 數字不變。
 - `dca-monthly-minimum`：正數月額取整後至少 1 元，儲存端拒絕 0；舊規劃的月額 0 讀成預設 10000，其餘欄位與資料庫原值保留。
 - `dca-save-feedback`：儲存預設與規劃時停用送出按鈕；HTTP 或網路失敗顯示 `role="alert"` 紅字，儲存預設保留伺服器具體錯誤（如登入過期、欄位錯誤）；即時欄位驗證用 `role="status"`。
 - `dca-save-default`（F3b）：「設為我的預設」後 API `plan` 是那組值，離開再進來仍是；之後改回 VOO／3 年／10000。
@@ -24,7 +25,9 @@ Preconditions:
 - 基準狀態、測試帳號登入、規劃是預設值（VOO／3 年／10000、每批 50000）。
 
 - **表格。** `goto("/etfs")`，等 `text=ETF 產品比較`；`fetch("/api/v1/etfs")` 比每列報酬。截圖 `etfs-table.png`。
-- **試算。** 在「定投試算（台幣）」選 ETF 與年數（兩個 `select` 會直接換網址）、`input[type=number]` 填 5000、按「試算」；比 `fetch("/api/v1/etfs?etf=IVV&years=2&monthly=5000")` 的 `dca`。
+- **試算。** 在「定投試算（台幣）」選 ETF 與年數（「標的」「期間」的 `select` 會直接換網址）、`input[type=number]` 填 5000、按「試算」；比 `fetch("/api/v1/etfs?etf=IVV&years=2&monthly=5000")` 的 `dca`。
+- **資金類型（網頁）。** `/etfs` 的第三個 `select` 是「資金類型」，預設值 `monthly`、顯示「每月新收入」；確認只有三項 KPI，沒有一次投入 KPI，並有「每月新收入無法在期初一次投入…」整句。切成「期初已有整筆資金」（`lump`）後網址含 `funding=lump`、金額欄變「每月分批金額（台幣）」；比 API `funding`、`dca.invested`、`dca.lumpSumValue`、`dca.lumpSumReturnPct`、`dca.value`、`dca.returnPct`，確認四項 KPI、資金前提與「分批期間還沒投入的現金不計利息。」。再改標的、期間與金額，確認網址保留 `funding=lump`；截圖 `dca-monthly.png`、`dca-lump.png`、`dca-funding-retained.png`，附兩種模式的 API JSON。
+- **資金類型（App）。** 試算區「期間」後的 Picker label「資金類型、每月新收入」，切換「期初已有整筆資金」；確認呈現與網頁同字、同數字，再改標的與期間仍保留選擇，截圖並與同條件 API 對帳。整合驗收時在全域模擬器鎖內只用既有 MO 機，驗完 shutdown；本票不新增 UI 測試步驟。
 - **預設失敗與小數。** 開 `/etfs?monthly=1500.5`，畫面每月金額取整成 1501，按「設為我的預設」後網址的 monthly 也是 1501，API `plan.monthlyTwd` 讀回 1501。改試算金額後，以 CDP `Network.emulateNetworkConditions` 設 offline，再按儲存：出現 `p.error[role="alert"]`；恢復網路後改回預設並讀回。
 - **月額下限。** 開 `/etfs?monthly=0.4`，畫面與 API `sim.monthlyTwd` 都是 1；歷史資料足夠時仍可試算。儲存後 `plan.monthlyTwd` 讀回 1，直接送 API 月額 0 應回 400。測完改回原預設並讀回。
 - **我的規劃（網頁）。** 欄位是「加碼研究預算」「單筆加碼」「檢討門檻 ±%」「待定事項與備註」，按鈕「儲存規劃」。欄位沒有 name，用整頁 `input[type=number]` 的順序：0＝每月投入（定投試算）、1＝研究預算、2＝單筆加碼、3＝檢討門檻（取第 n 個的寫法照 `ego-browser skill`）。單筆加碼改 60000、按 `button:text-is("儲存規劃")`，`fetch("/api/v1/etfs")` 的 `plan.trancheTwd` 讀回；改回 50000 再讀回一次（F5）。檢討門檻填 150 按儲存，看錯誤訊息與 `plan.exitConsiderationPct` 沒變（F4）。
@@ -39,4 +42,5 @@ Preconditions:
 - 「試算」按鈕在金額沒變時停用。
 - 規劃存在 D1 `settings`，每個帳號各一份；改完一定要改回並讀回，下一個功能才從基準開始。
 - 定投不含配息、手續費與稅；數字跟券商對帳單不同是設計如此。
+- `funding` 僅供本次試算，`lump` 以外（含未帶、未知值）均為 `monthly`；不進快取鍵、不進 `Plan`，「設為我的預設」不儲存資金類型，離開後不帶參數重進仍為每月新收入。兩種模式沿用同一組 `dca`，不另輸入期初資金、不計等待現金利息；舊 API 沒有 `funding` 時 App 仍可解碼並用每月新收入呈現。
 - 檢討門檻超出 0–100 時，網頁在送出前就停用「儲存規劃」並顯示「金額要是 0 到 10 億的整數，檢討門檻 0–100%，備註最多 2000 字。」；直接打 API 送 150 回 400「檢討門檻要在 0–100% 之間」。

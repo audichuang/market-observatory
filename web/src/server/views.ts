@@ -308,7 +308,8 @@ export async function etfsView(c: ViewCtx, v: Viewer) {
 
     return { asOf: end, catalogAsOf: ETF_CATALOG_AS_OF, rows, periods: PERIODS.map(([k]) => k), sim: { etf, years, monthlyTwd, startDate }, dca, fxLast };
   });
-  return { ...computed, plan };
+  const funding = c.req.query("funding") === "lump" ? "lump" : "monthly";
+  return { ...computed, plan, funding };
 }
 
 // ── 新聞與日曆 ───────────────────────────────────────────

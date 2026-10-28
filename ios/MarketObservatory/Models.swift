@@ -409,6 +409,7 @@ struct Etfs: Decodable, Sendable {
     let sim: Sim
     let dca: Dca?
     let fxLast: Fx?
+    let funding: String?
 }
 
 // MARK: - 下月展望

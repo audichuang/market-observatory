@@ -3,6 +3,28 @@ import { test } from "node:test";
 import { DEFAULT_PLAN, PlanSchema, etfsView } from "../src/server/views.ts";
 import { migratedDb } from "./helpers/fake-cloudflare.ts";
 
+test("資金類型只影響呈現，同一使用者切換時定投數字不變", async () => {
+  const { db, sql } = await migratedDb();
+  try {
+    const price = sql.prepare("INSERT INTO prices (symbol, date, close, source, fetched_at) VALUES (?, ?, ?, 'test', '2040-02-02')");
+    for (const [i, date] of ["2037-02-02", "2040-01-16", "2040-02-02"].entries()) {
+      for (const symbol of ["SPX", "VOO", "USDTWD"]) price.run(symbol, date, symbol === "USDTWD" ? 31 : 100 + i * 20);
+    }
+    const viewer = { id: "funding-query", email: "etf@example.test", name: "", isOwner: false };
+    const results = [];
+    for (const funding of [undefined, "lump", "xyz"]) {
+      const query = new URLSearchParams(funding ? { funding } : {});
+      results.push(await etfsView({ env: { DB: db }, req: { query: (key) => query.get(key) ?? undefined, url: `http://localhost/etfs?${query}` } }, viewer));
+    }
+    assert.ok(results[0].dca, "合成價格須產生實際試算，避免只比對 null");
+    assert.deepEqual(results.map((data) => data.funding), ["monthly", "lump", "monthly"]);
+    assert.deepEqual(results[1].dca, results[0].dca);
+    assert.deepEqual(results[2].dca, results[0].dca);
+  } finally {
+    sql.close();
+  }
+});
+
 test("小數定投查詢取整後可以儲存成預設", async () => {
   const { db, sql } = await migratedDb();
   try {

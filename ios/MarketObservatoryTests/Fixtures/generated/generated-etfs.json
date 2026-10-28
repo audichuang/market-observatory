@@ -1644,5 +1644,6 @@
     "trancheTwd": 50000,
     "exitConsiderationPct": 20,
     "notes": "待定：交易券商與手續費、換匯成本、槓桿 ETF 持有期限、整體停手門檻、分批間距與再進場規則"
-  }
+  },
+  "funding": "monthly"
 }

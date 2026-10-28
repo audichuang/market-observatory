@@ -39,7 +39,7 @@ export function pageWithAction(action: () => Promise<unknown> = async () => ({ o
   };
   const defaults: Props = {
     asOf: "2026-10-28", catalogAsOf: "2026-10-24", rows: [], periods: [], plan: DEFAULT_PLAN, funding: "monthly",
-    sim: { etf: "VOO", years: 3, monthlyTwd: 1500, startDate: "2023-10-29" }, dca: null, fxLast: null,
+    sim: { etf: "VOO", years: 3, monthlyTwd: 1500, startDate: "2023-10-29" }, dca: null, fxLast: null, costScenario: null,
   };
   let currentProps = { ...defaults, ...props };
   // Keep every runtime import in pages/etfs.tsx available to the compiled page.

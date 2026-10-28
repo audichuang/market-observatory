@@ -4,6 +4,8 @@ import { DCA_BUY_RULE, DCA_FX_RULE, DCA_LUMP_PREMISE } from "../src/lib/etf-copy
 import * as copy from "../src/lib/etf-copy.ts";
 import { nodes, pageText, pageWithAction } from "./helpers/etf-page.ts";
 import type { Props } from "../pages/etfs.server.ts";
+import { costScenario, parseCostQuery } from "../src/lib/costs.ts";
+import { ETFS } from "../src/lib/universe.ts";
 
 const simulation: Partial<Props> = {
   sim: { etf: "IVV", years: 2, monthlyTwd: 1000, startDate: "2040-01-15" },
@@ -139,4 +141,76 @@ test("定投試算依所選標的顯示 1x 或槓桿證據邊界，資料卡含�
   const vooNodes = nodes(renderedVoo);
   assert.equal(vooNodes.filter((n) => n.props.className === "notice warn").length, 0, "VOO 試算不得顯示槓桿證據警示");
   assert.equal(vooNodes.filter((n) => n.type === "p" && n.props.className === "meta" && pageText(n) === copy.EVIDENCE_1X).length, 1, "VOO 試算須以一般樣式顯示完整 1x 證據句");
+});
+
+const costs = () => {
+  const values = { costFx: "0.5", costFee: "0.1", costMinUsd: "1", costYield: "1.2", costPromo: "2026-01-01" };
+  const input = parseCostQuery((key) => values[key as keyof typeof values]);
+  assert.ok(input && !("issue" in input));
+  const result = costScenario(input, { monthlyTwd: 10000, fxRate: 32, fxDate: "2026-10-27", etf: ETFS[0], today: "2026-10-28" });
+  assert.ok(!("issue" in result));
+  return result;
+};
+
+test("成本面板列扣款拆解、三層各一列、免責句、過期優惠與來源日期", () => {
+  const result = costs();
+  const rendered = pageWithAction(undefined, { costScenario: result }).render();
+  const panel = nodes(rendered).find((n) => n.props.id === "cost-scenario");
+  assert.ok(panel);
+  const text = pageText(panel);
+  assert.ok(text.includes("成本情境（你的假設）"));
+  assert.ok(text.includes(result.notes[0]));
+  assert.ok(text.includes("已反映在基金淨值，不重扣"));
+  assert.ok(text.includes("一年交易成本") && text.includes("984.00"));
+  assert.ok(text.includes("82.00") && text.includes("0.8200%"));
+  const layers = nodes(panel).filter((n) => n.type === "tr" && pageText(n).match(/^(基金費用|基金層預扣|投資人層預扣)/));
+  assert.equal(layers.length, 3);
+  assert.ok(pageText(layers[2]).includes("0.36%"));
+  assert.ok(nodes(panel).some((n) => n.props.className === "notice warn" && pageText(n).includes("你填的優惠已過期")));
+  for (const source of result.sources) {
+    assert.ok(nodes(panel).some((n) => n.type === "a" && n.props.href === source.url));
+    assert.ok(text.includes(source.checkedAt));
+    if (source.sourceDate) assert.ok(text.includes(source.sourceDate));
+  }
+  assert.doesNotMatch(text, /排序|最省|建議/);
+});
+
+test("成本未試算時顯示表單；issue 時只列錯誤、不顯示計算結果", () => {
+  for (const result of [null, { issue: "手續費比例要在 0–5% 之間" }]) {
+    const panel = nodes(pageWithAction(undefined, { costScenario: result }).render()).find((n) => n.props.id === "cost-scenario");
+    assert.ok(panel);
+    assert.equal(nodes(panel).filter((n) => n.type === "table").length, 0);
+    assert.ok(!pageText(panel).includes("一年交易成本"));
+    assert.doesNotMatch(pageText(panel).replace(result?.issue ?? "", ""), /\d/, "未試算或錯誤時不顯示情境數字");
+    if (result) assert.ok(nodes(panel).some((n) => n.props.role === "alert" && pageText(n) === result.issue));
+    else assert.ok(pageText(panel).includes("尚未試算"));
+  }
+});
+
+test("成本表單用查詢試算；切標的保留假設，清除後只移除 cost 參數", () => {
+  const result = costs();
+  const ui = pageWithAction(undefined, { costScenario: result, funding: "lump" });
+  let rendered = ui.render();
+  const target = nodes(rendered).filter((n) => n.type === "select")[0];
+  (target.props.onChange as Function)({ target: { value: "UPRO" } });
+  const retained = new URL(String(ui.visits[0]), "http://localhost");
+  assert.equal(retained.searchParams.get("etf"), "UPRO");
+  for (const [key, value] of Object.entries(result.inputs)) {
+    if (value !== null) assert.equal(retained.searchParams.get(key), String(value));
+  }
+  const fee = nodes(rendered).find((n) => n.type === "input" && n.props.name === "costFee");
+  assert.ok(fee);
+  (fee.props.onChange as Function)({ target: { value: "9" } });
+  rendered = ui.render();
+  const panel = nodes(rendered).find((n) => n.props.id === "cost-scenario")!;
+  const form = nodes(panel).find((n) => n.type === "form")!;
+  assert.equal(form.props.noValidate, true, "不讓瀏覽器範圍檢查擋住伺服器中文錯誤");
+  (form.props.onSubmit as Function)({ preventDefault() {} });
+  assert.equal(new URL(String(ui.visits[1]), "http://localhost").searchParams.get("costFee"), "9");
+  const clear = nodes(panel).find((n) => n.type === "button" && pageText(n) === "清除")!;
+  (clear.props.onClick as Function)();
+  const cleared = new URL(String(ui.visits[2]), "http://localhost");
+  assert.ok([...cleared.searchParams.keys()].every((key) => !key.startsWith("cost")));
+  assert.equal(cleared.searchParams.get("funding"), "lump");
+  assert.equal(cleared.searchParams.get("monthly"), "1500");
 });

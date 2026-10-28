@@ -8,6 +8,7 @@ import { viewForMembers } from "../lib/snapshot.ts";
 import { ETFS, ETF_CATALOG_AS_OF, EQUAL_WEIGHT_SYMBOL, FX_SYMBOL, INDEX_SYMBOL, VIX_SYMBOL, type WatchMember } from "../lib/universe.ts";
 import { MAX_WATCH, displayName, isConstituent } from "../lib/watchlist.ts";
 import { PLAN_LIMITS } from "../lib/plan.ts";
+import { costScenario, parseCostQuery } from "../lib/costs.ts";
 import { z } from "zod";
 import { type Viewer, getViewerSetting, settingKey, viewerWatchlist } from "./account.ts";
 import { rebuildSnapshots, WATCHLIST_REBUILD_SESSIONS } from "./jobs.ts";
@@ -309,7 +310,15 @@ export async function etfsView(c: ViewCtx, v: Viewer) {
     return { asOf: end, catalogAsOf: ETF_CATALOG_AS_OF, rows, periods: PERIODS.map(([k]) => k), sim: { etf, years, monthlyTwd, startDate }, dca, fxLast };
   });
   const funding = c.req.query("funding") === "lump" ? "lump" : "monthly";
-  return { ...computed, plan, funding };
+  const costInput = parseCostQuery((key) => c.req.query(key));
+  const costs = costInput === null || "issue" in costInput ? costInput : costScenario(costInput, {
+    monthlyTwd: computed.sim.monthlyTwd,
+    fxRate: computed.fxLast?.close ?? null,
+    fxDate: computed.fxLast?.date ?? null,
+    etf: ETFS.find((e) => e.ticker === computed.sim.etf)!,
+    today: new Date().toISOString().slice(0, 10),
+  });
+  return { ...computed, plan, funding, costScenario: costs };
 }
 
 // ── 新聞與日曆 ───────────────────────────────────────────

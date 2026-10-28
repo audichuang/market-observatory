@@ -6,6 +6,7 @@ import { compactUsd, num, pctText } from "../src/ui/format.ts";
 import { planIssue } from "../src/lib/plan.ts";
 import { DCA_BUY_RULE, DCA_FX_RULE, DCA_IDLE_CASH, DCA_LUMP_PREMISE, DCA_MONTHLY_NO_LUMP, EVIDENCE_1X, EVIDENCE_LEVERAGED, FUNDING_LUMP_LABEL, FUNDING_MONTHLY_LABEL } from "../src/lib/etf-copy.ts";
 import { ETFS, type EtfProduct } from "../src/lib/universe.ts";
+import type { CostInputs } from "../src/lib/costs.ts";
 import type { Props } from "./etfs.server";
 
 const errorText = (e: unknown) => {
@@ -17,7 +18,7 @@ const errorText = (e: unknown) => {
   return e instanceof Error && e.message ? `操作失敗：${e.message}` : "操作失敗，請檢查網路後再試";
 };
 
-export default function EtfPage({ asOf, catalogAsOf, rows, periods, plan, sim, dca, fxLast, funding }: Props) {
+export default function EtfPage({ asOf, catalogAsOf, rows, periods, plan, sim, dca, fxLast, funding, costScenario }: Props) {
   const router = useRouter();
   const form = useForm("/etfs", { ...plan });
   const issue = planIssue(form.data);
@@ -25,6 +26,11 @@ export default function EtfPage({ asOf, catalogAsOf, rows, periods, plan, sim, d
   const [savedDefault, setSavedDefault] = useState(false);
   const [savingDefault, setSavingDefault] = useState(false);
   const [defaultError, setDefaultError] = useState<string | null>(null);
+  const costInputs = costScenario && !("issue" in costScenario) ? costScenario.inputs : null;
+  const [costForm, setCostForm] = useState(costFormOf(costInputs));
+  useEffect(() => {
+    if (!costScenario || !("issue" in costScenario)) setCostForm(costFormOf(costInputs));
+  }, [costScenario]);
 
   async function saveDefault() {
     setSavingDefault(true);
@@ -46,9 +52,13 @@ export default function EtfPage({ asOf, catalogAsOf, rows, periods, plan, sim, d
   }
   useEffect(() => setMonthly(String(sim.monthlyTwd)), [sim.monthlyTwd]);
   const isDefault = plan.etf === sim.etf && plan.years === sim.years && plan.monthlyTwd === sim.monthlyTwd;
-  const simUrl = (patch: Partial<typeof sim & { funding: string }>) => {
+  const simUrl = (patch: Partial<typeof sim & { funding: string }>, costs: CostInputs | typeof costForm | null = costInputs) => {
     const next = { ...sim, funding, ...patch };
-    return `/etfs?etf=${next.etf}&years=${next.years}&monthly=${next.monthlyTwd}&funding=${next.funding}`;
+    const query = new URLSearchParams({ etf: next.etf, years: String(next.years), monthly: String(next.monthlyTwd), funding: next.funding });
+    for (const [key, value] of Object.entries(costs ?? {})) {
+      if (value !== null && value !== "") query.set(key, String(value));
+    }
+    return `/etfs?${query}`;
   };
   return (
     <>
@@ -262,8 +272,98 @@ export default function EtfPage({ asOf, catalogAsOf, rows, periods, plan, sim, d
           </p>
         </div>
       </div>
+      <div className="panel section" id="cost-scenario">
+        <h2>成本情境（你的假設）</h2>
+        <p className="sub">只是試算，不會儲存。假設年配息率僅計一般股利。</p>
+        <form className="row" noValidate onSubmit={(e) => { e.preventDefault(); router.visit(simUrl({}, costForm)); }}>
+          <label className="field">
+            扣款幣別
+            <select name="costCcy" value={costForm.costCcy} onChange={(e) => setCostForm({ ...costForm, costCcy: e.target.value })}>
+              <option value="twd">台幣</option><option value="usd">美元</option>
+            </select>
+          </label>
+          {([
+            ["costFx", "換匯價差 %", 5], ["costFee", "手續費比例 %", 5],
+            ["costMinUsd", "最低手續費（美元）", 100], ["costFixed", "每次固定費用（台幣）", 10000],
+            ["costYield", "假設年配息率 %", 10],
+          ] as const).map(([key, label, max]) => (
+            <label className="field" key={key}>
+              {label}
+              <input name={key} type="number" inputMode={key === "costFixed" ? "numeric" : "decimal"} min={0} max={max} step={key === "costFixed" ? 1 : "any"} value={costForm[key]} onChange={(e) => setCostForm({ ...costForm, [key]: e.target.value })} />
+            </label>
+          ))}
+          <label className="field">
+            優惠到期日
+            <input name="costPromo" type="date" value={costForm.costPromo} onChange={(e) => setCostForm({ ...costForm, costPromo: e.target.value })} />
+          </label>
+          <label className="field">
+            報酬口徑
+            <select name="costBasis" value={costForm.costBasis} onChange={(e) => setCostForm({ ...costForm, costBasis: e.target.value })}>
+              <option value="nav">基金淨值／總報酬</option><option value="index">稅前指數</option>
+            </select>
+          </label>
+          <label className="field" style={{ maxWidth: "100%" }}>
+            稅務身分
+            <select name="costTax" style={{ maxWidth: "100%" }} value={costForm.costTax} onChange={(e) => setCostForm({ ...costForm, costTax: e.target.value })}>
+              <option value="tw">台灣稅務居民、非美國公民且非美國稅務居民</option><option value="other">其他</option>
+            </select>
+          </label>
+          <div className="row" style={{ flexBasis: "100%" }}>
+            <button type="submit">試算成本</button>
+            <button type="button" className="secondary" onClick={() => { setCostForm(costFormOf(null)); router.visit(simUrl({}, null)); }}>清除</button>
+          </div>
+        </form>
+        {!costScenario ? <p className="meta">尚未試算，請填入你的假設後按「試算成本」。</p> : "issue" in costScenario ? (
+          <p className="error" role="alert">{costScenario.issue}</p>
+        ) : (
+          <>
+            <p className="meta">以 {sim.etf}、每月 {num(costScenario.perBuy.amountTwd, 0)} 台幣等值金額估算。</p>
+            <h3>每次扣款拆解（台幣）</h3>
+            <div className="table-wrap">
+              <table>
+                <tbody>
+                  {([
+                    ["扣款金額", costScenario.perBuy.amountTwd], ["換匯價差", costScenario.perBuy.fxSpreadTwd],
+                    ["固定費用", costScenario.perBuy.fixedTwd], ["手續費", costScenario.perBuy.commissionTwd],
+                    ["買進金額", costScenario.perBuy.investedTwd], ["交易成本", costScenario.perBuy.costTwd],
+                  ] as const).map(([label, value]) => <tr key={label}><th scope="row">{label}</th><td className="num">{num(value, 2)}</td></tr>)}
+                  <tr><th scope="row">交易成本占扣款金額</th><td className="num">{num(costScenario.perBuy.costPct, 4)}%</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p>一年交易成本：{num(costScenario.annualTxCostTwd, 2)} 台幣（每月一次，共 12 次）</p>
+            <h3>三層年化項目（占持有市值的 %）</h3>
+            <p className="meta">各層各自列出，不加總，也不與交易成本相加。</p>
+            <div className="table-wrap">
+              <table>
+                <tbody>
+                  {([
+                    ["基金費用", costScenario.layers.fundExpense], ["基金層預扣", costScenario.layers.fundWithholding],
+                    ["投資人層預扣", costScenario.layers.investorWithholding],
+                  ] as const).map(([label, layer]) => (
+                    <tr key={label}><th scope="row">{label}</th><td>{layer.pct !== null && <strong>{feeText(layer.pct)}%</strong>}<div className="meta">{layer.note}</div></td></tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {costScenario.promo && <p className={costScenario.promo.expired ? "notice warn" : "meta"}>{costScenario.promo.expired ? "你填的優惠已過期" : "你填的優惠到期日"}：{costScenario.promo.until}；費用仍依你填的假設計算。</p>}
+            {costScenario.notes.map((note) => <p className="meta" key={note}>{note}</p>)}
+            <ul className="meta">
+              {costScenario.sources.map((source) => <li key={source.url}><a href={source.url} target="_blank" rel="noreferrer">{source.name}</a>（來源日期：{source.sourceDate ?? "未標明"}；查閱日：{source.checkedAt}）</li>)}
+            </ul>
+          </>
+        )}
+      </div>
     </>
   );
+}
+
+function costFormOf(inputs: CostInputs | null): Record<keyof CostInputs, string> {
+  return {
+    costCcy: inputs?.costCcy ?? "twd", costFx: String(inputs?.costFx ?? 0), costFee: String(inputs?.costFee ?? 0),
+    costMinUsd: String(inputs?.costMinUsd ?? 0), costFixed: String(inputs?.costFixed ?? 0), costPromo: inputs?.costPromo ?? "",
+    costYield: String(inputs?.costYield ?? 0), costBasis: inputs?.costBasis ?? "nav", costTax: inputs?.costTax ?? "tw",
+  };
 }
 
 /** 0.0300 → 0.03、0.0945 → 0.0945：保留有效位數、去掉尾端 0。 */

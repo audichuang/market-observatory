@@ -1722,5 +1722,67 @@
     "exitConsiderationPct": 20,
     "notes": "待定：交易券商與手續費、換匯成本、槓桿 ETF 持有期限、整體停手門檻、分批間距與再進場規則"
   },
-  "funding": "monthly"
+  "funding": "monthly",
+  "costScenario": {
+    "perBuy": {
+      "amountTwd": 10000,
+      "fxSpreadTwd": 30,
+      "fixedTwd": 0,
+      "commissionTwd": 30.336366115787033,
+      "investedTwd": 9939.663633884213,
+      "costTwd": 60.336366115787314,
+      "costPct": 0.6033636611578731
+    },
+    "annualTxCostTwd": 724.0363933894478,
+    "layers": {
+      "fundExpense": {
+        "pct": null,
+        "note": "已反映在基金淨值，不重扣"
+      },
+      "fundWithholding": {
+        "pct": 0,
+        "note": "美國註冊基金持有美股，基金層不預扣美國股利稅"
+      },
+      "investorWithholding": {
+        "pct": 0.36,
+        "note": "美國註冊 ETF 分配的一般股利通常預扣 30%（無適用協定）；資本利得分配、資本返還等其他分配性質不計"
+      }
+    },
+    "promo": null,
+    "notes": [
+      "這是你填的假設算出的情境，不是券商實際收費，也不是應納稅額；不比較券商，也不代表哪個產品比較好。",
+      "最低手續費以 2026-10-28 的 USD/TWD 30.336366115787033 換算。"
+    ],
+    "sources": [
+      {
+        "name": "State Street：美國註冊 ETF 的基金層預扣",
+        "url": "https://www.ssga.com/hk/en/institutional/insights/considerations-for-non-us-investors-us-etfs-vs-irish-ucits",
+        "sourceDate": "2026-06-02",
+        "checkedAt": "2026-10-28"
+      },
+      {
+        "name": "IRS Publication 515 (2026)",
+        "url": "https://www.irs.gov/publications/p515",
+        "sourceDate": "2026",
+        "checkedAt": "2026-10-28"
+      },
+      {
+        "name": "IRS 所得稅協定 A–Z（未列台灣）",
+        "url": "https://www.irs.gov/businesses/international-businesses/united-states-income-tax-treaties-a-to-z",
+        "sourceDate": null,
+        "checkedAt": "2026-10-28"
+      }
+    ],
+    "inputs": {
+      "costCcy": "twd",
+      "costFx": 0.3,
+      "costFee": 0.1,
+      "costMinUsd": 1,
+      "costFixed": 0,
+      "costPromo": null,
+      "costYield": 1.2,
+      "costBasis": "nav",
+      "costTax": "tw"
+    }
+  }
 }

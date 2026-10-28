@@ -14,6 +14,7 @@
 - `dca-save-default`（F3b）：「設為我的預設」後 API `plan` 是那組值，離開再進來仍是；之後改回 VOO／3 年／10000。
 - `plan-validate`（F4）：出場漲幅填 `150`：App「儲存」停用、顯示中文範圍說明「金額要是 0 到 10 億的整數，出場漲幅 0–100%…」；網頁「儲存規劃」停用並顯示同一句中文說明，不存入。
 - `plan-save`（F5）：每批投入改 60000 儲存、讀回；之後改回 50000。
+- `cost-scenario`（#12，K-02、C-03、R1-6；網頁）：定投與規劃下方「成本情境（你的假設）」填扣款幣別、換匯價差、比例／最低／固定費、優惠到期日、一般股利的假設年配息率、報酬口徑與稅務身分。按「試算成本」後列每次扣款拆解、一年 12 次交易成本；基金費用、基金層預扣、投資人層預扣各一列年化 %，不加總。NAV 口徑寫「已反映在基金淨值，不重扣」，index 列產品淨費率；其他身分不套用投資人預扣。過期優惠醒目提醒，附免責句、規則來源日期與查閱日。「清除」回到未試算；切標的、期間、金額或資金類型保留已試算的成本假設。假設只在 URL，不存檔、不進共用快取、不改歷史試算。
 
 ## How to get to it (user POV)
 
@@ -33,6 +34,7 @@ Preconditions:
 - **產品資料卡與證據邊界。** 開 `/etfs`，在表格與 360px 卡片展開 VOO、SPY、UPRO、SPXS 的「產品資料」，看到註冊地、配息、ISIN（或「未查核」）、費用率與查核日、倍數與每日重設、出處連結與查閱日、證據邊界句；點出處連結開到發行商頁。在定投試算切換 UPRO，確認上方出現槓桿證據警示句；切換 VOO 出現 1x 證據句。對帳 `/api/v1/etfs` 的 `rows[].facts`。
 - **產品資料卡與證據邊界（App）。** 「更多 → ETF 與定投試算」，依序展開 VOO、SPY、UPRO、SPXS 列內的「產品資料」（identifier `etf-facts-<ticker>`），與同帳號 `/api/v1/etfs` 的 `rows[].facts`、`catalogAsOf`、費用率、倍數及網頁對帳；確認「出處：發行商頁面」呈 tint 色，點它能開啟來源；展開後點代號、報酬、名稱、註冊地、配息、ISIN 不會開來源，點「產品資料」標題只收合、不會開來源。緊鄰出處行的「倍數」「查閱」可能落在 Link 的點擊範圍內而開出處，屬已知殘留。試算「標的」切 UPRO 看橘色 Notice，再切 VOO 看 1x 句。一般與最大輔助字級各截圖並保存畫面文字、API JSON（`etf-facts-normal`、`etf-facts-accessibility`、`dca-evidence-upro`、`dca-evidence-voo`），確認長句、ISIN、日期與 Link 完整換行；用 `test16_Readability` 的 etfs 截圖複查整列高度。全程透過工作流程全域模擬器鎖重用既有 MO 機，L7-T1 合併前不跑 `ios-up.sh`／`down.sh`。
 - **預設失敗與小數。** 開 `/etfs?monthly=1500.5`，畫面每月金額取整成 1501，按「設為我的預設」後網址的 monthly 也是 1501，API `plan.monthlyTwd` 讀回 1501。改試算金額後，以 CDP `Network.emulateNetworkConditions` 設 offline，再按儲存：出現 `p.error[role="alert"]`；恢復網路後改回預設並讀回。
+- **成本情境（網頁）。** 用 `#cost-scenario input[name=costFx]` 填 0.5、`costFee` 填 0.1、`costMinUsd` 填 1、`costYield` 填 1.2，點 `button:text-is("試算成本")`。對帳同月額／標的 `/api/v1/etfs?costFee=0.1&costMinUsd=1&costFx=0.5&costYield=1.2` 的 `costScenario.perBuy`、`annualTxCostTwd`、`layers.*.pct`／`note`、`notes`、`sources`；基金費用顯示 NAV 不重扣句。把 `select[name=costBasis]` 切 index 再試算，基金費用出現、投資人預扣不變；`select[name=costTax]` 切 other 再試算，投資人層顯示「不套用：請依你的稅務身分確認」。`input[name=costPromo]` 填 2026-01-01，看到「你填的優惠已過期」；費率填 9 再送出，僅顯示中文錯誤，不列拆解或年化數字。恢復合法費率後改標的，網址 cost* 仍在；點「清除」後網址移除 cost*、面板顯示「尚未試算」。離開後不帶 cost* 重進也須未試算。截圖與 API JSON：`cost-scenario-nav`、`cost-scenario-index`、`cost-scenario-other`、`cost-scenario-expired`、`cost-scenario-issue`、`cost-scenario-retained`、`cost-scenario-cleared`；320px、360px、深淺模式確認完整換行與無水平捲動。面板不得有排序、「最省」「建議」。
 - **月額下限。** 開 `/etfs?monthly=0.4`，畫面與 API `sim.monthlyTwd` 都是 1；歷史資料足夠時仍可試算。儲存後 `plan.monthlyTwd` 讀回 1，直接送 API 月額 0 應回 400。測完改回原預設並讀回。
 - **我的規劃（網頁）。** 欄位是「加碼研究預算」「單筆加碼」「檢討門檻 ±%」「待定事項與備註」，按鈕「儲存規劃」。欄位沒有 name，用整頁 `input[type=number]` 的順序：0＝每月投入（定投試算）、1＝研究預算、2＝單筆加碼、3＝檢討門檻（取第 n 個的寫法照 `ego-browser skill`）。單筆加碼改 60000、按 `button:text-is("儲存規劃")`，`fetch("/api/v1/etfs")` 的 `plan.trancheTwd` 讀回；改回 50000 再讀回一次（F5）。檢討門檻填 150 按儲存，看錯誤訊息與 `plan.exitConsiderationPct` 沒變（F4）。
 - **App。** walkthrough 的 `07-etfs.png`、`07b-dca.png`；`ios-test.sh … VerifyInteractionTests/test06_EtfsPlan`：`F2-periods.txt`、`F3-dca.png`／`.txt`（IVV／2 年／5000 的結果對 API `dca`）、`F3b-reopen.txt`（離開再進來仍是「標的、IVV」「期間、2 年」「已是我的預設」）、`F4-exit150.txt`（「儲存 enabled=false」＋中文範圍說明）、`F5-reopen.txt`（60000），結束時改回 VOO／3 年／10000、每批 50000。
@@ -51,3 +53,4 @@ Preconditions:
 - ISIN 與配息以發行商官方公開資料查核為準；查不到的欄位為 null，畫面顯示「未查核」。
 - App 的 `rows[].facts` 是 optional，舊 API 沒有時仍可解碼；產品資料中的註冊地、配息、ISIN 與出處顯示「未查核」，費用率與倍數照既有欄位呈現。展開後 List 列會變高，最大輔助字級要另外檢查完整內容，build 與解碼測試不能代替畫面驗證。
 - 1x 股票產品的長期定投與一次投入研究不自動涵蓋每日重設的槓桿／反向 ETF；定投試算選到槓桿／反向標的時以警示樣式呈現每日重設偏離風險。
+- 成本情境的美元扣款仍用台幣等值月額拆解，換匯價差固定為 0；最低美元費以 API 最新 USD/TWD 換算並列日期。沒有匯率且最低費大於 0、扣完費用不夠買進時只回 issue。優惠到期只提醒，不自動替換費率。稅務規則是 2026-10-28 查閱的靜態事實，不自動更新；IRS 協定清單來源日期未標明時如實顯示。一般股利以外的分配不估算，三層不相加、不產生稅後報酬；App 成本 UI 與 optional Codable 留給 L5-T6。本票依指示未跑網頁／App UI，須在整合驗收操作上述把手。

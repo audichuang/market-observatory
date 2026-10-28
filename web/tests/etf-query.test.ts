@@ -67,3 +67,43 @@ test("舊規劃的零月額讀成預設月額，其他規劃欄位保留且不�
     sql.close();
   }
 });
+
+test("成本情境在共用快取外計算，不影響歷史試算，也不儲存假設", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-10-28T12:00:00Z") });
+  const { db, sql } = await migratedDb();
+  const originalCaches = Object.getOwnPropertyDescriptor(globalThis, "caches");
+  const cached = new Map<string, Response>();
+  let hits = 0;
+  Object.defineProperty(globalThis, "caches", { configurable: true, value: { default: {
+    match: async (key: string) => { const response = cached.get(key); if (response) hits++; return response?.clone(); },
+    put: async (key: string, response: Response) => { cached.set(key, response.clone()); },
+  } } });
+  try {
+    const price = sql.prepare("INSERT INTO prices (symbol, date, close, source, fetched_at) VALUES (?, ?, ?, 'test', '2026-10-28')");
+    for (const date of ["2025-01-01", "2026-09-28", "2026-10-27"]) {
+      for (const symbol of ["SPX", "VOO", "USDTWD"]) price.run(symbol, date, symbol === "USDTWD" ? 32 : 100);
+    }
+    const viewer = { id: "cost-query", email: "etf@example.test", name: "", isOwner: false };
+    const read = async (cost: Record<string, string>) => {
+      const query = new URLSearchParams({ etf: "VOO", years: "1", monthly: "3000", ...cost });
+      return etfsView({ env: { DB: db }, req: { query: (key) => query.get(key) ?? undefined, url: `http://localhost/etfs?${query}` } }, viewer);
+    };
+    const withCosts = await read({ costFee: "0.1", costMinUsd: "1" });
+    assert.ok(withCosts.costScenario && !("issue" in withCosts.costScenario));
+    assert.equal(withCosts.costScenario.perBuy.amountTwd, 3000);
+    assert.equal(withCosts.costScenario.perBuy.commissionTwd, 32);
+    assert.ok(withCosts.costScenario.notes.includes("最低手續費以 2026-10-27 的 USD/TWD 32 換算。"));
+    const withoutCosts = await read({});
+    assert.equal(hits, 1, "移除成本參數的第二次查詢確實命中共用快取");
+    assert.equal(withoutCosts.costScenario, null);
+    assert.ok(withCosts.dca);
+    assert.deepEqual(withCosts.dca, withoutCosts.dca);
+    const invalid = await read({ costFee: "9" });
+    assert.deepEqual(invalid.costScenario, { issue: "手續費比例要在 0–5% 之間" });
+    assert.equal(sql.prepare("SELECT COUNT(*) AS n FROM settings WHERE key LIKE '%cost%' OR key = 'plan:cost-query'").get()!.n, 0);
+  } finally {
+    if (originalCaches) Object.defineProperty(globalThis, "caches", originalCaches);
+    else Reflect.deleteProperty(globalThis, "caches");
+    sql.close();
+  }
+});

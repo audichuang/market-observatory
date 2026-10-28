@@ -26,6 +26,14 @@ struct FixtureDecodingTests {
         #expect(p.dca != nil)
         #expect(p.dca?.firstBuyDate != nil)
         #expect(p.rows.first { $0.ticker == "SSO" }?.drift1y != nil)
+        let voo = try #require(p.rows.first { $0.ticker == "VOO" })
+        let facts = try #require(voo.facts)
+        #expect(facts.domicile == "美國")
+        #expect(facts.distribution == "配息（每季）")
+        #expect(facts.isin == nil)
+        #expect(facts.sourceUrl == "https://investor.vanguard.com/investment-products/etfs/profile/voo")
+        #expect(facts.checkedAt == "2026-10-28")
+        #expect(p.rows.first { $0.ticker == "SPY" }?.facts?.isin == "US78462F1030")
     }
     @Test func generatedOutlook() throws {
         let p = try decodeFixture("generated-outlook", as: OutlookPage.self)
@@ -113,6 +121,7 @@ struct FixtureDecodingTests {
         let e = try decodeFixture("etfs", as: Etfs.self)
         #expect(e.funding == nil)
         #expect(e.dca?.firstBuyDate == nil)
+        #expect(e.rows.allSatisfy { $0.facts == nil })
         // 1× ETF 的 drift1y 是 null，槓桿／反向 ETF 是 { actual, naive, drift } 物件。
         let voo = try #require(e.rows.first { $0.ticker == "VOO" })
         #expect(voo.drift1y == nil)

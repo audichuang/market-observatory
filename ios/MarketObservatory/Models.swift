@@ -368,6 +368,7 @@ struct Etfs: Decodable, Sendable {
         /// 槓桿／反向 ETF 近一年「實際報酬 − 倍數 × S&P 500 報酬」（src/lib/analytics.ts leverageDrift）；1× ETF 或資料不足時為 null。
         let drift1y: Drift?
         let note: String?
+        let facts: Facts?
     }
 
     struct Sim: Decodable, Sendable {
@@ -410,6 +411,14 @@ struct Etfs: Decodable, Sendable {
     let dca: Dca?
     let fxLast: Fx?
     let funding: String?
+
+    struct Facts: Decodable, Sendable {
+        let domicile: String
+        let distribution: String?
+        let isin: String?
+        let sourceUrl: String
+        let checkedAt: String
+    }
 }
 
 // MARK: - 下月展望

@@ -159,6 +159,7 @@ struct EtfView: View {
                             Text("費用 \(Fmt.fee(r.netFeePct)) · 規模 \(Fmt.compactUsd(r.aumUsd))").font(.caption).foregroundStyle(.secondary)
                             if let n = r.note, !n.isEmpty { Text(n).font(.caption2).foregroundStyle(.secondary) }
                         }
+                        EtfFactsDisclosure(row: r, catalogAsOf: e.catalogAsOf)
                         VStack(alignment: .leading, spacing: 4) {
                             Text("收盤 \(Fmt.num(r.close))").font(.caption).foregroundStyle(.secondary).monospacedDigit()
                             if let drift = r.drift1y {
@@ -254,6 +255,9 @@ struct EtfView: View {
                     .frame(height: 180)
                 } else {
                     Text("資料不足，無法試算。").foregroundStyle(.secondary)
+                }
+                if let row = e.rows.first(where: { $0.ticker == (simEtf ?? e.sim.etf) }) {
+                    EtfEvidence(multiple: row.multiple)
                 }
                 Button {
                     Task { await saveDefault(e) }

@@ -383,6 +383,7 @@ struct Etfs: Decodable, Sendable {
         /// 槓桿／反向 ETF 近一年「實際報酬 − 倍數 × S&P 500 報酬」（src/lib/analytics.ts leverageDrift）；1× ETF 或資料不足時為 null。
         let drift1y: Drift?
         let note: String?
+        let facts: Facts?
     }
 
     struct Sim: Decodable, Sendable {
@@ -400,6 +401,7 @@ struct Etfs: Decodable, Sendable {
             let value: Double
         }
 
+        let firstBuyDate: String?
         let months: Int
         let invested: Double
         let value: Double
@@ -423,6 +425,18 @@ struct Etfs: Decodable, Sendable {
     let sim: Sim
     let dca: Dca?
     let fxLast: Fx?
+    let funding: String?
+    let costScenario: CostScenario?
+    let checklists: [Checklist]?
+    let overlap: Overlap?
+
+    struct Facts: Decodable, Sendable {
+        let domicile: String
+        let distribution: String?
+        let isin: String?
+        let sourceUrl: String
+        let checkedAt: String
+    }
 }
 
 // MARK: - 下月展望
@@ -752,4 +766,117 @@ struct PushTestResult: Decodable, Sendable {
     }
 
     let results: [Item]
+}
+
+struct CostScenario: Decodable, Sendable {
+    struct PerBuy: Decodable, Sendable {
+        let amountTwd: Double?
+        let fxSpreadTwd: Double?
+        let fixedTwd: Double?
+        let commissionTwd: Double?
+        let investedTwd: Double?
+        let costTwd: Double?
+        let costPct: Double?
+    }
+
+    struct Layer: Decodable, Sendable {
+        let pct: Double?
+        let note: String?
+    }
+
+    struct Layers: Decodable, Sendable {
+        let fundExpense: Layer?
+        let fundWithholding: Layer?
+        let investorWithholding: Layer?
+    }
+
+    struct Promo: Decodable, Sendable {
+        let until: String?
+        let expired: Bool?
+    }
+
+    struct Source: Decodable, Sendable {
+        let name: String?
+        let url: String?
+        let sourceDate: String?
+        let checkedAt: String?
+    }
+
+    struct Inputs: Decodable, Sendable {
+        let costCcy: String?
+        let costFx: Double?
+        let costFee: Double?
+        let costMinUsd: Double?
+        let costFixed: Double?
+        let costPromo: String?
+        let costYield: Double?
+        let costBasis: String?
+        let costTax: String?
+    }
+
+    let issue: String?
+    let perBuy: PerBuy?
+    let annualTxCostTwd: Double?
+    let layers: Layers?
+    let promo: Promo?
+    let notes: [String]?
+    let sources: [Source]?
+    let inputs: Inputs?
+}
+
+struct Checklist: Decodable, Sendable, Identifiable {
+    struct Source: Decodable, Sendable {
+        let label: String
+        let url: String
+        let updatedAt: String
+        let checkedAt: String
+    }
+
+    let id: String
+    let title: String
+    let items: [String]
+    let note: String?
+    let footer: String
+    let sources: [Source]
+}
+
+struct Overlap: Decodable, Sendable {
+    struct Member: Decodable, Sendable {
+        let key: String?
+        let company: String?
+        let tickers: [String]?
+        let weightPct: Double?
+        let outOfIndex: [String]?
+    }
+
+    struct Exposure: Decodable, Sendable {
+        struct Member: Decodable, Sendable {
+            let key: String?
+            let viaEtfTwd: Double?
+            let directTwd: Double?
+            let combinedTwd: Double?
+            let sharePct: Double?
+        }
+
+        let members: [Member]?
+        let totalTwd: Double?
+        let watchlistSharePct: Double?
+        let otherViaEtfTwd: Double?
+    }
+
+    struct Inputs: Decodable, Sendable {
+        let ovEtf: Int?
+        let ov: [String: Int]?
+    }
+
+    let asOf: String?
+    let proxy: String?
+    let applicable: Bool?
+    let members: [Member]?
+    let totalWeight: Double?
+    let top10CompanyWeight: Double?
+    let exposure: Exposure?
+    let inputs: Inputs?
+    let issue: String?
+    let notes: [String]?
 }

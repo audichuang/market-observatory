@@ -44,8 +44,41 @@ struct FixtureDecodingTests {
     @Test func generatedWatchlist() throws { _ = try decodeFixture("generated-watchlist", as: Watchlist.self) }
     @Test func generatedEtfs() throws {
         let p = try decodeFixture("generated-etfs", as: Etfs.self)
+        #expect(p.costScenario?.perBuy?.costPct != nil)
+        #expect(p.overlap?.exposure != nil)
+        let overlap = try #require(p.overlap)
+        #expect(overlap.proxy == "SPY" && overlap.applicable == true)
+        #expect(overlap.members?.first { $0.key == "GOOGL" }?.weightPct == 7.5)
+        #expect(overlap.totalWeight == 34 && overlap.top10CompanyWeight == 36)
+        #expect(overlap.inputs?.ovEtf == 300000 && overlap.inputs?.ov?["NVDA"] == 50000)
+        let nvda = try #require(overlap.exposure?.members?.first { $0.key == "NVDA" })
+        #expect(nvda.viaEtfTwd == 18000 && nvda.directTwd == 50000 && nvda.combinedTwd == 68000)
+        #expect(nvda.sharePct == 19.428571428571427)
+        #expect(overlap.exposure?.totalTwd == 350000 && overlap.exposure?.otherViaEtfTwd == 198000)
+        #expect(overlap.exposure?.watchlistSharePct == 43.42857142857143)
+        #expect(p.funding == "monthly")
         #expect(p.dca != nil)
+        #expect(p.dca?.firstBuyDate != nil)
         #expect(p.rows.first { $0.ticker == "SSO" }?.drift1y != nil)
+        let voo = try #require(p.rows.first { $0.ticker == "VOO" })
+        let facts = try #require(voo.facts)
+        #expect(facts.domicile == "美國")
+        #expect(facts.distribution == "配息（每季）")
+        #expect(facts.isin == nil)
+        #expect(facts.sourceUrl == "https://investor.vanguard.com/investment-products/etfs/profile/voo")
+        #expect(facts.checkedAt == "2026-10-28")
+        #expect(p.rows.first { $0.ticker == "SPY" }?.facts?.isin == "US78462F1030")
+        #expect(p.checklists?.count == 2)
+        let checklists = try #require(p.checklists)
+        #expect(checklists.allSatisfy { !$0.items.isEmpty })
+        #expect(checklists.map(\.id) == ["tw-overseas-income", "us-estate"])
+        #expect(checklists.allSatisfy { !$0.title.isEmpty && !$0.footer.isEmpty && !$0.sources.isEmpty })
+        #expect(checklists.flatMap(\.sources).allSatisfy {
+            !$0.label.isEmpty && $0.url.hasPrefix("https://") && !$0.updatedAt.isEmpty && !$0.checkedAt.isEmpty
+        })
+        #expect(checklists.first?.note != nil)
+        #expect(checklists.last?.note == nil)
+        #expect(checklists.last?.sources.last?.updatedAt == "2025-09")
     }
     @Test func generatedOutlook() throws {
         let p = try decodeFixture("generated-outlook", as: OutlookPage.self)
@@ -204,6 +237,12 @@ struct FixtureDecodingTests {
 
     @Test func etfs() throws {
         let e = try decodeFixture("etfs", as: Etfs.self)
+        #expect(e.costScenario == nil)
+        #expect(e.overlap == nil)
+        #expect(e.funding == nil)
+        #expect(e.dca?.firstBuyDate == nil)
+        #expect(e.rows.allSatisfy { $0.facts == nil })
+        #expect(e.checklists == nil)
         // 1× ETF 的 drift1y 是 null，槓桿／反向 ETF 是 { actual, naive, drift } 物件。
         let voo = try #require(e.rows.first { $0.ticker == "VOO" })
         #expect(voo.drift1y == nil)
@@ -211,5 +250,53 @@ struct FixtureDecodingTests {
         let drift = try #require(sso.drift1y)
         #expect(drift.drift != nil)
         #expect(e.rows.filter { $0.multiple != 1 }.allSatisfy { $0.drift1y != nil })
+    }
+
+    @Test func costScenarioAllowsIssueAndMissingFields() throws {
+        let issue = try API.decoder.decode(CostScenario.self, from: Data(#"{"issue":"手續費比例要在 0–5% 之間"}"#.utf8))
+        #expect(issue.issue == "手續費比例要在 0–5% 之間")
+        #expect(issue.perBuy == nil)
+        let partial = try API.decoder.decode(CostScenario.self, from: Data(#"{"perBuy":{},"layers":{"fundExpense":{},"fundWithholding":{},"investorWithholding":{}},"promo":{},"sources":[{}],"inputs":{}}"#.utf8))
+        #expect(partial.perBuy?.costPct == nil)
+        #expect(partial.layers?.fundExpense?.pct == nil)
+        #expect(partial.layers?.fundWithholding?.note == nil)
+        #expect(partial.layers?.investorWithholding?.pct == nil)
+        #expect(partial.promo?.expired == nil)
+        #expect(partial.sources?.first?.url == nil)
+        #expect(partial.inputs?.costFee == nil)
+    }
+
+    @Test func costScenarioDecodesIndexOtherAndExpiredPromo() throws {
+        let json = #"{"layers":{"fundExpense":{"pct":0.03,"note":"基金淨費用率（占持有市值的年化 %）"},"fundWithholding":{"pct":0},"investorWithholding":{"pct":null,"note":"不套用：請依你的稅務身分確認"}},"promo":{"until":"2026-01-01","expired":true},"inputs":{"costBasis":"index","costTax":"other","costPromo":"2026-01-01"}}"#
+        let scenario = try API.decoder.decode(CostScenario.self, from: Data(json.utf8))
+        #expect(scenario.layers?.fundExpense?.pct == 0.03)
+        #expect(scenario.layers?.fundWithholding?.pct == 0)
+        #expect(scenario.layers?.investorWithholding?.pct == nil)
+        #expect(scenario.layers?.investorWithholding?.note == "不套用：請依你的稅務身分確認")
+        #expect(scenario.promo?.until == "2026-01-01")
+        #expect(scenario.promo?.expired == true)
+        #expect(scenario.inputs?.costBasis == "index")
+        #expect(scenario.inputs?.costTax == "other")
+    }
+
+    @Test func overlapAllowsIssueAndMissingFields() throws {
+        let empty = try API.decoder.decode(Overlap.self, from: Data("{}".utf8))
+        #expect(empty.members == nil && empty.exposure == nil && empty.notes == nil)
+        let partial = try API.decoder.decode(Overlap.self, from: Data(#"{"members":[{}],"exposure":{"members":[{}]},"inputs":{}}"#.utf8))
+        #expect(partial.members?.first?.key == nil && partial.members?.first?.weightPct == nil)
+        #expect(partial.exposure?.members?.first?.combinedTwd == nil)
+        #expect(partial.exposure?.totalTwd == nil && partial.exposure?.watchlistSharePct == nil)
+        #expect(partial.inputs?.ovEtf == nil && partial.inputs?.ov == nil)
+        let issue = try API.decoder.decode(Overlap.self, from: Data(#"{"issue":"金額要是 0 到 10 億台幣的整數"}"#.utf8))
+        #expect(issue.issue == "金額要是 0 到 10 億台幣的整數" && issue.exposure == nil)
+    }
+
+    @Test func overlapDecodesInapplicableAndUndefinedShares() throws {
+        let inapplicable = try API.decoder.decode(Overlap.self, from: Data(#"{"applicable":false,"exposure":null,"notes":["槓桿與反向 ETF 用衍生工具達成每日倍數，不適用持股重疊推估。"]}"#.utf8))
+        #expect(inapplicable.applicable == false && inapplicable.exposure == nil)
+        #expect(inapplicable.notes?.first == "槓桿與反向 ETF 用衍生工具達成每日倍數，不適用持股重疊推估。")
+        let zero = try API.decoder.decode(Overlap.self, from: Data(#"{"exposure":{"members":[{"key":"NVDA","viaEtfTwd":0,"directTwd":0,"combinedTwd":0,"sharePct":null}],"totalTwd":0,"watchlistSharePct":null,"otherViaEtfTwd":0}}"#.utf8))
+        #expect(zero.exposure?.totalTwd == 0 && zero.exposure?.watchlistSharePct == nil)
+        #expect(zero.exposure?.members?.first?.combinedTwd == 0 && zero.exposure?.members?.first?.sharePct == nil)
     }
 }

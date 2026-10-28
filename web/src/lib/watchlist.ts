@@ -102,3 +102,10 @@ export function mergeWatchlists(lists: WatchMember[][]): WatchMember[] {
   }
   return out.slice(0, MAX_TRACKED);
 }
+
+export function memberWeights(list: WatchMember[], holdings: Holding[]) {
+  const weight = new Map(holdings.map((h) => [h.ticker, h.weightPct]));
+  const members = list.map((m) => ({ ...m, weightPct: m.tickers.reduce((a, t) => a + (weight.get(t) ?? 0), 0), outOfIndex: holdings.length ? m.tickers.filter((t) => !weight.has(t)) : [] }));
+  const totalWeight = members.reduce((a, m) => a + m.weightPct, 0);
+  return { members, totalWeight };
+}

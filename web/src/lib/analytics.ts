@@ -138,6 +138,7 @@ export function rollWeight(
 }
 
 export interface DcaResult {
+  firstBuyDate: string;
   months: number;
   invested: number;
   units: number;
@@ -151,7 +152,8 @@ export interface DcaResult {
 }
 
 /**
- * 每月第一個交易日投入固定金額（同幣別），算到序列最後一天。
+ * 首筆在試算起點當天或之後第一個有價格的交易日投入，之後每月第一個交易日投入固定金額（同幣別）。
+ * 首月可能不是完整月份，算到序列最後一天。
  * 不含股息再投入、手續費與稅；lump sum 是同一筆總金額在第一天一次投入的對照。
  */
 export function simulateDca(s: Series, startDate: string, monthlyAmount: number): DcaResult | null {
@@ -179,6 +181,7 @@ export function simulateDca(s: Series, startDate: string, monthlyAmount: number)
   // 最大帳面虧損：期間內 (市值 − 已投入) ÷ 已投入 的最低點；從未虧損則為 0。
   const worstUnrealized = Math.min(0, ...path.map((step) => pct(step.value, step.invested)));
   return {
+    firstBuyDate: pts[0].date,
     months: buys.length,
     invested,
     units,

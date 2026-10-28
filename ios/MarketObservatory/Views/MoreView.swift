@@ -53,6 +53,9 @@ struct EtfView: View {
     @State private var simEtf: String?
     @State private var simYears: Int?
     @State private var simMonthly: Int?
+    @State private var simFunding = "monthly"
+    @State private var costQuery: CostQuery?
+    @State private var overlapQuery: OverlapQuery?
     @State private var monthlyText = ""
     @State private var loadSeq = 0
     @State private var savingDefault = false
@@ -83,16 +86,25 @@ struct EtfView: View {
         let seq = loadSeq
         state = .loading(state.value)
         do {
-            let e: Etfs = try await API.get("/api/v1/etfs", query: [
+            var query: [String: String?] = [
                 "etf": simEtf,
                 "years": simYears.map(String.init),
                 "monthly": simMonthly.map(String.init),
-            ])
+                "funding": simFunding,
+            ]
+            if let costQuery {
+                query.merge(costQuery.dictionary.mapValues { Optional($0) }) { _, new in new }
+            }
+            if let overlapQuery {
+                query.merge(overlapQuery.dictionary.mapValues { Optional($0) }) { _, new in new }
+            }
+            let e: Etfs = try await API.get("/api/v1/etfs", query: query)
             // 連續切換時只採用最後一次的結果，避免舊的回應蓋掉新的。
             guard seq == loadSeq else { return }
             simEtf = e.sim.etf
             simYears = e.sim.years
             simMonthly = Int(e.sim.monthlyTwd)
+            simFunding = e.funding ?? "monthly"
             monthlyText = String(Int(e.sim.monthlyTwd))
             state = .loaded(e)
         } catch {
@@ -126,6 +138,7 @@ struct EtfView: View {
     private func content(_ e: Etfs) -> some View {
         let typedMonthly = Int(monthlyText.trimmingCharacters(in: .whitespaces))
         let canSimulate = typedMonthly.map { $0 > 0 && $0 <= 10_000_000 && $0 != Int(e.sim.monthlyTwd) } ?? false
+        let isLump = e.funding == "lump"
         return List {
             Section {
                 Picker("期間", selection: $period) {
@@ -155,6 +168,7 @@ struct EtfView: View {
                             Text("費用 \(Fmt.fee(r.netFeePct)) · 規模 \(Fmt.compactUsd(r.aumUsd))").font(.caption).foregroundStyle(.secondary)
                             if let n = r.note, !n.isEmpty { Text(n).font(.caption2).foregroundStyle(.secondary) }
                         }
+                        EtfFactsDisclosure(row: r, catalogAsOf: e.catalogAsOf)
                         VStack(alignment: .leading, spacing: 4) {
                             Text("收盤 \(Fmt.num(r.close))").font(.caption).foregroundStyle(.secondary).monospacedDigit()
                             if let drift = r.drift1y {
@@ -174,6 +188,13 @@ struct EtfView: View {
                 Text("價格報酬，不含配息。近一年偏離 ＝ 槓桿／反向 ETF 實際報酬減「倍數 × 指數報酬」。")
             }
 
+            if let overlap = e.overlap {
+                OverlapSection(overlap: overlap, etf: simEtf ?? e.sim.etf, query: overlapQuery) { input in
+                    overlapQuery = input
+                    Task { await load() }
+                }
+            }
+
             Section {
                 Picker("標的", selection: Binding(get: { simEtf ?? e.sim.etf }, set: { v in
                     simEtf = v
@@ -187,7 +208,14 @@ struct EtfView: View {
                 })) {
                     ForEach([1, 2, 3, 5], id: \.self) { Text("\($0) 年").tag($0) }
                 }
-                LabeledContent("每月投入") {
+                Picker("資金類型", selection: Binding(get: { simFunding }, set: { v in
+                    simFunding = v
+                    Task { await load() }
+                })) {
+                    Text(Copy.fundingMonthlyLabel).tag("monthly")
+                    Text(Copy.fundingLumpLabel).tag("lump")
+                }
+                LabeledContent(isLump ? "每月分批金額（台幣）" : "每月投入") {
                     HStack {
                         TextField("台幣", text: $monthlyText)
                             .keyboardType(.numberPad)
@@ -203,16 +231,28 @@ struct EtfView: View {
                     }
                 }
                 if let d = e.dca {
-                    LabeledContent("投入 \(d.months) 個月", value: Fmt.twd(d.invested))
-                    LabeledContent("目前市值") { Text(Fmt.twd(d.value)).bold() }
-                    LabeledContent("報酬率") { Delta(value: d.returnPct, percent: true) }
-                    LabeledContent("同金額期初單筆") {
-                        VStack(alignment: .trailing, spacing: 2) {
-                            Text(Fmt.twd(d.lumpSumValue)).bold().monospacedDigit()
-                            Delta(value: d.lumpSumReturnPct, percent: true).font(.caption)
+                    LabeledContent(isLump ? "期初資金" : "投入 \(d.months) 個月", value: Fmt.twd(d.invested))
+                    if isLump {
+                        LabeledContent("一次投入（\(d.firstBuyDate ?? "—") 全部買入）") {
+                            VStack(alignment: .trailing, spacing: 2) {
+                                Text(Fmt.twd(d.lumpSumValue)).bold().monospacedDigit()
+                                Delta(value: d.lumpSumReturnPct, percent: true).font(.caption)
+                            }
                         }
                     }
-                    LabeledContent("最大帳面虧損") { Delta(value: d.maxDrawdownPct, percent: true) }
+                    LabeledContent(isLump ? "分 \(d.months) 個月投入" : "目前市值") {
+                        VStack(alignment: .trailing, spacing: 2) {
+                            Text(Fmt.twd(d.value)).bold().monospacedDigit()
+                            Delta(value: d.returnPct, percent: true).font(.caption)
+                        }
+                    }
+                    LabeledContent(isLump ? "分批的最大帳面虧損" : "最大帳面虧損") { Delta(value: d.maxDrawdownPct, percent: true) }
+                    if isLump {
+                        Text(Copy.dcaLumpPremise).font(.caption).foregroundStyle(.secondary)
+                        Text(Copy.dcaIdleCash).font(.caption).foregroundStyle(.secondary)
+                    } else {
+                        Text(Copy.dcaMonthlyNoLump).font(.caption).foregroundStyle(.secondary)
+                    }
                     Chart {
                         ForEach(d.path) { p in
                             if let day = Fmt.day(p.date) {
@@ -232,6 +272,9 @@ struct EtfView: View {
                 } else {
                     Text("資料不足，無法試算。").foregroundStyle(.secondary)
                 }
+                if let row = e.rows.first(where: { $0.ticker == (simEtf ?? e.sim.etf) }) {
+                    EtfEvidence(multiple: row.multiple)
+                }
                 Button {
                     Task { await saveDefault(e) }
                 } label: {
@@ -245,7 +288,19 @@ struct EtfView: View {
             } header: {
                 Text("\(e.sim.etf) 定投 \(e.sim.years) 年（台幣計價）")
             } footer: {
-                Text("每月第一個交易日以收盤價買入，用當天 USD/TWD 換匯；不含配息、手續費與稅。改標的、期間或金額只是試算，按「設為我的預設」才會存起來。\(e.fxLast.map { "最新匯率 \(Fmt.num($0.close, 3))（\(Fmt.fullDate($0.date))）。" } ?? "")")
+                Text("\(e.dca?.firstBuyDate.map { "試算起點 \(Fmt.fullDate(e.sim.startDate))，首筆 \(Fmt.fullDate($0))。" } ?? "")\(Copy.dcaBuyRule)；\(Copy.dcaFxRule)。不含配息、手續費、換匯價差與稅。改標的、期間或金額只是試算，按「設為我的預設」才會存起來。\(e.fxLast.map { "最新匯率 \(Fmt.num($0.close, 3))（\(Fmt.fullDate($0.date))）。" } ?? "")")
+            }
+
+            CostScenarioSection(scenario: e.costScenario, query: costQuery) { input in
+                costQuery = input
+                Task { await load() }
+            } clear: {
+                costQuery = nil
+                Task { await load() }
+            }
+
+            if let checklists = e.checklists {
+                TaxChecklistSection(checklists: checklists)
             }
 
             Section {

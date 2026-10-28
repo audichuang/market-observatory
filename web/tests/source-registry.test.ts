@@ -77,17 +77,18 @@ test("Cboe 停用影響明列回補十年日線最後一段的 VIX／SPX", () =>
   assert.match(cboe.disableImpact, /回補十年日線.*最後一段.*VIX.*SPX/);
 });
 
-test("Nasdaq 分析師逐欄揭露已保存、目前顯示與 L6 #10 預定顯示，版本日維持未核實", () => {
+test("Nasdaq 分析師逐欄揭露 L6 合併後的實際顯示狀態，版本日維持未核實", () => {
   const analyst = SOURCE_REGISTRY.find((s) => s.id === "nasdaq-analyst")!;
   const fields = new Map(analyst.fields.map((f) => [f.name, f.usage]));
-  for (const name of ["priceTarget", "buy", "hold", "sell"]) assert.match(fields.get(name)!, /顯示中/, name);
-  for (const name of ["lowPriceTarget", "highPriceTarget", "fiscalEnd", "consensusEPSForecast", "noOfEstimates"]) {
-    assert.match(fields.get(name)!, /已存未顯示.*L6 #10 預定顯示/, name);
+  for (const name of ["priceTarget", "buy", "hold", "sell", "lowPriceTarget", "highPriceTarget", "fiscalEnd", "noOfEstimates"]) {
+    assert.match(fields.get(name)!, /顯示中/, name);
   }
-  for (const name of ["up", "down"]) assert.match(fields.get(name)!, /彙總顯示中.*L6 #10 預定顯示逐股/, name);
+  assert.match(fields.get("consensusEPSForecast")!, /已存未顯示/);
+  for (const name of ["up", "down"]) assert.match(fields.get(name)!, /彙總與逐股顯示中/, name);
   const notes = analyst.notes.join(" ");
   assert.match(notes, /已在抓、已存於 analyst_views/);
-  assert.match(notes, /L6 #10 只改顯示/);
+  assert.match(notes, /取得與保存的條款狀態與現用欄位相同/);
+  assert.doesNotMatch([...fields.values(), notes].join(" "), /L6 #10 (?:預定顯示|只改顯示)/);
   assert.match(notes, /歷月共識未抓取/);
   for (const source of SOURCE_REGISTRY.filter((s) => s.id.startsWith("nasdaq-"))) {
     assert.equal(source.terms[0].versionDate, null, source.id);

@@ -43,7 +43,7 @@ Preconditions:
 - Cboe 列的工作包含 `prices`、`backfill-prices`、`backfill-index-history`；停用影響明列「回補十年日線的最後一段（VIX／SPX）也會受影響」。`tests/source-registry.test.ts` 實跑回補的全部七段，檢查每個實際來源都列出 `backfill-prices`，並確認最後一段實際請求 VIX／SPX。
 - Nasdaq 歷史行情核對（`nasdaq-quote`）列的工作包含 `crosscheck`、`backfill-checks`、`addWatchSymbol`。`tests/source-registry.test.ts` 記錄加入全站新公司時的實際請求，確認每個命中來源的工作都包含 `addWatchSymbol`（目前為 Yahoo chart 與 Nasdaq 歷史行情核對）。
 - 免責句逐字為：「這份清冊整理的是條款文字與本站用途的落差，不是法律意見；列在這裡不代表已取得授權。」清冊不控制既有資料的顯示或隱藏。
-- 站長登入後由導覽列「資料來源」進入，找到 `h2:text-is("來源授權清冊（站長）")`。在該表的 Nasdaq 分析師列確認低／高目標價、財年、EPS 共識、估計數、上修／下修各有欄位名與顯示狀態；低／高目標價、財年、EPS 共識、估計數為「已存未顯示；L6 #10 預定顯示」，上／下修為「彙總顯示中；L6 #10 預定顯示逐股次數」。文字寫明已在抓、已存於 `analyst_views`，L6 #10 只改顯示，歷月共識未抓取。
+- 站長登入後由導覽列「資料來源」進入，找到 `h2:text-is("來源授權清冊（站長）")`。在該表的 Nasdaq 分析師列確認低／高目標價、財年、EPS 共識、估計數、上修／下修各有欄位名與顯示狀態；低／高目標價、財年、估計數為「顯示中」，EPS 共識為「已存未顯示」，上／下修為「彙總與逐股顯示中」。文字寫明已在抓、已存於 `analyst_views`，取得與保存的條款狀態與現用欄位相同，歷月共識未抓取。
 - 橫向捲動表格看條款欄：Nasdaq 版本日為「未核實」，原因提到 V-B #15 未親見 2026-05-11；Yahoo 註「沿前輪 2026-08-04 版，本輪未重核」；Cboe 版本為 2022-11-16，衍生計算欄提到「核對或更正他源資料」限制。本站查閱日皆為 2026-10-28。展開「依據文件」可讀文件與程式位置。
 - 證據：站長表格與 Nasdaq 列存 `sources-registry.png`，條款欄存 `sources-registry-terms.png`；用測試帳號從導覽列進入 `/sources`，確認沒有清冊標題與表，存 `sources-registry-non-owner.png`。App 無此頁。
 - 清冊是 repo 公開的靜態資料，props 會嵌入每位登入者的 HTML；只有面板對站長顯示。loader 只需 `env.DB`，不查登入者、不送 RegExp，也不含 email。`tests/source-registry.test.ts` 記錄五支排程與加入全站新公司的每個請求網址，新增上游必須補清冊；APNs／Sign in with Apple 是傳輸與認證例外。此守門只跑 worker，沒有執行本機 AI 排程；本機配對正文可能來自非 Yahoo 網站，仍需另外核查其條款。

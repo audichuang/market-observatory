@@ -248,11 +248,15 @@ struct EtfView: View {
                 Text("每月第一個交易日以收盤價買入，用當天 USD/TWD 換匯；不含配息、手續費與稅。改標的、期間或金額只是試算，按「設為我的預設」才會存起來。\(e.fxLast.map { "最新匯率 \(Fmt.num($0.close, 3))（\(Fmt.fullDate($0.date))）。" } ?? "")")
             }
 
-            Section("我的規劃") {
+            Section {
                 LabeledContent("研究預算", value: Fmt.twd(Double(e.plan.researchBudgetTwd)))
                 LabeledContent("每批投入", value: Fmt.twd(Double(e.plan.trancheTwd)))
-                LabeledContent("考慮出場的漲幅", value: Fmt.plainPct(e.plan.exitConsiderationPct, 0))
+                LabeledContent(PlanCopy.reviewLabel, value: PlanCopy.reviewValue(e.plan.exitConsiderationPct))
                 if !e.plan.notes.isEmpty { Text(e.plan.notes).font(.footnote).foregroundStyle(.secondary) }
+            } header: {
+                Text("我的規劃")
+            } footer: {
+                Text(PlanCopy.note)
             }
         }
         .listStyle(.insetGrouped)
@@ -309,11 +313,11 @@ private struct PlanEditor: View {
                 Section {
                     LabeledContent("研究預算") { TextField("金額", text: $budgetText).keyboardType(.numberPad).multilineTextAlignment(.trailing).focused($focused) }
                     LabeledContent("每批投入") { TextField("金額", text: $trancheText).keyboardType(.numberPad).multilineTextAlignment(.trailing).focused($focused) }
-                    LabeledContent("考慮出場漲幅 %") { TextField("%", text: $exitText).keyboardType(.decimalPad).multilineTextAlignment(.trailing).focused($focused) }
+                    LabeledContent(PlanCopy.reviewLabel) { TextField("%", text: $exitText).keyboardType(.decimalPad).multilineTextAlignment(.trailing).focused($focused) }
                 } header: {
                     Text("資金規劃")
                 } footer: {
-                    if parsed == nil { Text("金額要是 0 到 10 億的整數，出場漲幅 0–100%，備註最多 2000 字。").foregroundStyle(Color.up) }
+                    if parsed == nil { Text(PlanCopy.rulesText).foregroundStyle(Color.up) }
                 }
                 Section("備註") { TextEditor(text: $notes).frame(minHeight: 100).focused($focused) }
                 if let error { Section { Notice(kind: .bad, text: error).noticeRow() } }

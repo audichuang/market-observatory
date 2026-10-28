@@ -411,3 +411,14 @@ extension Copy {
         }
     }
 }
+
+/// Neutral planning copy; rulesText must match PLAN_RULES_TEXT in web/src/lib/plan.ts.
+enum PlanCopy {
+    static let reviewLabel = "檢討門檻 ±%"
+    static let rulesText = "金額要是 0 到 10 億的整數，檢討門檻 0–100%，備註最多 2000 字。"
+    static let note = "只是規劃，不是持倉或交易紀錄；漲跌達門檻時自己檢討，App 不會監看或提醒。"
+
+    static func reviewValue(_ pct: Double) -> String {
+        Fmt.pct(pct, 0).replacingOccurrences(of: "+", with: "±")
+    }
+}

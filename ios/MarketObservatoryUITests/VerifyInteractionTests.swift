@@ -358,9 +358,11 @@ final class VerifyInteractionTests: XCTestCase {
         setDefault(app)
 
         reveal(app, app.buttons["我的規劃"], up: false).tap()
-        let exit = app.textFields["考慮出場漲幅 %"]
+        let exit = app.textFields["檢討門檻 ±%"]
         XCTAssertTrue(exit.waitForExistence(timeout: 5))
         replaceText(exit, "150"); sleep(1)
+        XCTAssertFalse(app.buttons["儲存"].isEnabled, "檢討門檻 150 不應允許儲存")
+        XCTAssertTrue(app.staticTexts["金額要是 0 到 10 億的整數，檢討門檻 0–100%，備註最多 2000 字。"].exists)
         snap("F4-exit150"); note("F4-exit150", "儲存 enabled=\(app.buttons["儲存"].isEnabled)\n" + texts(app))
         app.buttons["取消"].tap(); sleep(1)
         app.buttons["我的規劃"].tap()

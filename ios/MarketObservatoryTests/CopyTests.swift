@@ -51,4 +51,13 @@ struct CopyTests {
         #expect(Copy.outlookUnavailable(reason: nil, spxDate: nil, vixDate: nil, staleSessions: nil, maxStaleSessions: nil) == fallback)
         #expect(Copy.outlookUnavailable(reason: "future-reason", spxDate: "2026-10-27", vixDate: "2026-10-20", staleSessions: 5, maxStaleSessions: 3) == fallback)
     }
+
+    @Test func planCopyMatchesWeb() {
+        // Must equal PLAN_RULES_TEXT in web/src/lib/plan.ts (see web/tests/plan.test.ts).
+        #expect(PlanCopy.rulesText == "金額要是 0 到 10 億的整數，檢討門檻 0–100%，備註最多 2000 字。")
+        #expect(PlanCopy.reviewLabel == "檢討門檻 ±%")
+        #expect(PlanCopy.reviewValue(20) == "±20%")
+        #expect(PlanCopy.reviewValue(0) == "0%")
+        #expect(PlanCopy.note == "只是規劃，不是持倉或交易紀錄；漲跌達門檻時自己檢討，App 不會監看或提醒。")
+    }
 }

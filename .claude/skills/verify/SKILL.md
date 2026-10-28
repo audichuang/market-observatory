@@ -121,7 +121,7 @@ printf '%s' 'verify-<run-id>-pw' > "$RUN/user.pw"; chmod 600 "$RUN/user.pw"
 | `test03_History` | C2 區間、C3 快速連點、C4 標的選單、C6 點統計表的列 |
 | `test04_Watchlist` | D2 加入 AVGO、D4 ZZZZ、D5 已在名單、D6–D8 左滑與確認、D9 點公司 |
 | `test05_NewsCalendar` | E3 代號篩選、E4 快速連點、E5 點今天以後第一個事件日、換月、今天 |
-| `test06_EtfsPlan` | F2 期間、F3 試算、F3b 設為預設再讀回、F4 出場漲幅 150、F5 每批投入 |
+| `test06_EtfsPlan` | F2 期間、F3 試算、F3b 設為預設再讀回、F4 檢討門檻 150、F5 每批投入 |
 | `test07_PushPrefs` | F8 關每日摘要、門檻 ±6.0%，離開再進來讀回，再改回 |
 | `test08_PushOpenDaily`、`test09_PushOpenEvents` | G1 前景橫幅、G2／G3 背景點開推播（要 shell 送推播，見下） |
 | `test12_Outlook` | H1 展望頁從上捲到底逐段截圖（`H1-outlook-NN.png`），斷言 dd5 與上漲兩個驗證區塊都在；文字存 `H1-outlook.txt` |

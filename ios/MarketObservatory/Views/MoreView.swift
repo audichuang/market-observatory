@@ -291,7 +291,7 @@ struct EtfView: View {
                 Text("\(e.dca?.firstBuyDate.map { "試算起點 \(Fmt.fullDate(e.sim.startDate))，首筆 \(Fmt.fullDate($0))。" } ?? "")\(Copy.dcaBuyRule)；\(Copy.dcaFxRule)。不含配息、手續費、換匯價差與稅。改標的、期間或金額只是試算，按「設為我的預設」才會存起來。\(e.fxLast.map { "最新匯率 \(Fmt.num($0.close, 3))（\(Fmt.fullDate($0.date))）。" } ?? "")")
             }
 
-            CostScenarioSection(scenario: e.costScenario, query: costQuery) { input in
+            CostScenarioSection(etf: e.sim.etf, scenario: e.costScenario, query: costQuery) { input in
                 costQuery = input
                 Task { await load() }
             } clear: {
@@ -690,7 +690,7 @@ struct OutlookView: View {
                             .padding(.horizontal, 8).padding(.vertical, 2)
                             .background(Color.orange.opacity(0.12), in: Capsule())
                             .foregroundStyle(Color.orange)
-                        Text("只有 \(lt.n) 個獨立月份（少於 12），不報分數。只取不重疊的列：從第一筆紀錄起每 \(p.horizon) 個交易日一列。")
+                        Text(Copy.outlookLiveTooFew(n: lt.n, horizon: p.horizon))
                             .font(.footnote).foregroundStyle(.secondary)
                     }
                 } else {

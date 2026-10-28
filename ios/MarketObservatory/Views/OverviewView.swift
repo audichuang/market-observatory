@@ -160,7 +160,7 @@ struct OverviewView: View {
                     if let m = o.market {
                         MarketDigestCard(digest: m)
                         DisclosureGroup("參考來源（整篇，非逐句）") {
-                            DigestSourcesList(sources: m.sources, sourcesMissing: m.sourcesMissing, showsHeading: false)
+                            DigestSourcesList(sources: m.sources, sourcesMissing: m.sourcesMissing, isMarket: true, showsHeading: false)
                         }
                         .accessibilityIdentifier("market-digest-sources")
                     }

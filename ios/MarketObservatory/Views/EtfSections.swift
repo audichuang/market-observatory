@@ -16,8 +16,10 @@ struct EtfFactsDisclosure: View {
                     if let url = URL(string: facts.sourceUrl) {
                         Link(destination: url) {
                             Text("出處：發行商頁面")
+                                .foregroundStyle(.tint)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
+                        .buttonStyle(.borderless)
                     }
                     Text("\(facts.checkedAt) 查閱")
                 } else {

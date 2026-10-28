@@ -49,4 +49,5 @@ Preconditions:
 - 在「手動執行」按「新聞」，執行紀錄 summary 含「來源已停用：Nasdaq 新聞」；經導覽列到新聞頁，確認既有新聞仍顯示。停用只擋 Worker 請求，不刪改價格、新聞、G02 或凍結輸入，也不改既有過期規則。
 - 回清冊按「恢復」，該列變「啟用中」；再執行「新聞」應成功。切換成功會更新資料版本並 refresh，重新開頁也要一致。驗完以 GET 確認所有本輪開關都已恢復；正式站不要為驗收停用來源。
 - 測試帳號由導覽列進入 `/sources`，看不到清冊與停用／恢復按鈕；`page.fetch("/api/admin/sources", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: "nasdaq-news", disabled: true }) })` 回 403 `{"error":"只有站長能執行"}`。站長傳未知或非 Worker id、reason 超過 200 字回 400。
+- Yahoo chart 停用時，一般使用者在觀察名單嘗試加入全站新公司，應立即顯示「來源已停用：Yahoo chart／spark 日線，暫時無法加入新公司」，零請求且不佔每日新增名額。`tests/source-switches.test.ts` 固定美東日期，以 `watchlist:u1` 連試 5 家後確認沒有 `watch-new:` 列；同一天恢復 Yahoo 後，即使 Nasdaq 核對仍停用，第 6 家仍可成功加入，僅扣 1 個名額。
 - 證據：停用前後 `sources-switches-before.png`／`sources-switches-disabled.png`、執行紀錄 `sources-switches-run.png`、保留的新聞 `sources-switches-news.png`、恢復後 `sources-switches-restored.png`，另存 API 讀回及非站長 403。`tests/source-switches.test.ts` 對帳停用來源零子請求、未停用分析師仍抓、舊資料不變、恢復後再抓，以及 Yahoo 停用時加入新公司失敗且零請求。

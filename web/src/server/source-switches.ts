@@ -17,9 +17,10 @@ export async function setSourceSwitch(db: Db, id: string, disabled: boolean, rea
   return switches;
 }
 
-export async function applySourceSwitches(db: Db, budget: Budget): Promise<void> {
+export async function applySourceSwitches(db: Db, budget: Budget): Promise<SourceSwitches> {
   const switches = await loadSourceSwitches(db);
   budget.block(SOURCE_REGISTRY
     .filter((source) => source.runtime === "worker" && switches[source.id]?.disabled)
     .map((source) => ({ id: source.id, label: source.name, patterns: source.patterns })));
+  return switches;
 }

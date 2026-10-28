@@ -827,7 +827,7 @@ export const MAX_NEW_TRACKED_PER_DAY = 5;
  * 全站追蹤的公司數到 MAX_TRACKED 時，只能加別人已經在追蹤的公司。
  */
 export async function addWatchSymbol(db: D1Database, input: string, budget = new Budget(SUBREQUEST_BUDGET), listKey = WATCHLIST_KEY): Promise<WatchChange> {
-  await applySourceSwitches(db, budget);
+  const switches = await applySourceSwitches(db, budget);
   const list = await loadWatchlist(db, listKey);
   const { holdings } = await latestHoldings(db);
   const res = addToWatchlist(list, input, holdings);
@@ -836,6 +836,7 @@ export async function addWatchSymbol(db: D1Database, input: string, budget = new
   const tracked = await loadTrackedMembers(db);
   const trackedTickers = new Set(watchTickers(tracked));
   const isNew = member.tickers.some((t) => !trackedTickers.has(t));
+  if (isNew && switches["yahoo-chart"]?.disabled) return { ok: false, error: "來源已停用：Yahoo chart／spark 日線，暫時無法加入新公司" };
   if (isNew && tracked.length >= MAX_TRACKED) return { ok: false, error: `全站追蹤的公司已達 ${MAX_TRACKED} 家上限，目前只能加入其他人已在追蹤的公司` };
   // The owner list (WATCHLIST_KEY) is exempt: the cap guards against registered users using this path to hammer upstream sources.
   // Counted before fetching, so a failed fetch still uses a slot (the upstream requests were made either way).

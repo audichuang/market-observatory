@@ -90,6 +90,42 @@ test("Yahoo chart 停用時加入全站新公司失敗，零 Yahoo 請求且名�
   }
 });
 
+test("Yahoo chart 停用時一般使用者不扣新公司名額，恢復後同一天仍可加入", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-10-28T16:00:00Z") });
+  const upstream = new FakeUpstream();
+  const restore = upstream.install();
+  try {
+    const { db, sql } = await seededDb();
+    const { addWatchSymbol, MAX_NEW_TRACKED_PER_DAY } = await import("../src/server/jobs.ts");
+    const { loadWatchlist } = await import("../src/server/watchlist.ts");
+    const listKey = "watchlist:u1";
+    const before = await loadWatchlist(db, listKey);
+    await putSetting(db, "source_switches", { "yahoo-chart": { disabled: true, at: new Date().toISOString() } });
+    for (const symbol of FILLERS.slice(20, 20 + MAX_NEW_TRACKED_PER_DAY)) {
+      const result = await addWatchSymbol(db, symbol, undefined, listKey);
+      assert.equal(result.ok, false);
+      assert.match(!result.ok ? result.error : "", /來源已停用/);
+    }
+    assert.equal(upstream.count, 0);
+    assert.deepEqual(await loadWatchlist(db, listKey), before);
+    const quotaRows = sql.prepare("SELECT key, value FROM settings WHERE key LIKE 'watch-new:%'").all();
+    t.diagnostic(`停用時 ${MAX_NEW_TRACKED_PER_DAY} 次加入：實打 ${upstream.count} 個請求；新增名額 ${JSON.stringify(quotaRows)}`);
+    assert.deepEqual(quotaRows, [], "來源停用而未發請求時，不得佔用新增名額");
+
+    await putSetting(db, "source_switches", { "nasdaq-quote": { disabled: true, at: new Date().toISOString() } });
+    const symbol = FILLERS[20 + MAX_NEW_TRACKED_PER_DAY];
+    const resumed = await addWatchSymbol(db, symbol, undefined, listKey);
+    assert.equal(resumed.ok, true, JSON.stringify(resumed));
+    assert.ok((await loadWatchlist(db, listKey)).some((member) => member.key === symbol));
+    assert.ok((upstream.hosts["query1.finance.yahoo.com"] ?? 0) > 0);
+    const resumedQuota = sql.prepare("SELECT key, value FROM settings WHERE key LIKE 'watch-new:%'").all() as { key: string; value: string }[];
+    assert.deepEqual(resumedQuota.map(({ key, value }) => [key, value]), [["watch-new:u1:2026-10-28", "1"]]);
+    t.diagnostic(`同一天恢復 Yahoo（Nasdaq 核對仍停用）：${JSON.stringify(resumed)}；只扣 1 個新增名額`);
+  } finally {
+    restore();
+  }
+});
+
 test("來源開關 API 只允許站長切換 worker，驗證輸入、讀回停用與恢復並更新資料版本", async () => {
   const { db, sql } = await seededDb();
   const { GET, POST } = await import("../routes/api/admin/sources.ts");

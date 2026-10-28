@@ -9,26 +9,21 @@ const AGREEMENT = 0.005;
 // 窗口外的舊列沒有換基準；日後新增比 REBASE_COVER_DAYS 更深的讀取（例如 10 年定投）要先處理這些列。
 export const REBASE_COVER_DAYS = 2200;
 
-/** Check the span and stored dates of ascending daily bars before allowing a split rebase. */
+/** Check the span of ascending daily bars before allowing a split rebase. */
 export function refetchCoverage(
-  stored: string[],
+  stored: { min: string; max: string } | null,
   fresh: DailyBar[],
   upTo: string,
 ): { ok: true } | { ok: false; reason: string } {
   if (!fresh.length) return { ok: false, reason: "重抓沒有日線" };
-  if (!stored.length) return { ok: true };
-  const min = stored[0];
-  const max = stored[stored.length - 1];
+  if (stored === null) return { ok: true };
   const first = fresh[0].date;
   const last = fresh[fresh.length - 1].date;
-  if (last < max) return { ok: false, reason: `重抓只到 ${last}，早於已存的 ${max}` };
+  if (last < stored.max) return { ok: false, reason: `重抓只到 ${last}，早於已存的 ${stored.max}` };
+  if (first <= stored.min) return { ok: true };
   // 窗口外的舊列沒有換基準；日後新增比 REBASE_COVER_DAYS 更深的讀取（例如 10 年定投）要先處理這些列。
-  const from = addDays(upTo, -REBASE_COVER_DAYS);
-  if (first > min && first > from) return { ok: false, reason: `重抓從 ${first} 開始，未涵蓋已存的 ${min} 起` };
-  const dates = new Set(fresh.map((bar) => bar.date));
-  const missing = stored.filter((date) => date >= from && !dates.has(date));
-  if (missing.length) return { ok: false, reason: `重抓缺少已存日期 ${missing.slice(0, 5).join(",")}（共 ${missing.length} 天）` };
-  return { ok: true };
+  if (first <= addDays(upTo, -REBASE_COVER_DAYS)) return { ok: true };
+  return { ok: false, reason: `重抓從 ${first} 開始，未涵蓋已存的 ${stored.min} 起` };
 }
 
 /**

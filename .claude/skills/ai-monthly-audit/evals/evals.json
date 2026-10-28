@@ -6,12 +6,12 @@
       "name": "monthly-summary-audit",
       "prompt": "做 11 月的 AI 摘要月抽查",
       "should_trigger": true,
-      "expected_output": "載入 ai-monthly-audit，確認年月後在 web/ 跑 node scripts/ai-audit-sample.ts --month <YYYY-MM> --out <檔>，先記 coverage 缺口，再將腳本 JSON 原樣附入 web/docs/ai-audit/<YYYY-MM>.md。沿用母體、固定樣本與不足；逐句對照當批 tasks.json，標 supported／contradicted／unsupported／不可判定並附 runId、回執鍵及輸入段落定位，缺檔不以現今文章補證據。七類錯誤皆重大，逐條記 manifest 提示詞 hash／requestedModel、重現限制與回填決定。問題案例另列，報告包含覆蓋、全集與規則、主張帳、錯誤彙總、待修正清單與合成回填案例。不抄新聞原文、不改正式 D1、不跑 ai-batch.ts pull／push，不宣稱全站零錯誤。",
+      "expected_output": "載入 ai-monthly-audit，確認年月後在 web/ 跑 node scripts/ai-audit-sample.ts --month <YYYY-MM> --out <檔>，先記 coverage 缺口，再將腳本 JSON 原樣附入 web/docs/ai-audit/<YYYY-MM>.md。沿用母體、固定樣本與不足；逐句對照當批 tasks.json，標 supported／contradicted／unsupported／不可判定並附 runId、回執鍵及輸入段落定位，缺檔不以現今文章補證據。七類錯誤皆重大，逐條記 manifest 提示詞 hash／requestedModel、重現限制。問題案例另列，報告包含覆蓋、全集與規則、主張帳、錯誤彙總、待修正清單。不抄新聞原文、不改正式 D1、不跑 ai-batch.ts pull／push，不宣稱全站零錯誤。",
       "expectations": [
         "使用既有抽樣腳本，先記覆蓋缺口並將完整輸出原樣附入指定月份報告。",
         "--out 指向檔案路徑，放在批次目錄以外、已存在的目錄底下，不把目錄本身當輸出檔。",
         "逐句只依當批輸入判定，保留四種判定與 runId／回執鍵／輸入段落定位；缺檔列不可判定。",
-        "問題案例與固定樣本分開，記重大錯誤、manifest hash／模型及重現與回填狀態。",
+        "問題案例與固定樣本分開，記重大錯誤、manifest hash／模型及重現限制。",
         "不抄新聞原文、不寫正式 D1、不執行批次 pull／push，通過結論限於本批。"
       ],
       "files": []
@@ -21,14 +21,11 @@
       "name": "reported-after-close-attribution",
       "prompt": "使用者說 11/18 NVDA 的今天為什麼漲跌拿盤後財報解釋收盤，幫我查",
       "should_trigger": true,
-      "expected_output": "載入 ai-monthly-audit，將指定日期的 digest:NVDA:<YYYY>-11-18 透過 --case 列為問題案例，不占固定 10 篇名額；以當批 tasks.json 與 manifest 對照盤後消息與收盤歸因，缺輸入就不可判定，不用今天的新聞回溯。證實後列重大時間／因果錯誤與重現條件，依 web/docs/news-ai-eval.md 格式改寫成虛構公司與合成新聞的 dev 回歸案例，保留失敗樣態、不抄原文。只寫 dev 草稿、不碰 holdout 或 lock，具體 diff 與驗證結果交付後使用者同意才 commit，不更正正式 D1。",
+      "expected_output": "載入 ai-monthly-audit，將指定日期的 digest:NVDA:<YYYY>-11-18 透過 --case 列為問題案例，不占固定 10 篇名額；以當批 tasks.json 與 manifest 對照盤後消息與收盤歸因，缺輸入就不可判定，不用今天的新聞回溯。證實後在人工抽查報告列重大時間／因果錯誤、證據定位、重現條件與待修正清單，不抄原文、不更正正式 D1。",
       "expectations": [
         "使用 --case 將 NVDA 個案另列問題案例，不占固定樣本名額。",
         "以當時輸入核對時間與因果，證據不足不預判錯誤；證實則列重大錯誤並記重現條件。",
-        "按現行離線規格將失敗樣態改寫為虛構公司、合成新聞的 dev 案例，不抄原文。",
-        "回填時同步補齊 answers-good.json／answers-bad.json 的新 id，維護 news-ai-eval.test.ts 的案例數量，並在 commit 前跑該測試。",
-        "以 score 報告該案例的 blockers 核對反例含該失敗樣態對應的 kind、正例為空陣列；不只依 exit 1 判定重現，因為缺人工標註也會 exit 1。",
-        "使用者同意具體回填 diff 後才 commit，不碰 holdout／lock 或正式 D1。"
+        "人工報告保留證據定位、重現限制與待修正清單，不抄新聞原文、不更正正式 D1。"
       ],
       "files": []
     },
@@ -37,10 +34,10 @@
       "name": "unknown-cause-ratio-prompt-change",
       "prompt": "原因不明太多，改提示詞讓它少寫",
       "should_trigger": false,
-      "expected_output": "不啟動月抽查，拒絕設定原因不明的理想比例或把抽到原因不明扣分，說明應以當時輸入是否支持歸因為判準。真正的提示詞調整轉到 web/docs/news-ai-eval.md 的離線評估流程，確認其草案／凍結狀態，不在月抽查中改提示詞、模型或正式內容。",
+      "expected_output": "不啟動月抽查，拒絕設定原因不明的理想比例或把抽到原因不明扣分，說明應以當時輸入是否支持歸因為判準。遇到真正的提示詞調整要求時，說明 web/docs/news-ai-eval.md 仍是後續計畫、本輪已移除離線評估工具，不在月抽查中改提示詞、模型或正式內容。",
       "expectations": [
         "拒絕為減少原因不明而調比例或扣分，維持有出處才歸因的判準。",
-        "不啟動月抽查，將提示詞變更導向 news-ai-eval.md 的離線流程，未直接更改提示詞。"
+        "不啟動月抽查，說明 news-ai-eval.md 仍是計畫、本輪已移除離線評估工具，未直接更改提示詞。"
       ],
       "files": []
     },
@@ -49,9 +46,9 @@
       "name": "daily-schedule-status-only",
       "prompt": "每日 AI 重點排程今天有沒有跑",
       "should_trigger": false,
-      "expected_output": "不載入 ai-monthly-audit，也不建立月抽查報告或回填案例。這是排程狀態查詢，應查看今日批次回執與 Orca 狀態，不能只憑 completed 宣稱成功；沒有資料就說未核實，不執行 ai-batch.ts pull／push 或改排程。",
+      "expected_output": "不載入 ai-monthly-audit，也不建立月抽查報告。這是排程狀態查詢，應查看今日批次回執與 Orca 狀態，不能只憑 completed 宣稱成功；沒有資料就說未核實，不執行 ai-batch.ts pull／push 或改排程。",
       "expectations": [
-        "不觸發月抽查、不建立月報或 dev 案例。",
+        "不觸發月抽查、不建立月報。",
         "將請求導向批次回執與 Orca 狀態核對，未憑空聲稱成功或執行批次寫入。"
       ],
       "files": []

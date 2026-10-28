@@ -34,7 +34,8 @@ Preconditions:
 
 ## Gotchas
 
-- App ETF 列將名稱、費用率、規模及備註分行，大字時代號與報酬上下排列，報酬正負號與數值維持同一行；用 `test16_Readability` 的 `etfs`、`etfs-reading` 與規劃截圖檢查一般／最大字級，`test20_LargeTypeEtfAndLogin` 比較同樣 headline 的 VOO 代號／報酬高度，檢查報酬單行且不超出畫面；再用 `test06_EtfsPlan` 操作與 API 讀回確認試算及儲存。
+- App ETF 列預設只列代號與報酬、完整名稱，以及「發行商 · 費用 · 規模」次要灰字；點次要行（`etf-details-<ticker>`）展開收盤、結構備註與近一年偏離，再點可收合。大字時代號與報酬上下排列，名稱與次要行自然換行，報酬正負號與數值維持同一行。`test22_EtfDetails` 操作 VOO、SSO 的展開與收合，並檢查 SH 反向 ETF 報酬的幾何邊界；`test20_LargeTypeEtfAndLogin` 保留 VOO 代號／報酬高度與畫面邊界檢查；`test06_EtfsPlan` 操作試算及儲存並讀回 API。
+- 對照截圖用 `test21_ReadabilityPolish`：以 `TEST_RUNNER_MO_READING_VARIANT=light-normal` 或 `dark-largest` 選字級，外觀另用 `simctl ui` 設定；兩台指定 MO 模擬器依序拍 `polish-<variant>-etfs*.png`。一般字級首屏應比改前呈現更多完整 ETF，最大字級逐段捲動確認完整名稱與展開細節沒有截斷。
 
 - 「試算」按鈕在金額沒變時停用。
 - 規劃存在 D1 `settings`，每個帳號各一份；改完一定要改回並讀回，下一個功能才從基準開始。

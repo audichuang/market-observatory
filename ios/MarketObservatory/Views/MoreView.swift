@@ -133,7 +133,7 @@ struct EtfView: View {
                 }
                 .pickerStyle(.segmented)
                 ForEach(e.rows) { r in
-                    VStack(alignment: .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 6) {
                         let headerLayout = typeSize.isAccessibilitySize
                             ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
                             : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 12))
@@ -149,24 +149,30 @@ struct EtfView: View {
                                 .fixedSize(horizontal: true, vertical: false)
                                 .accessibilityIdentifier("etf-return-\(r.ticker)")
                         }
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(r.name).font(.subheadline)
-                            Text(r.issuer).font(.caption).foregroundStyle(.secondary)
-                            Text("費用 \(Fmt.fee(r.netFeePct)) · 規模 \(Fmt.compactUsd(r.aumUsd))").font(.caption).foregroundStyle(.secondary)
-                            if let n = r.note, !n.isEmpty { Text(n).font(.caption2).foregroundStyle(.secondary) }
-                        }
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("收盤 \(Fmt.num(r.close))").font(.caption).foregroundStyle(.secondary).monospacedDigit()
-                            if let drift = r.drift1y {
-                                HStack(spacing: 4) {
-                                    Text("近一年偏離").foregroundStyle(.secondary)
-                                    Delta(value: drift.drift, digits: 1, percent: true)
+                        Text(r.name).font(.subheadline)
+                            .fixedSize(horizontal: false, vertical: true)
+                        DisclosureGroup {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("收盤 \(Fmt.num(r.close))").monospacedDigit()
+                                if let n = r.note, !n.isEmpty { Text(n) }
+                                if let drift = r.drift1y {
+                                    HStack(spacing: 4) {
+                                        Text("近一年偏離")
+                                        Delta(value: drift.drift, digits: 1, percent: true)
+                                    }
                                 }
-                                .font(.caption)
                             }
+                            .fixedSize(horizontal: false, vertical: true)
+                        } label: {
+                            Text("\(r.issuer) · 費用 \(Fmt.fee(r.netFeePct)) · 規模 \(Fmt.compactUsd(r.aumUsd))")
+                                .fixedSize(horizontal: false, vertical: true)
                         }
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("etf-details-\(r.ticker)")
+                        .accessibilityHint("收盤、結構備註與近一年偏離")
                     }
-                    .padding(.vertical, 6)
+                    .padding(.vertical, 4)
                 }
             } header: {
                 Text("報酬（資料到 \(Fmt.fullDate(e.asOf))）")
@@ -386,33 +392,48 @@ struct OutlookView: View {
                         VStack(alignment: .leading, spacing: 16) {
                             Text("期間內收盤跌 5% 以上的機率")
                                 .font(.headline)
-                            ProbabilityComparison(probability: d.pick.p, baseline: d.pick.base.p)
-                            if let frequency = p.frequency?.dd5 { Text("\(frequency)。").font(.body) }
+                            ProbabilityComparison(probability: d.pick.p, baseline: d.pick.base.p, distinct: d.pick.distinct)
                             if !d.scored {
                                 Text("未通過驗證，只供參考").font(.subheadline.weight(.semibold)).foregroundStyle(.orange)
                             }
-                            Text("定義：\(Copy.dd5Definition(horizon: p.horizon))").font(.footnote).foregroundStyle(.secondary)
                         }
                         .padding(.vertical, 6)
                     }
                 }
                 Section("上漲展望") {
-                        VStack(alignment: .leading, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 16) {
                         Text("約 \(p.horizon) 個交易日後的上漲機率").font(.headline)
-                        ProbabilityComparison(probability: o.pick.p, baseline: o.pick.base.p)
+                        ProbabilityComparison(probability: o.pick.p, baseline: o.pick.base.p, distinct: o.pick.distinct)
                         CallBadge(call: o.call)
-                        Text("目標：\(Copy.upTargetLabel(horizon: p.horizon))。" ).font(.footnote).foregroundStyle(.secondary)
                         Text(Self.callWhy[o.call] ?? Self.callWhy["inconclusive"]!).font(.body)
                         if let caveat = o.globalCaveat, !caveat.isEmpty {
                             Notice(kind: .info, text: caveat)
                                 .accessibilityIdentifier("outlook-global-caveat")
                         }
-                        if let frequency = p.frequency?.up { Text("\(frequency)。").font(.body) }
                         Text("對每月定期定額：這不是加碼或停扣的訊號，它描述下個月可能的波動。").font(.footnote.weight(.semibold))
                     }
                     .padding(.vertical, 6)
+                }
+                Section {
                     DisclosureGroup("機率與模型說明") {
                         VStack(alignment: .leading, spacing: 12) {
+                            if o.drawdown != nil {
+                                Text("下跌風險").font(.headline)
+                                Text("定義：\(Copy.dd5Definition(horizon: p.horizon))")
+                                    .accessibilityIdentifier("outlook-dd5-definition")
+                                if let frequency = p.frequency?.dd5 {
+                                    Text("\(frequency)。")
+                                        .accessibilityIdentifier("outlook-dd5-frequency")
+                                }
+                                Divider()
+                            }
+                            Text("上漲展望").font(.headline)
+                            Text("目標：\(Copy.upTargetLabel(horizon: p.horizon))。")
+                                .accessibilityIdentifier("outlook-up-definition")
+                            if let frequency = p.frequency?.up {
+                                Text("\(frequency)。")
+                                    .accessibilityIdentifier("outlook-up-frequency")
+                            }
                             Text(intervalText(o.pick))
                                 .accessibilityIdentifier("outlook-interval")
                             if let q = o.returnQuantiles?.cell { quantileText(q, all: o.returnQuantiles?.all, horizon: p.horizon) }
@@ -527,7 +548,11 @@ struct OutlookView: View {
         if let a = all { meta += "；不分條件：\(r(a.p10))／\(r(a.p50))／\(r(a.p90))" }
         return VStack(alignment: .leading, spacing: 2) {
             Text("過去類似情況 \(horizon) 個交易日報酬：10% 機率低於 \(r(q.p10))、一半低於 \(r(q.p50))、90% 低於 \(r(q.p90))").font(.footnote)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("outlook-quantiles")
             Text("（\(meta)）").font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("outlook-quantile-meta")
         }
     }
 
@@ -574,7 +599,9 @@ struct OutlookView: View {
             }
             VStack(alignment: .leading, spacing: 3) {
                 Text(line1).font(.footnote)
+                    .fixedSize(horizontal: false, vertical: true)
                 Text(line2).font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .accessibilityElement(children: .combine)

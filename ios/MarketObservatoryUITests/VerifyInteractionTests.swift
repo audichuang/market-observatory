@@ -617,19 +617,21 @@ final class VerifyInteractionTests: XCTestCase {
         app.buttons["取消"].tap()
         back(app)
         open(app, "下月展望")
-        XCTAssertTrue(waitLabel(app, contains: "定義：以資料日收盤為起點"))
+        XCTAssertTrue(waitLabel(app, contains: "期間內收盤跌 5% 以上的機率"))
+        XCTAssertFalse(app.staticTexts["outlook-dd5-definition"].exists)
         snap("UI-\(variant)-outlook-risk")
         let model = app.buttons["機率與模型說明"]
-        // At AX5 the always-visible definitions and model limitations span more than six screens.
+        // At AX5 the always-visible model limitations span several screens.
         reveal(app, model, scrolls: variant.contains("largest") ? 24 : 6)
         XCTAssertTrue(model.isHittable, "無法捲到模型說明")
-        // On SE, a multiline label can be hittable while its tap point sits under the floating tab bar.
+        // A multiline label can be hittable while its tap point sits under the floating tab bar.
         keepAboveTabBar(app, model)
         snap("UI-\(variant)-outlook-conclusion")
         model.tap()
         let interval = app.staticTexts["outlook-interval"]
         reveal(app, interval, scrolls: variant.contains("largest") ? 24 : 6)
         XCTAssertTrue(interval.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["outlook-dd5-definition"].exists)
         snap("UI-\(variant)-outlook-details")
         back(app)
         open(app, "推播設定")
@@ -691,6 +693,170 @@ final class VerifyInteractionTests: XCTestCase {
         reveal(app, heading)
         XCTAssertTrue(heading.isHittable, "最大字級選取後看不到事件區塊")
         snap("E10-selected-events")
+    }
+
+    /// Matched before/after captures: both supported devices, normal light and largest dark type.
+    func test21_ReadabilityPolish() throws {
+        let variant = env["MO_READING_VARIANT"] ?? "light-normal"
+        let arguments = ["-UIPreferredContentSizeCategoryName", variant.contains("largest")
+            ? "UICTContentSizeCategoryAccessibilityXXXL" : "UICTContentSizeCategoryL"]
+        let app = try signedIn(arguments: arguments)
+        if env["MO_POLISH_SCREEN"] != "outlook" {
+            tab(app, "總覽")
+            XCTAssertTrue(waitLabel(app, contains: "缺少當日收盤：VIX。"), "本機 fixture 必須包含 VIX 缺收盤提示")
+            snap("polish-\(variant)-overview-warning")
+            note("polish-\(variant)-overview", app.debugDescription)
+
+            tab(app, "更多"); open(app, "ETF 與定投試算")
+            XCTAssertTrue(app.staticTexts["etf-return-VOO"].waitForExistence(timeout: 15))
+            snap("polish-\(variant)-etfs")
+            note("polish-\(variant)-etfs", app.debugDescription)
+            for index in 1 ... (variant.contains("largest") ? 3 : 1) {
+                app.swipeUp(); snap("polish-\(variant)-etfs-reading-\(index)")
+            }
+            back(app)
+        }
+        tab(app, "更多"); open(app, "下月展望")
+        XCTAssertTrue(waitLabel(app, contains: "期間內收盤跌 5% 以上的機率"))
+        snap("polish-\(variant)-outlook-collapsed-01")
+        let model = app.buttons["機率與模型說明"]
+        // Small steps leave overlapping evidence, including warnings between the two summaries.
+        for index in 2 ... 12 {
+            if model.exists && model.isHittable && model.frame.maxY < app.windows.firstMatch.frame.height * 0.72 { break }
+            let window = app.windows.firstMatch
+            window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7))
+                .press(forDuration: 0.05, thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)))
+            snap(String(format: "polish-%@-outlook-collapsed-%02d", variant, index))
+        }
+        XCTAssertTrue(model.isHittable)
+        XCTAssertFalse(app.staticTexts["outlook-interval"].exists)
+        snap("polish-\(variant)-outlook-model-collapsed")
+        model.tap()
+        let interval = app.staticTexts["outlook-interval"]
+        XCTAssertTrue(interval.waitForExistence(timeout: 5))
+        snap("polish-\(variant)-outlook-expanded-01")
+        for index in 2 ... 20 {
+            if interval.isHittable && interval.frame.maxY < app.windows.firstMatch.frame.height * 0.8 { break }
+            let window = app.windows.firstMatch
+            window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7))
+                .press(forDuration: 0.05, thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)))
+            snap(String(format: "polish-%@-outlook-expanded-%02d", variant, index))
+        }
+        XCTAssertTrue(interval.isHittable)
+        note("polish-\(variant)-outlook-expanded", texts(app))
+        reveal(app, model, up: false).tap()
+        XCTAssertTrue(interval.waitForNonExistence(timeout: 5))
+    }
+
+    /// The secondary ETF line exposes the original product data at both reading sizes.
+    func test22_EtfDetails() throws {
+        for (size, category) in [("normal", "UICTContentSizeCategoryL"), ("largest", "UICTContentSizeCategoryAccessibilityXXXL")] {
+            let app = try signedIn(arguments: ["-UIPreferredContentSizeCategoryName", category])
+            tab(app, "更多"); open(app, "ETF 與定投試算")
+            let details = app.buttons["etf-details-VOO"]
+            XCTAssertTrue(details.waitForExistence(timeout: 15))
+            let productNote = app.staticTexts["ETF 股類資產，非母基金全股類"]
+            XCTAssertFalse(productNote.exists, "結構備註預設應收合")
+            keepAboveTabBar(app, reveal(app, details)); details.tap()
+            XCTAssertTrue(productNote.waitForExistence(timeout: 5), "ETF 細節沒有展開")
+            let close = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH '收盤 '")).firstMatch
+            XCTAssertTrue(close.exists)
+            reveal(app, productNote); snap("F1-details-VOO-\(size)")
+            note("F1-details-VOO-\(size)", texts(app))
+            reveal(app, details, up: false).tap()
+            XCTAssertTrue(productNote.waitForNonExistence(timeout: 5), "ETF 細節沒有收合")
+            let leveraged = app.buttons["etf-details-SSO"]
+            keepAboveTabBar(app, reveal(app, leveraged)); leveraged.tap()
+            let drift = app.staticTexts["近一年偏離"]
+            reveal(app, drift)
+            XCTAssertTrue(drift.isHittable, "槓桿 ETF 細節缺少近一年偏離")
+            snap("F1-details-SSO-\(size)")
+            note("F1-details-SSO-\(size)", texts(app))
+            reveal(app, leveraged, up: false).tap()
+            XCTAssertTrue(drift.waitForNonExistence(timeout: 5))
+            let inverseTicker = app.staticTexts["etf-ticker-SH"], inverseReturn = app.staticTexts["etf-return-SH"]
+            reveal(app, inverseReturn)
+            XCTAssertTrue(inverseReturn.isHittable)
+            XCTAssertTrue(inverseReturn.label.contains("%"))
+            XCTAssertLessThanOrEqual(inverseReturn.frame.height, inverseTicker.frame.height + 1, "反向 ETF 報酬被拆行")
+            XCTAssertLessThanOrEqual(inverseReturn.frame.maxX, app.windows.firstMatch.frame.maxX - 16)
+            snap("F1-inverse-return-\(size)")
+            note("F1-inverse-return-\(size)", "\(inverseReturn.label) ticker=\(inverseTicker.frame) return=\(inverseReturn.frame)")
+        }
+    }
+
+    /// A historical day without the injected warning guards the unchanged no-warning layout.
+    func test23_OverviewWithoutWarning() throws {
+        let app = try signedIn(arguments: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryL"])
+        tab(app, "總覽")
+        XCTAssertTrue(app.buttons["其他交易日"].waitForExistence(timeout: 15))
+        app.buttons["其他交易日"].tap()
+        let older = try injectedDate("MO_PUSH_DATE")
+        let day = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", older)).firstMatch
+        XCTAssertTrue(day.waitForExistence(timeout: 5)); day.tap()
+        XCTAssertTrue(app.navigationBars.matching(NSPredicate(format: "identifier CONTAINS %@", dayPrefix(older))).firstMatch.waitForExistence(timeout: 15))
+        XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH '缺少當日收盤' ")).firstMatch.exists)
+        snap("polish-light-normal-overview-no-warning")
+        note("polish-light-normal-overview-no-warning", app.debugDescription)
+    }
+
+    /// The local limited-history fixture produces scored=false without changing the model.
+    func test24_UnvalidatedDrawdownWarning() throws {
+        for (size, category) in [("normal", "UICTContentSizeCategoryL"), ("largest", "UICTContentSizeCategoryAccessibilityXXXL")] {
+            let app = try signedIn(arguments: ["-UIPreferredContentSizeCategoryName", category])
+            tab(app, "更多"); open(app, "下月展望")
+            let warning = app.staticTexts["未通過驗證，只供參考"]
+            reveal(app, warning)
+            XCTAssertTrue(warning.isHittable, "未通過驗證警示預設看不到")
+            XCTAssertFalse(app.staticTexts["outlook-interval"].exists)
+            snap("H3-unvalidated-drawdown-\(size)")
+            note("H3-unvalidated-drawdown-\(size)", texts(app))
+        }
+    }
+
+    /// Capture the complete expanded explanation, including the long quantile footnote.
+    func test25_OutlookExpandedReading() throws {
+        let variant = env["MO_READING_VARIANT"] ?? "light-normal"
+        let app = try signedIn(arguments: ["-UIPreferredContentSizeCategoryName", variant.contains("largest")
+            ? "UICTContentSizeCategoryAccessibilityXXXL" : "UICTContentSizeCategoryL"])
+        tab(app, "更多"); open(app, "下月展望")
+        let model = app.buttons["機率與模型說明"]
+        keepAboveTabBar(app, reveal(app, model)); model.tap()
+        let quantiles = app.staticTexts["outlook-quantiles"], meta = app.staticTexts["outlook-quantile-meta"]
+        XCTAssertTrue(quantiles.waitForExistence(timeout: 5), "本機資料必須有報酬分位數")
+        for index in 1 ... 20 {
+            snap(String(format: "polish-%@-outlook-expanded-%02d", variant, index))
+            if meta.isHittable && meta.frame.maxY < app.windows.firstMatch.frame.height * 0.82 { break }
+            let window = app.windows.firstMatch
+            window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7))
+                .press(forDuration: 0.05, thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)))
+        }
+        XCTAssertTrue(meta.isHittable)
+        let assessment = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH '差異、'")).firstMatch
+        keepAboveTabBar(app, reveal(app, assessment))
+        XCTAssertTrue(assessment.isHittable, "評估列無法閱讀")
+        snap("polish-\(variant)-outlook-assessment")
+        let window = app.windows.firstMatch.frame, frame = assessment.frame
+        XCTAssertGreaterThanOrEqual(frame.minY, app.navigationBars.firstMatch.frame.maxY)
+        XCTAssertLessThan(frame.maxY, window.height * 0.9, "評估列在分頁列下方")
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.recognitionLanguages = ["zh-Hant", "en-US"]
+        request.regionOfInterest = CGRect(x: frame.minX / window.width, y: 1 - frame.maxY / window.height,
+                                         width: frame.width / window.width, height: frame.height / window.height)
+        try VNImageRequestHandler(data: XCUIScreen.main.screenshot().pngRepresentation).perform([request])
+        let visible = (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }
+            .joined().filter { !$0.isWhitespace }
+        note("polish-\(variant)-outlook-assessment-ocr", visible)
+        // AX retains truncated text; require both actual interval bounds in the rendered row.
+        let range = try XCTUnwrap(assessment.label.range(of: "區間 "))
+        let bounds = assessment.label[range.upperBound...].components(separatedBy: "～")
+        XCTAssertEqual(bounds.count, 2, "本機資料必須有歷史比例區間")
+        for bound in bounds { XCTAssertTrue(visible.contains(bound), "評估區間 \(bound) 在畫面中被截斷：\(visible)") }
+        XCTAssertFalse(visible.contains("…"), "評估列出現省略號")
+        note("polish-\(variant)-outlook-expanded", texts(app))
+        reveal(app, model, up: false).tap()
+        XCTAssertTrue(quantiles.waitForNonExistence(timeout: 5))
     }
 
     func test20_LargeTypeEtfAndLogin() throws {
@@ -761,7 +927,10 @@ final class VerifyInteractionTests: XCTestCase {
     func test12_Outlook() throws {
         let app = try signedIn()
         tab(app, "更多"); open(app, "下月展望")
-        XCTAssertTrue(waitLabel(app, contains: "定義：以資料日收盤為起點"), "找不到 dd5 定義")
+        XCTAssertTrue(waitLabel(app, contains: "期間內收盤跌 5% 以上的機率"), "找不到下跌風險摘要")
+        for id in ["outlook-dd5-definition", "outlook-up-definition", "outlook-dd5-frequency", "outlook-up-frequency"] {
+            XCTAssertFalse(app.staticTexts[id].exists, "\(id) 預設應收合")
+        }
         snap("H1-outlook-summary")
         let interval = app.staticTexts["outlook-interval"]
         let model = app.buttons["機率與模型說明"]
@@ -771,6 +940,9 @@ final class VerifyInteractionTests: XCTestCase {
         snap("H1-model-collapsed")
         model.tap()
         XCTAssertTrue(interval.waitForExistence(timeout: 5), "模型說明展開後缺少機率依據")
+        for id in ["outlook-dd5-definition", "outlook-up-definition", "outlook-dd5-frequency", "outlook-up-frequency"] {
+            XCTAssertTrue(app.staticTexts[id].exists, "模型說明展開後缺少 \(id)")
+        }
         snap("H1-model-expanded"); note("H1-model-expanded", texts(app))
         reveal(app, model, up: false).tap()
         XCTAssertTrue(interval.waitForNonExistence(timeout: 5), "模型說明無法收合")

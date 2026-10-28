@@ -170,6 +170,7 @@ struct Delta: View {
 struct ProbabilityComparison: View {
     let probability: Double
     let baseline: Double
+    let distinct: Bool?
     var digits = 1
 
     var body: some View {
@@ -185,12 +186,17 @@ struct ProbabilityComparison: View {
                     historical
                 }
             }
-            let difference = (probability - baseline) * 100
-            Text("與歷史基準相差約 \(Fmt.signed(difference, 1)) 個百分點")
+            Text(comparisonSummary)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
+    }
+
+    var comparisonSummary: String {
+        // U-01: not detecting a difference does not establish equivalence.
+        if distinct == true { return probability > baseline ? "估計比平常高" : "估計比平常低" }
+        return "尚未偵測到與平常的差別"
     }
 
     private var estimate: some View {

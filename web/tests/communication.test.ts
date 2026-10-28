@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { LIVE_MIN_N, NO_INCREMENTAL_SKILL, PROPORTION_INTERVAL, SKILL_INTERVAL, dd5Definition, dd5ShortLabel, frequencySentences, upTargetLabel, liveTrackOf, naturalFrequency, outOfCent, outOfTen } from "../src/lib/communication.ts";
+import { FORECAST_PENDING_BADGE, LIVE_MIN_N, NO_INCREMENTAL_SKILL, PROPORTION_INTERVAL, SKILL_INTERVAL, dd5Definition, dd5ShortLabel, forecastPendingNote, frequencySentences, upTargetLabel, liveTrackOf, naturalFrequency, outOfCent, outOfTen } from "../src/lib/communication.ts";
 import { DEFAULT_MODEL, assessmentsOf, reasonsOf, buildOutlook, type Assessments, type CellGate } from "../src/lib/forecast.ts";
 import { Series } from "../src/lib/analytics.ts";
 
@@ -178,4 +178,12 @@ test("U-01 與 D-04 文案：不說與平常差不多；兩種區間分名", () 
   assert.notEqual(PROPORTION_INTERVAL, SKILL_INTERVAL);
   assert.match(PROPORTION_INTERVAL, /歷史比例/);
   assert.match(SKILL_INTERVAL, /預測力.*不是今天/);
+});
+
+test("總覽預測待更新：標籤與說明區分預測資料日及最新收盤日", () => {
+  assert.equal(
+    forecastPendingNote("A", "B"),
+    "最新收盤 B 的預測還沒記錄（通常是在等當天的 VIX 或 S&P 500 收盤核對），這裡先顯示 A 收盤的紀錄；展望頁用最新資料即時試算，數字可能不同。",
+  );
+  assert.equal(FORECAST_PENDING_BADGE, "待更新");
 });

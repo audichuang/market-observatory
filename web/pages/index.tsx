@@ -1,5 +1,5 @@
 import { Link, useRouter } from "@void/react";
-import { FORECAST_CALL, NO_INCREMENTAL_SKILL, dd5Definition, dd5ShortLabel, upTargetLabel } from "../src/lib/communication.ts";
+import { FORECAST_CALL, FORECAST_PENDING_BADGE, NO_INCREMENTAL_SKILL, dd5Definition, dd5ShortLabel, forecastPendingNote, upTargetLabel } from "../src/lib/communication.ts";
 import { HORIZON } from "../src/lib/forecast.ts";
 import { REST_LABEL_SHORT, REST_NOTE, type Mag7Row } from "../src/lib/snapshot.ts";
 import { CenteredBar, CheckBadge, Delta } from "../src/ui/bits.tsx";
@@ -88,6 +88,13 @@ export default function Overview({ snapshot, dates, expectedClose, news, digests
         <Link href="/outlook" className="panel section outlook-card">
           <div>
             <div className="sub">下月展望（約 {HORIZON} 個交易日後）</div>
+            <div className="sub">
+              資料日 {dateWithWeekday(forecast.trade_date)}
+              {forecast.trade_date < s.tradeDate && <> <span className="badge warn">{FORECAST_PENDING_BADGE}</span></>}
+            </div>
+            {forecast.trade_date < s.tradeDate && (
+              <p className="sub">{forecastPendingNote(dateWithWeekday(forecast.trade_date), dateWithWeekday(s.tradeDate))}</p>
+            )}
             <div style={{ display: "flex", gap: "1.2rem", flexWrap: "wrap" }}>
               {forecast.drawdown && (
                 <div>

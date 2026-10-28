@@ -104,3 +104,10 @@ type PickLike = { p: number; base: Rate; conditional: Rate | null; distinct: boo
 export function frequencySentences(o: { pick: PickLike; drawdown: { pick: PickLike; scored: boolean } }): { up: string; dd5: string } {
   return { up: naturalFrequency(o.pick, "up", o.pick.distinct), dd5: naturalFrequency(o.drawdown.pick, "dd5", o.drawdown.pick.distinct) };
 }
+
+export const FORECAST_PENDING_BADGE = "待更新";
+
+/** Dates are already formatted by the caller for its display. */
+export function forecastPendingNote(forecastDate: string, snapshotDate: string): string {
+  return `最新收盤 ${snapshotDate} 的預測還沒記錄（通常是在等當天的 VIX 或 S&P 500 收盤核對），這裡先顯示 ${forecastDate} 收盤的紀錄；展望頁用最新資料即時試算，數字可能不同。`;
+}

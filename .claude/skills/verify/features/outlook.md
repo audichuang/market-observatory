@@ -12,7 +12,7 @@
 - `outlook-records`：上線後實際紀錄：上漲機率（forecast 工作寫入；每列以紀錄日收盤為起點）。
 - `outlook-views`：機構觀點區塊有內容或明確空狀態。
 - `outlook-strategists`：投行年底目標價表。中位數＝API `strategists.median`、家數＝`medianCount`（一家一票、只算年底目標：UBS GWM 與 Wells Fargo Investment Institute 標「不計入中位數」）；每列有「資料日期」、「已核對原文」或「媒體轉述，待原文核對」標章，資料日期超過 `staleAfterDays`（45）天的列標「待重新核對」（中性灰，不是紅綠）；WFII 顯示「區間 7,800–8,000 的中點」；註腳有一家一票規則與全表核對日 `checked`。App 同一區塊用小字列出同樣的標章。
-- `outlook-overview-card`：總覽的「下月展望」卡片與此頁一致（dd5 在前）。
+- `outlook-overview-card`：總覽卡片先列 dd5，再列上漲機率；只在看最新日且有 forecast 時顯示，數字取已存預測，不重算。卡片「資料日」取 `/api/v1/overview` 的 `forecast.trade_date`（網頁 `dateWithWeekday`、App `Fmt.fullDate`）；早於 `snapshot.data.tradeDate` 時顯示橘色「待更新」與完整說明。展望頁用最新資料即時試算，可能與卡片不同。
 
 - `outlook-disclosure`：App 的下跌風險與上漲展望分區呈現，本次估計與歷史基準並列並標出百分點差；大字時自動直排。模型判斷（含「偵測不到預測力」）與整體模型限制 `globalCaveat` 預設可見；「機率與模型說明」與兩個滾動驗證可展開查看細節。`test12_Outlook` 操作三個區塊展開與收合；本機 `globalCaveat` 有值時用 `test17_OutlookCaveatVisibleByDefault` 確認方法區塊仍收合時已能看到限制。
 
@@ -30,6 +30,7 @@ Preconditions:
 - **頁面。** `goto("/outlook")`，等 `text=下月展望`；`fetch("/api/v1/outlook")`，比 `pick.p`、`pick.base.p`、`drawdown.pick.p`，以及兩個 BSS 區塊各自對 `drawdown.evaluation` 與 `evaluation`（數字不能對調）。截圖 `outlook.png`（整頁：`page.screenshot` 前捲動，或分段截）。
 - **紅漲綠跌與圖例（網頁）。** 本機 forecasts 準備 call=up 的上線紀錄，bump data_version 後開展望頁，確認該列徽章是紅色（tone-pos）；call=down 為綠色（tone-neg）。設 viewport 390px，機率條下四項圖例均可見並截圖。
 - **App。** walkthrough 的 `08-outlook.png`、`08b-outlook-more.png`。
+- **總覽入口與預測日期。** 依 [總覽的展望資料日與待更新驗證](overview.md#driving-it-with-ego-browser--xcuitest) 準備同日與落後兩種狀態；核對卡片資料日、標籤與說明後，網頁及 App 各從總覽卡片進入下月展望。卡片機率對 `/api/v1/overview` 的已存 forecast，展望頁機率對 `/api/v1/outlook` 的即時計算，不要求兩者數字相等；驗完還原本機 forecasts 與 data_version。
 - **Proof。** `outlook.png`、`outlook.api.json`、App 兩張截圖。
 
 ## Gotchas

@@ -27,4 +27,9 @@ struct CopyTests {
         #expect(Fmt.pp(-1.2) == "−1.20 個百分點")
         #expect(Fmt.pp(nil) == "—")
     }
+
+    @Test func forecastPendingCopyMatchesWeb() {
+        #expect(Copy.forecastPendingNote(forecastDate: "A", snapshotDate: "B") == "最新收盤 B 的預測還沒記錄（通常是在等當天的 VIX 或 S&P 500 收盤核對），這裡先顯示 A 收盤的紀錄；展望頁用最新資料即時試算，數字可能不同。")
+        #expect(Copy.forecastPendingBadge == "待更新")
+    }
 }

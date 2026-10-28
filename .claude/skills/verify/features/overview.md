@@ -16,6 +16,7 @@
 - `overview-refresh`（B10）：App 下拉重新整理保留完整亮度與工具列；只有使用者從交易日清單切換日期時內容變暗、工具列改成轉圈。推播導向與回前景重新整理也保留完整亮度及日期／名單按鈕。
 - `overview-foreground`（B11）：看最新日期時，距上次成功載入超過 10 分鐘，回前景重抓，畫面不變暗、工具列不被轉圈取代；看歷史日期時不自動切回最新。
 - `overview-stale`：看最新（沒有 `?date=`）且 `snapshot.tradeDate` < API `expectedClose` 時，網頁與 App 頂端出現「最新快照是 …，但 … 應該已收盤」橘色警告。`expectedClose` 是抓價排程（週一到週五 UTC 21:40）加 30 分緩衝跑完後才換成當天，收盤後到 UTC 22:10 之間不警告；資料來源頁的「落後」標記用同一個日期。
+- `overview-forecast-date`：下月展望卡片仍只在看最新日且有 forecast 時出現；「資料日」＝API `forecast.trade_date`，網頁用 `dateWithWeekday`、App 用 `Fmt.fullDate`。只有 `forecast.trade_date < snapshot.data.tradeDate` 時顯示橘色「待更新」與完整說明，分別標明最新收盤日及預測資料日，提醒展望頁即時試算的數字可能不同；卡片數字仍取已存的 forecast。
 
 ## How to get to it (user POV)
 
@@ -31,6 +32,7 @@ Preconditions:
 - **讀 API。** `page.fetch("/api/v1/overview")`，記下 `snapshot.tradeDate`、`snapshot.data` 的 index、vix、rsp、名單合計與 `mag7`。
 - **標題與 KPI。** `goto("/")`，等 `text=S&P 500 收盤`。`evaluate` 讀 `h1` 與卡片文字，跟 API 比（B1、B2）。截圖 `overview-kpi.png`。
 - **等權重差值。** 網頁一般與窄螢幕、App `test02_Overview` 的 `B2-kpi-expanded.png`／`.txt` 核對「等權重 − 市值加權」數值與 API `snapshot.data.breadth.spreadPct`（容許兩位小數四捨五入），確認單位「個百分點」、正負號、顏色與缺值「—」；下方 RSP／SPX 仍為 %。App 另在最大字級截圖確認數值與單位完整、不截字。
+- **展望資料日與待更新。** 只在本機 worktree D1 準備兩種狀態，並在每次變更後 bump `settings.data_version`。先確認 `/api/v1/overview` 的 `forecast.trade_date === snapshot.data.tradeDate`：網頁與 App 總覽截圖 `overview-forecast-current.png`，卡片顯示預測資料日、沒有「待更新」與說明。接著執行 `CREATE TABLE verify_held_forecast AS SELECT * FROM forecasts WHERE trade_date=(SELECT MAX(trade_date) FROM forecasts); DELETE FROM forecasts WHERE trade_date IN (SELECT trade_date FROM verify_held_forecast);`，bump 後重新載入；確認 API 的 `forecast.trade_date < snapshot.data.tradeDate`，卡片資料日等於 forecast，橘色「待更新」與 `forecastPendingNote`／`Copy.forecastPendingNote` 完整說明均可見，兩個日期各對 API，機率與基準值仍等於 forecast。截圖 `overview-forecast-pending.png` 並存兩種狀態的 API JSON；App 另用最大字級截圖確認日期、標籤、說明完整換行。切到歷史交易日確認卡片隱藏。成敗都執行 `INSERT INTO forecasts SELECT * FROM verify_held_forecast; DROP TABLE verify_held_forecast;` 還原並 bump，回到最新日確認「待更新」消失。暫存表已存在時先處理上一輪還原；iOS 全程使用全域模擬器鎖，L7-T1 合併前依 AGENTS.md 手動寫 `sim.udid`，不跑 `ios-up.sh`／`down.sh`。
 - **名單拆解。** 在「觀察名單，拆開來看」表格用 `evaluate` 讀每列的儲存格，逐欄比 API `snapshot.data.mag7`、`rest`、`index`（實測 54 項全對）（B3）；每列的貢獻點數加總＋「其他成分股」列＝最下面 S&P 500 列的點數。
 - **其他交易日。** `page.selectOption("select", { index: 1 })`（「查看其他交易日」的第二天；也可直接給選項值 `"2026-10-22"`），等網址出現 `?date=`、`h1` 換日期；`fetch("/api/v1/overview?date=<那天>")` 比數字；再選回第一項，標題回到最新（B5）。
 - **公司連結。** 點 `loc=href:/history?symbol=NVDA`（`text=NVIDIA` 也會對到新聞標題），網址變 `/history?symbol=NVDA`（B4）。

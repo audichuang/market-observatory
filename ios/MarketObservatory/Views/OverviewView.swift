@@ -181,6 +181,23 @@ struct OverviewView: View {
                     Section("下月展望") {
                         NavigationLink(value: Destination.outlook) {
                             VStack(alignment: .leading, spacing: 20) {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text("資料日 \(Fmt.fullDate(f.tradeDate))")
+                                        .font(.footnote).foregroundStyle(.secondary)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                    if f.tradeDate < s.tradeDate {
+                                        Text(Copy.forecastPendingBadge)
+                                            .font(.caption.weight(.semibold))
+                                            .padding(.horizontal, 8)
+                                            .padding(.vertical, 4)
+                                            .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+                                            .foregroundStyle(.orange)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                        Text(Copy.forecastPendingNote(forecastDate: Fmt.fullDate(f.tradeDate), snapshotDate: Fmt.fullDate(s.tradeDate)))
+                                            .font(.footnote).foregroundStyle(.secondary)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                    }
+                                }
                                 if let d = f.drawdown {
                                     VStack(alignment: .leading, spacing: 8) {
                                         Text("下跌風險").font(.subheadline.weight(.semibold))

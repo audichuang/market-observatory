@@ -26,8 +26,8 @@
         "使用 --case 將 NVDA 個案另列問題案例，不占固定樣本名額。",
         "以當時輸入核對時間與因果，證據不足不預判錯誤；證實則列重大錯誤並記重現條件。",
         "按現行離線規格將失敗樣態改寫為虛構公司、合成新聞的 dev 案例，不抄原文。",
-        "回填時同步補齊 answers-good.json／answers-bad.json 的新 id，維護 news-ai-eval.test.ts 的案例數量與 expected 阻擋種類，並在 commit 前跑該測試。",
-        "以 score 報告該案例的 blockers 核對反例命中預期 kind／detail、正例無阻擋；不只依 exit 1 判定重現，因為缺人工標註也會 exit 1。",
+        "回填時同步補齊 answers-good.json／answers-bad.json 的新 id，維護 news-ai-eval.test.ts 的案例數量，並在 commit 前跑該測試。",
+        "以 score 報告該案例的 blockers 核對反例含該失敗樣態對應的 kind、正例為空陣列；不只依 exit 1 判定重現，因為缺人工標註也會 exit 1。",
         "使用者同意具體回填 diff 後才 commit，不碰 holdout／lock 或正式 D1。"
       ],
       "files": []

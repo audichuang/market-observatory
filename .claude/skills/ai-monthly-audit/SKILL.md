@@ -63,9 +63,9 @@ missing、rejected、unavailable 與使用者回報一律另列「問題案例�
 
 對已確認錯誤，先讀 `web/docs/news-ai-eval.md` 的**現行狀態與案例格式**。若仍為草案／未凍結就照實註記，不宣稱正式閘門已生效。依該格式在 `web/evals/news-ai/dev/` 一檔一案寫回歸案例草稿：使用虛構公司與合成新聞，保留失敗樣態，例如盤後同日消息被寫成收盤原因。不得抄新聞原文或真實公司原句；報告用定位連回問題案例，案例本身使用合成輸入。
 
-案例的 id、task、group（company／event／article）、tags、input、gold.requiredFacts 與 gold.forbidden 依該文件；translate 的 gold.focus 及各 task 輸入型別也跟隨現行規格，不在此另定格式。同步在 `web/evals/news-ai/dev/answers-good.json`／`web/evals/news-ai/dev/answers-bad.json` 補齊新 id 的合成正反例，更新 `web/tests/news-ai-eval.test.ts` 的案例數量斷言（含 prepare 任務數與有阻擋案例數）及 `expected` 阻擋種類對照；commit 前在 `web/` 跑 `node --test tests/news-ai-eval.test.ts`。
+案例的 id、task、group（company／event／article）、tags、input、gold.requiredFacts 與 gold.forbidden 依該文件；translate 的 gold.focus 及各 task 輸入型別也跟隨現行規格，不在此另定格式。同步在 `web/evals/news-ai/dev/answers-good.json`／`web/evals/news-ai/dev/answers-bad.json` 補齊新 id 的合成正反例，更新 `web/tests/news-ai-eval.test.ts` 的案例數量斷言（含 prepare 任務數與有阻擋案例數）；commit 前在 `web/` 跑 `node --test tests/news-ai-eval.test.ts`。
 
-依文件的 dev 流程分別 score 合成正反例，保存報告中該案例的 `blockers`：正例應為空陣列，反例的 `blockers` 須含該失敗樣態設計的 `kind`（比照 `news-ai-eval.test.ts` 的 `expected`）；由 `gold.forbidden` 命中時，`detail` 等於該條 `reason`；`number`、`company`、`format` 由確定性檢查產生，不另加 `forbidden` 規則；不能只以 exit 1 判定重現，缺人工逐句／必要事實標註也會 exit 1。這不是重新生成正式內容。只寫 dev，不讀寫 `web/evals/news-ai/holdout/` 或 `web/evals/news-ai/holdout.lock.json` 來調案例。交付具體案例 diff 與驗證結果後，取得使用者同意才 commit 回填檔；沒有同意就保留草稿並註明。
+依 `web/docs/news-ai-eval.md` 的 dev 流程分別 score 合成正反例，不以 exit code 判定重現，而是保存並核對 score 報告中該案例的 `blockers`：正例應為空陣列，反例的 `blockers` 須含該失敗樣態對應的 `kind`；確定性檢查抓不到的樣態，用 `gold.forbidden` 指定對應的 `kind`。這不是重新生成正式內容。只寫 dev，不讀寫 `web/evals/news-ai/holdout/` 或 `web/evals/news-ai/holdout.lock.json` 來調案例。交付具體案例 diff 與驗證結果後，取得使用者同意才 commit 回填檔；沒有同意就保留草稿並註明。
 
 要求降低「原因不明」比例時，拒絕訂理想比例或把抽到「原因不明」扣分；有無出處才是判準。若要改提示詞或模型，轉到 `web/docs/news-ai-eval.md` 的離線評估流程，月抽查到報告與案例草稿為止，不順手修改。
 

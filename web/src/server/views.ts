@@ -190,23 +190,22 @@ export async function historyView(c: ViewCtx, v: Viewer) {
     // 名單上任何一家那天沒有貢獻數字（缺價、還沒追蹤）就整天記成 null，不拿半套名單充數。
     const tickers = members.flatMap((m) => m.tickers);
     const keys = members.map((m) => m.key);
-    const placeholders = (n: number) => Array.from({ length: n }, () => "?").join(",") || "NULL";
     const contrib = await db
       .prepare(
         `SELECT s.trade_date AS date,
                 json_extract(s.data, '$.index.changePts') AS idx,
                 (SELECT SUM(json_extract(r.value, '$.contributionPts')) FROM json_each(s.data, '$.mag7') r
-                  WHERE json_extract(r.value, '$.key') IN (${placeholders(keys.length)})
-                     OR EXISTS (SELECT 1 FROM json_each(r.value, '$.tickers') t WHERE t.value IN (${placeholders(tickers.length)}))) AS mag7,
+                  WHERE json_extract(r.value, '$.key') IN (SELECT value FROM json_each(?1))
+                     OR EXISTS (SELECT 1 FROM json_each(r.value, '$.tickers') t WHERE t.value IN (SELECT value FROM json_each(?2)))) AS mag7,
                 (SELECT COUNT(*) FROM json_each(s.data, '$.mag7') r
                   WHERE json_extract(r.value, '$.contributionPts') IS NOT NULL
-                    AND (json_extract(r.value, '$.key') IN (${placeholders(keys.length)})
-                     OR EXISTS (SELECT 1 FROM json_each(r.value, '$.tickers') t WHERE t.value IN (${placeholders(tickers.length)})))) AS n
+                    AND (json_extract(r.value, '$.key') IN (SELECT value FROM json_each(?1))
+                     OR EXISTS (SELECT 1 FROM json_each(r.value, '$.tickers') t WHERE t.value IN (SELECT value FROM json_each(?2))))) AS n
          FROM snapshots s
          JOIN (SELECT trade_date, MAX(revision) AS r FROM snapshots GROUP BY trade_date ORDER BY trade_date DESC LIMIT 40) m
          ON s.trade_date = m.trade_date AND s.revision = m.r ORDER BY s.trade_date`,
       )
-      .bind(...keys, ...tickers, ...keys, ...tickers)
+      .bind(JSON.stringify(keys), JSON.stringify(tickers))
       .all<{ date: string; idx: number | null; mag7: number | null; n: number }>();
     // 只在 SQL 取需要的數字，不把 40 份完整快照 JSON 拉回 Worker 解析。
     const contribution = contrib.results.map((r) => {

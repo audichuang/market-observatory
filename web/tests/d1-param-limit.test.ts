@@ -5,6 +5,7 @@ import { FILLERS, assertSnapshotMatches, consistentSpx, invokeCron, latestSnapsh
 import { addToWatchlist } from "../src/lib/watchlist.ts";
 import { D1_MAX_BOUND_PARAMS, inChunks, loadPrices, loadWeightAnchors, putSetting } from "../src/server/repo.ts";
 import { latestHoldings, loadTrackedMembers } from "../src/server/watchlist.ts";
+import { historyView, type ViewCtx } from "../src/server/views.ts";
 
 test("假 D1 在 first/all/run 執行時拒絕 101 個參數，96 與 100 個仍可執行", async () => {
   const { db, sql } = await migratedDb();
@@ -136,4 +137,43 @@ test("loadWeightAnchors 讀取 110 個代號含重複時，權重等同逐檔查
   } finally {
     sql.close();
   }
+});
+
+test("一般使用者名單 30 家時走勢頁不超過 D1 參數上限，每日名單貢獻等於逐家相加", async (t) => {
+  const { db, sql } = await migratedDb();
+  t.after(() => sql.close());
+  const members = FILLERS.slice(0, 30).map((key) => ({ key, company: key, tickers: [key] }));
+  const viewer = { id: "history-large", email: "history-large@example.test", name: "大名單測試", isOwner: false };
+  await putSetting(db, `watchlist:${viewer.id}`, members);
+  const dates = ["2026-10-26", "2026-10-27"];
+  const insert = sql.prepare("INSERT INTO snapshots (trade_date, revision, digest, reason, data, created_at) VALUES (?, 1, 'history-limit', '參數上限測試', ?, 'x')");
+  for (const [day, date] of dates.entries()) {
+    const multiplier = day === 0 ? 1 : -2;
+    const mag7 = members.map((member, i) => ({ ...member, contributionPts: (i + 1) * multiplier }));
+    mag7.push({ key: FILLERS[30], company: FILLERS[30], tickers: [FILLERS[30]], contributionPts: 9999 });
+    insert.run(date, JSON.stringify({ index: { changePts: 500 * multiplier }, mag7 }));
+  }
+  const ctx: ViewCtx = { env: { DB: db }, req: { query: () => undefined, url: "http://history.test/" } };
+  const history = await historyView(ctx, viewer);
+  assert.equal(history.watch.length, 30);
+  assert.deepEqual(history.contribution, [
+    { date: dates[0], index: 500, mag7: 465, rest: 35 },
+    { date: dates[1], index: -1000, mag7: -930, rest: -70 },
+  ]);
+  const singleContributions: Array<Awaited<ReturnType<typeof historyView>>["contribution"]> = [];
+  for (const member of members) {
+    const singleViewer = { ...viewer, id: `history-single-${member.key}` };
+    await putSetting(db, `watchlist:${singleViewer.id}`, [member]);
+    const single = await historyView(ctx, singleViewer);
+    singleContributions.push(single.contribution);
+  }
+  for (const [day, row] of history.contribution.entries()) {
+    const sum = singleContributions.reduce((total, rows) => {
+      assert.equal(rows[day].date, row.date);
+      assert.notEqual(rows[day].mag7, null);
+      return total + rows[day].mag7!;
+    }, 0);
+    assert.equal(row.mag7, sum, row.date);
+  }
+  t.diagnostic("30 家名單：2 天貢獻為 465、-930，等於逐家加總，未納入名單外公司");
 });

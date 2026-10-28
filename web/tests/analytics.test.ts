@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { Series, leverageDrift, periodReturn, rollWeight, simulateDca, smaAt, smaSeries } from "../src/lib/analytics.ts";
+import { Series, leverageDrift, periodReturn, rangeReturn, rollWeight, simulateDca, smaAt, smaSeries } from "../src/lib/analytics.ts";
 
 const s = (pairs: [string, number][]) => new Series(pairs.map(([date, close]) => ({ date, close })));
 
@@ -46,4 +46,22 @@ test("槓桿偏離 = 實際報酬 − 倍數 × 指數報酬", () => {
   const d = leverageDrift(etf, idx, 3, "2026-01-02", "2026-01-05")!;
   assert.equal(d.naive.toFixed(6), (18).toFixed(6));
   assert.equal(d.drift.toFixed(6), (-3).toFixed(6));
+});
+
+test("rangeReturn 從區間第一筆收盤算起", () => {
+  const inRange = s([["2026-01-05", 110], ["2026-01-06", 121]]).points;
+  assert.ok(Math.abs(rangeReturn(inRange, "2026-01-06")! - 10) < 0.000001);
+});
+
+test("rangeReturn 沒有區間資料時回 null", () => {
+  assert.equal(rangeReturn([], "2026-01-06"), null);
+});
+
+test("rangeReturn 缺少指定終點的收盤時回 null", () => {
+  const inRange = s([["2026-01-05", 110], ["2026-01-06", 121]]).points;
+  assert.equal(rangeReturn(inRange, "2026-01-07"), null);
+});
+
+test("rangeReturn 只有終點當天一筆時回 null", () => {
+  assert.equal(rangeReturn(s([["2026-01-06", 121]]).points, "2026-01-06"), null);
 });

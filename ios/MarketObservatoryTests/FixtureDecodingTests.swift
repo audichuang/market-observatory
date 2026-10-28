@@ -17,7 +17,10 @@ struct FixtureDecodingTests {
         let p = try decodeFixture("generated-overview", as: Overview.self)
         #expect(p.snapshot != nil && p.forecast?.drawdown != nil)
     }
-    @Test func generatedHistory() throws { _ = try decodeFixture("generated-history", as: History.self) }
+    @Test func generatedHistory() throws {
+        let p = try decodeFixture("generated-history", as: History.self)
+        #expect(p.stats.allSatisfy { $0.first != nil })
+    }
     @Test func generatedNews() throws { _ = try decodeFixture("generated-news", as: NewsPage.self) }
     @Test func generatedWatchlist() throws { _ = try decodeFixture("generated-watchlist", as: Watchlist.self) }
     @Test func generatedEtfs() throws {
@@ -34,7 +37,10 @@ struct FixtureDecodingTests {
     }
     @Test func me() throws { _ = try decodeFixture("me", as: Me.self) }
     @Test func overview() throws { _ = try decodeFixture("overview", as: Overview.self) }
-    @Test func history() throws { _ = try decodeFixture("history", as: History.self) }
+    @Test func history() throws {
+        let p = try decodeFixture("history", as: History.self)
+        #expect(p.stats.allSatisfy { $0.first == nil })
+    }
     @Test func historyForSymbol() throws { _ = try decodeFixture("history_symbol_NVDA_months_3", as: History.self) }
     @Test func news() throws { _ = try decodeFixture("news", as: NewsPage.self) }
     @Test func outlook() throws { _ = try decodeFixture("outlook", as: OutlookPage.self) }

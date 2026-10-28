@@ -89,6 +89,7 @@ struct HistoryView: View {
 
     private func content(_ h: History) -> some View {
         let labels = Dictionary(h.stats.map { ($0.symbol, $0.label ?? $0.symbol) }, uniquingKeysWith: { a, _ in a })
+        let indexFirst = h.stats.first { $0.symbol == "SPX" }?.first
         let statLayout = dts.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout())
         return ScrollViewReader { proxy in
             List {
@@ -145,6 +146,9 @@ struct HistoryView: View {
                     RebasedChart(series: h.rebased, watch: h.watch, labels: labels, selected: symbol)
                         .frame(height: min(chartHeight, 240 * 1.5))
                         .opacity(busy ? 0.5 : 1)
+                    Text("每條線以區間第一個交易日收盤為 0%，與下表「區間報酬」同一起點")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 } header: {
                     Text("名單 vs 指數（起點 0%）")
                         .textCase(nil)
@@ -160,7 +164,7 @@ struct HistoryView: View {
                             reload()
                         } label: {
                             HStack {
-                                statRow(s)
+                                statRow(s, indexFirst: indexFirst)
                                 Image(systemName: s.symbol == symbol ? "checkmark" : "chevron.right")
                                     .font(.caption.weight(.semibold))
                                     .foregroundStyle(.tertiary)
@@ -211,12 +215,13 @@ struct HistoryView: View {
         LegendDot(color: ContributionChart.indexColor, text: "指數漲跌")
     }
 
-    @ViewBuilder private func statRow(_ s: History.Stat) -> some View {
+    @ViewBuilder private func statRow(_ s: History.Stat, indexFirst: String?) -> some View {
         let risk = "回檔 \(Fmt.pct(s.mdd, 1)) · 波動 \(Fmt.num(s.vol, 1))%"
         let isIndex = s.symbol == "SPX" || s.symbol == "RSP"
         let title = isIndex ? (s.label ?? s.symbol) : s.symbol
         let kind = s.symbol == "SPX" ? "指數" : s.symbol == "RSP" ? "等權重 ETF" : (s.label ?? "")
-        let sub = (kind.isEmpty ? [] : [kind]) + ["收盤 \(Fmt.num(s.close))"]
+        let since = s.first != indexFirst ? s.first.map { "自 \(Fmt.shortDate($0))" } : nil
+        let sub = (kind.isEmpty ? [] : [kind]) + ["收盤 \(Fmt.num(s.close))"] + [since].compactMap { $0 }
         if dts.isAccessibilitySize {
             VStack(alignment: .leading, spacing: 5) {
                 Text(title).font(.headline)

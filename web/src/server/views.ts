@@ -1,7 +1,7 @@
 // 各頁的資料（網頁 loader 與 App 的 JSON API 共用同一份）。
 // 跟使用者無關的部分照資料版本快取（cachedPage）；名單、定投規劃這類每個人不同的部分在快取外套上，
 // 或把名單放進快取鍵，不會把甲的名單快取給乙看。
-import { maxDrawdown, periodReturn, smaSeries, Series, leverageDrift, simulateDca } from "../lib/analytics.ts";
+import { maxDrawdown, periodReturn, rangeReturn, smaSeries, Series, leverageDrift, simulateDca } from "../lib/analytics.ts";
 import { addDays, latestExpectedClose, latestScheduledClose } from "../lib/calendar.ts";
 import { importanceFor, isImportant } from "../lib/news-ai.ts";
 import { viewForMembers } from "../lib/snapshot.ts";
@@ -166,7 +166,7 @@ export async function historyView(c: ViewCtx, v: Viewer) {
       .filter((_, i) => i % step === 0 || i === visible.length - 1)
       .map((p) => ({ date: p.date, close: r2(p.close) as number, sma20: r2(p.sma20), sma60: r2(p.sma60), sma200: r2(p.sma200) }));
 
-    // 相對報酬比較：每條線以區間第一個交易日為 0%。
+    // Each line starts at its first close in the range (0%), matching the interval statistics.
     const rebased = compareSymbols.map((s) => {
       const pts = loaded.series[s].points.filter((p) => p.date >= start);
       const base = pts[0]?.close;
@@ -180,7 +180,8 @@ export async function historyView(c: ViewCtx, v: Viewer) {
         symbol: s,
         label: SYMBOL_LABELS[s],
         close: series.last()?.close ?? null,
-        ret: periodReturn(series, start, end),
+        ret: rangeReturn(inRange, end),
+        first: inRange[0]?.date ?? null,
         mdd: maxDrawdown(inRange),
         vol: annualVol(inRange.map((p) => p.close)),
       };
@@ -214,7 +215,7 @@ export async function historyView(c: ViewCtx, v: Viewer) {
       return { date: r.date, index: r.idx, mag7, rest: mag7 !== null && r.idx !== null ? r.idx - mag7 : null };
     });
 
-    const mainStats = { ret: periodReturn(main, start, end), mdd: maxDrawdown(main.points.filter((p) => p.date >= start)), points: visible.length, first: visible[0]?.date ?? null, last: visible.at(-1)?.date ?? null };
+    const mainStats = { ret: rangeReturn(main.points.filter((p) => p.date >= start), end), mdd: maxDrawdown(main.points.filter((p) => p.date >= start)), points: visible.length, first: visible[0]?.date ?? null, last: visible.at(-1)?.date ?? null };
     return { symbol, label: SYMBOL_LABELS[symbol], watch: members.map((m) => m.key), months, ranges: RANGES, symbols: Object.entries(SYMBOL_LABELS), priceLine, mainStats, rebased, stats, contribution };
   });
 }

@@ -240,6 +240,7 @@ struct History: Decodable, Sendable {
         let label: String?
         let close: Double?
         let ret: Double?
+        let first: String?
         let mdd: Double?
         let vol: Double?
     }

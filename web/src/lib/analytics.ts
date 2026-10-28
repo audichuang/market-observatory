@@ -198,3 +198,11 @@ export function leverageDrift(etf: Series, index: Series, multiple: number, from
   if (actual === null || idx === null) return null;
   return { actual, naive: idx * multiple, drift: actual - idx * multiple };
 }
+
+/** Return (%) from the first close in the sorted range; require a distinct close on toDate. */
+export function rangeReturn(inRange: Point[], toDate: string): number | null {
+  const first = inRange[0];
+  const last = inRange.at(-1);
+  if (!first || last?.date !== toDate || first.date === toDate) return null;
+  return pct(last.close, first.close);
+}

@@ -1,6 +1,6 @@
 // 下月展望（跟使用者無關，整頁照資料版本快取）。網頁 loader 與 App 的 API 共用。
 import { addDays } from "../lib/calendar.ts";
-import { frequencySentences, liveTrackOf } from "../lib/communication.ts";
+import { frequencySentences, liveTrackOf, outlookUnavailable } from "../lib/communication.ts";
 import { aggregateConsensus, type ViewRow } from "../lib/consensus.ts";
 import { HORIZON, MIN_EFFECTIVE_N, MIN_EPISODES, buildObservations, buildOutlook, conditionalRate, type Rate, type Regime } from "../lib/forecast.ts";
 import { FACTSET_EARNINGS_INSIGHT_URL, REUTERS_POLL, STRATEGIST_TARGETS, STRATEGIST_TARGETS_CHECKED, strategistTable } from "../lib/strategists.ts";
@@ -91,6 +91,7 @@ export async function outlookView(c: ViewCtx) {
     const close = outlook?.close ?? lastSpx?.close ?? null;
     return {
       outlook,
+      outlookUnavailable: outlook ? null : outlookUnavailable(spx, vix),
       cells,
       track,
       liveTrack,

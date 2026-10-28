@@ -2,7 +2,7 @@ import { Link } from "@void/react";
 import type { ReactNode } from "react";
 import { Delta } from "../src/ui/bits.tsx";
 import { dateWithWeekday, num, pctText } from "../src/ui/format.ts";
-import { FORECAST_CALL, LIVE_MIN_N, NO_INCREMENTAL_SKILL, PROPORTION_INTERVAL, SKILL_INTERVAL, dd5Definition, dd5ShortLabel, upTargetLabel } from "../src/lib/communication.ts";
+import { FORECAST_CALL, LIVE_MIN_N, NO_INCREMENTAL_SKILL, PROPORTION_INTERVAL, SKILL_INTERVAL, dd5Definition, dd5ShortLabel, outlookUnavailableText, upTargetLabel } from "../src/lib/communication.ts";
 import type { Assessments, Evaluation } from "../src/lib/forecast.ts";
 import type { Props } from "./outlook.server";
 
@@ -204,7 +204,7 @@ function ForecastBlock({ outlook, cells, horizon, minN, minEpisodes, trackPanel,
   );
 }
 
-export default function OutlookPage({ outlook, cells, liveTrack, frequency, recent, consensus, strategists, factset, horizon, minN, minEpisodes }: Props) {
+export default function OutlookPage({ outlook, outlookUnavailable, cells, liveTrack, frequency, recent, consensus, strategists, factset, horizon, minN, minEpisodes }: Props) {
   const trackPanel = (
     <div className="panel">
       <h2>上線後實際紀錄：上漲機率 <span className="meta">（合併所有已發布的模型版本；每列以紀錄日收盤為起點）</span></h2>
@@ -245,7 +245,7 @@ export default function OutlookPage({ outlook, cells, liveTrack, frequency, rece
 
       {!outlook ? (
         <>
-          <div className="notice warn">資料不足，或 VIX 超過 3 個交易日未更新，今天沒有產生預測；下方的機構觀點與過去的預測紀錄照常顯示。</div>
+          <div className="notice warn">{outlookUnavailableText(outlookUnavailable)}</div>
           <div className="section">{trackPanel}</div>
         </>
       ) : (

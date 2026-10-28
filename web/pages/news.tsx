@@ -6,6 +6,7 @@ import type { Props } from "./news.server";
 const STATUS: Record<string, [string, string]> = {
   confirmed: ["ok", "公司已公布"],
   estimated: ["warn", "Zacks 推估"],
+  expected: ["warn", "預期"],
   scheduled: ["ok", "官方日程"],
   tentative: ["warn", "官方暫定"],
 };

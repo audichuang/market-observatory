@@ -49,3 +49,8 @@ export function dateWithWeekday(date: string | null | undefined): string {
 export function daysBetween(a: string, b: string): number {
   return Math.round((Date.parse(`${b}T12:00:00Z`) - Date.parse(`${a}T12:00:00Z`)) / 86400000);
 }
+
+export function ppText(v: number | null | undefined, digits = 2): string {
+  const s = signed(v, digits);
+  return s === DASH ? s : `${s} 個百分點`;
+}

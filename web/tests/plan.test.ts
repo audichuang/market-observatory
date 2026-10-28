@@ -3,6 +3,10 @@ import { test } from "node:test";
 import { PLAN_RULES_TEXT, planIssue } from "../src/lib/plan.ts";
 import { DEFAULT_PLAN, PlanSchema } from "../src/server/views.ts";
 
+test("規劃範圍說明與 App 的檢討門檻文案逐字相同", () => {
+  assert.equal(PLAN_RULES_TEXT, "金額要是 0 到 10 億的整數，檢討門檻 0–100%，備註最多 2000 字。");
+});
+
 test("預設規劃在範圍內；超出範圍時回中文說明", () => {
   assert.equal(planIssue(DEFAULT_PLAN), null);
   assert.equal(planIssue({ ...DEFAULT_PLAN, exitConsiderationPct: 150 }), PLAN_RULES_TEXT);

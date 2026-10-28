@@ -181,6 +181,23 @@ struct OverviewView: View {
                     Section("下月展望") {
                         NavigationLink(value: Destination.outlook) {
                             VStack(alignment: .leading, spacing: 20) {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text("資料日 \(Fmt.fullDate(f.tradeDate))")
+                                        .font(.footnote).foregroundStyle(.secondary)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                    if f.tradeDate < s.tradeDate {
+                                        Text(Copy.forecastPendingBadge)
+                                            .font(.caption.weight(.semibold))
+                                            .padding(.horizontal, 8)
+                                            .padding(.vertical, 4)
+                                            .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+                                            .foregroundStyle(.orange)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                        Text(Copy.forecastPendingNote(forecastDate: Fmt.fullDate(f.tradeDate), snapshotDate: Fmt.fullDate(s.tradeDate)))
+                                            .font(.footnote).foregroundStyle(.secondary)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                    }
+                                }
                                 if let d = f.drawdown {
                                     VStack(alignment: .leading, spacing: 8) {
                                         Text("下跌風險").font(.subheadline.weight(.semibold))
@@ -320,7 +337,7 @@ struct OverviewView: View {
     }
 
     private func spreadCard(_ s: Snapshot) -> some View {
-        Kpi(label: "等權重 − 市值加權", value: Fmt.pct(s.breadth.spreadPct), tone: s.breadth.spreadPct) {
+        Kpi(label: "等權重 − 市值加權", value: Fmt.pp(s.breadth.spreadPct), tone: s.breadth.spreadPct) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("RSP \(Fmt.pct(s.breadth.rspReturnPct))")
                 Text("vs SPX \(Fmt.pct(s.breadth.spxReturnPct))")
@@ -548,6 +565,7 @@ private struct EventStatusBadge: View {
     var body: some View {
         switch status {
         case "estimated": Text("推估日期").font(.caption2).foregroundStyle(.orange)
+        case "expected": Text("預期").font(.caption2).foregroundStyle(.orange)
         case "tentative": Text("暫定").font(.caption2).foregroundStyle(.orange)
         default: EmptyView()
         }

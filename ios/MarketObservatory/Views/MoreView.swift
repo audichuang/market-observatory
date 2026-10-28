@@ -248,11 +248,15 @@ struct EtfView: View {
                 Text("每月第一個交易日以收盤價買入，用當天 USD/TWD 換匯；不含配息、手續費與稅。改標的、期間或金額只是試算，按「設為我的預設」才會存起來。\(e.fxLast.map { "最新匯率 \(Fmt.num($0.close, 3))（\(Fmt.fullDate($0.date))）。" } ?? "")")
             }
 
-            Section("我的規劃") {
+            Section {
                 LabeledContent("研究預算", value: Fmt.twd(Double(e.plan.researchBudgetTwd)))
                 LabeledContent("每批投入", value: Fmt.twd(Double(e.plan.trancheTwd)))
-                LabeledContent("考慮出場的漲幅", value: Fmt.plainPct(e.plan.exitConsiderationPct, 0))
+                LabeledContent(PlanCopy.reviewLabel, value: PlanCopy.reviewValue(e.plan.exitConsiderationPct))
                 if !e.plan.notes.isEmpty { Text(e.plan.notes).font(.footnote).foregroundStyle(.secondary) }
+            } header: {
+                Text("我的規劃")
+            } footer: {
+                Text(PlanCopy.note)
             }
         }
         .listStyle(.insetGrouped)
@@ -309,11 +313,11 @@ private struct PlanEditor: View {
                 Section {
                     LabeledContent("研究預算") { TextField("金額", text: $budgetText).keyboardType(.numberPad).multilineTextAlignment(.trailing).focused($focused) }
                     LabeledContent("每批投入") { TextField("金額", text: $trancheText).keyboardType(.numberPad).multilineTextAlignment(.trailing).focused($focused) }
-                    LabeledContent("考慮出場漲幅 %") { TextField("%", text: $exitText).keyboardType(.decimalPad).multilineTextAlignment(.trailing).focused($focused) }
+                    LabeledContent(PlanCopy.reviewLabel) { TextField("%", text: $exitText).keyboardType(.decimalPad).multilineTextAlignment(.trailing).focused($focused) }
                 } header: {
                     Text("資金規劃")
                 } footer: {
-                    if parsed == nil { Text("金額要是 0 到 10 億的整數，出場漲幅 0–100%，備註最多 2000 字。").foregroundStyle(Color.up) }
+                    if parsed == nil { Text(PlanCopy.rulesText).foregroundStyle(Color.up) }
                 }
                 Section("備註") { TextEditor(text: $notes).frame(minHeight: 100).focused($focused) }
                 if let error { Section { Notice(kind: .bad, text: error).noticeRow() } }
@@ -456,16 +460,22 @@ struct OutlookView: View {
                 // Two targets, two labelled blocks: o.evaluation is the up model, drawdown.evaluation is dd5.
                 if let ev = o.drawdown?.evaluation {
                     evaluationSection(ev, horizon: p.horizon, title: "滾動驗證：跌幅機率（dd5）",
-                                      target: "目標：\(Copy.dd5Definition(horizon: p.horizon))。", showHitRate: false)
+                                      target: "目標：\(Copy.dd5Definition(horizon: p.horizon))。", id: "dd5")
                 }
                 if let ev = o.evaluation {
                     evaluationSection(ev, horizon: p.horizon, title: "滾動驗證：上漲機率",
-                                      target: "目標：\(Copy.upTargetLabel(horizon: p.horizon))。", showHitRate: true)
+                                      target: "目標：\(Copy.upTargetLabel(horizon: p.horizon))。", id: "up")
                 }
-                forecastSection(p)
             } else {
-                Text("資料不足，還無法產生展望。").foregroundStyle(.secondary)
+                Notice(kind: .warn, text: Copy.outlookUnavailable(
+                    reason: p.outlookUnavailable?.reason,
+                    spxDate: p.outlookUnavailable?.spxDate,
+                    vixDate: p.outlookUnavailable?.vixDate,
+                    staleSessions: p.outlookUnavailable?.staleSessions,
+                    maxStaleSessions: p.outlookUnavailable?.maxStaleSessions
+                )).noticeRow()
             }
+            forecastSection(p)
 
             Section("機構觀點（背景資訊，不放進上面的機率）") {
                 DisclosureGroup("如何看待機構目標") {
@@ -580,16 +590,12 @@ struct OutlookView: View {
         .accessibilityElement(children: .combine)
     }
 
-    /// One walk-forward block per target. Hit-rate rows only make sense for the up model ("always guess up").
-    private func evaluationSection(_ ev: OutlookPage.Outlook.Evaluation, horizon: Int, title: String, target: String, showHitRate: Bool) -> some View {
+    /// One walk-forward block per target, with a stable accessibility identifier.
+    private func evaluationSection(_ ev: OutlookPage.Outlook.Evaluation, horizon: Int, title: String, target: String, id: String) -> some View {
         Section {
             DisclosureGroup(title) {
             Text("\(target)\(ev.firstDate.map(Fmt.fullDate) ?? "—")～\(ev.lastDate.map(Fmt.fullDate) ?? "—")，每 \(horizon) 個交易日預測一次（共 \(ev.points) 次）")
                 .font(.footnote).foregroundStyle(.secondary)
-            if showHitRate {
-                LabeledContent("預測方向命中率", value: Fmt.plainPct(ev.hitRate.map { $0 * 100 }))
-                LabeledContent("永遠猜上漲的命中率", value: Fmt.plainPct(ev.baseHitRate.map { $0 * 100 }))
-            }
             LabeledContent("Brier（越低越好）", value: Fmt.num(ev.brier, 4))
             LabeledContent("只用基準率的 Brier", value: Fmt.num(ev.brierBase, 4))
             LabeledContent("BSS") {
@@ -602,7 +608,7 @@ struct OutlookView: View {
             if let mde = ev.mde { LabeledContent("最小可偵測 BSS", value: Fmt.num(mde, 2)) }
             Text("BSS = 1 − Brier ÷ 基準 Brier；區間下限 > 0 才代表穩定勝過基準率")
                 .font(.footnote).foregroundStyle(.secondary)
-                .accessibilityIdentifier(showHitRate ? "outlook-validation-up-details" : "outlook-validation-dd5-details")
+                .accessibilityIdentifier("outlook-validation-\(id)-details")
             }
         }
     }

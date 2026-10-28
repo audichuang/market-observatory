@@ -31,7 +31,7 @@ Preconditions:
 - **App 日曆。** walkthrough 的 `05b-calendar.png`、`05c-calendar-day.png`；test05 的 `E5-day-label.txt`、`E5-day.png`／`.txt`（點的是 `ios-test.sh` 傳入的 `MO_EVENT_DATE`，檔案第一行記日期）、`E5-next-month.png`、`E5-today.png`。核對點的顏色與當天事件數＝API `events` 該日期的筆數。label 有兩種，要指名對的那個：月曆的日期格是「10/28（三），有總經事件，有財報」（逗號分隔），「接下來」列表的列是「10/28（三）、MSFT、Microsoft 財報、2 天後」（頓號分隔）；`label CONTAINS '10/28'` 會先對到「接下來」那列，test05 用「`M/D（` 開頭且不含 `、`」指名日期格。
 - **Proof。** `news-list.png`、`news-nvda.png`、API JSON、App 的 E3／E4／E5 截圖與 `.txt`。
 
-- **語氣與篩選無障礙（App）。** `test15_DigestToneLabels` 一般與最大字級各檢查 `news-digest-<symbol>` 的文字與利多／利空 staticTexts，並確認選中篩選 chip 的 `isSelected`；截圖 `E9-tone-normal`／`E9-tone-largest`。本機需有近三天、前幾家名單公司 positive/negative 重點，缺資料測試明確失敗。
+- **語氣與篩選無障礙（App）。** `test15_DigestToneLabels` 一般與最大字級各檢查 `news-digest-<symbol>` 的文字與利多／利空 staticTexts，並確認選中篩選 chip 的 `isSelected`；截圖 `E9-tone-normal`／`E9-tone-largest`。本機需有 `latestTradeDate` 當天、依 `keys` 排序的前 3 家名單公司 positive/negative 重點，缺資料測試明確失敗。
 - **摘要資料日（L2-T5，App）。** 在本機用站長 `POST /api/admin/ai` 準備最新快照交易日 2 家、前一交易日另一家摘要，日期須落在 API 近三天的摘要範圍。讀 `/api/v1/news`，逐筆對照 `latestTradeDate` 與 `digests[].date`：「今日重點 · M/D（週）」只有最新日的 2 家；「較早的重點」初始收合，展開後只有前一日那家。每列（含單股篩選）有 `M/D（週）` 日期，最大字級不裁切，identifier 保持 `news-digest-<symbol>` 且 label 含利多／利空。另驗最新日沒有摘要時沒有今日段、全部在較早段；舊回應缺 `latestTradeDate` 時只有「公司重點」。留 `news-digest-dates-normal.png`／`news-digest-dates-largest.png`、展開較早段截圖及 API JSON；驗完還原本輪資料。
 
 - App 一般及最大字級檢查新聞標題與事件列完整換行、摘要展開後可讀；大字月曆用「選擇日期」開啟原生 sheet，以單欄日期與事件標記選取，選完自動關閉並在原位置呈現當日事件。`test16_Readability` 檢查換月、回今天、選取事件日與關閉狀態；實看 `UI-<variant>-calendar-selected.png`，確認不用再捲過整月才能看到結果。

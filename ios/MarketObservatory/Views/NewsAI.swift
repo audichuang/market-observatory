@@ -16,7 +16,7 @@ extension Color {
 
 enum NewsText {
     static func sourcesEmptyNote(isMarket: Bool, sources: [DigestSource]?, sourcesMissing: Int?) -> String? {
-        guard isMarket, (sources ?? []).isEmpty, (sourcesMissing ?? 0) == 0 else { return nil }
+        guard isMarket, let sources, let sourcesMissing, sources.isEmpty, sourcesMissing == 0 else { return nil }
         return "這段只根據行情數字，沒有引用新聞"
     }
 

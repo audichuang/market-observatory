@@ -6,8 +6,12 @@ struct CopyTests {
     @Test func marketWithoutNewsExplainsItsSources() {
         let expected = "這段只根據行情數字，沒有引用新聞"
         #expect(NewsText.sourcesEmptyNote(isMarket: true, sources: [], sourcesMissing: 0) == expected)
-        #expect(NewsText.sourcesEmptyNote(isMarket: true, sources: nil, sourcesMissing: nil) == expected)
-        #expect(NewsText.sourcesEmptyNote(isMarket: true, sources: nil, sourcesMissing: 0) == expected)
+    }
+
+    @Test func marketWithAbsentSourceFieldsDoesNotClaimNoNews() {
+        #expect(NewsText.sourcesEmptyNote(isMarket: true, sources: nil, sourcesMissing: nil) == nil)
+        #expect(NewsText.sourcesEmptyNote(isMarket: true, sources: nil, sourcesMissing: 0) == nil)
+        #expect(NewsText.sourcesEmptyNote(isMarket: true, sources: [], sourcesMissing: nil) == nil)
     }
 
     @Test func sourcesEmptyNoteDoesNotMislabelNewsOrMissingSources() {

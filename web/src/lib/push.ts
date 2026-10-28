@@ -1,5 +1,5 @@
 // 推播的內容與偏好（純函式，不碰資料庫與網路）：收盤摘要、名單個股大漲大跌、當天的財報／總經事件。
-import type { Snapshot } from "./snapshot.ts";
+import type { CheckStatus, Snapshot } from "./snapshot.ts";
 
 export interface PushPrefs {
   /** 每日收盤摘要 */
@@ -42,17 +42,20 @@ const md = (date: string) => `${Number(date.slice(5, 7))}/${Number(date.slice(8,
 export function dailySummary(s: Snapshot): PushMessage | null {
   const { index } = s;
   if (index.changePts === null || index.returnPct === null) return null;
+  const indexLabel = unverified(index.check.status);
   const parts = [`${index.close.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}（${signed(index.changePts)} 點）`];
   if (s.vix.close !== null) parts.push(`VIX ${s.vix.close.toFixed(1)}`);
   if (s.mag7.length && s.mag7Total.contributionPts !== null) {
-    const share = s.mag7Total.shareOfMovePct === null ? "" : `（${Math.round(s.mag7Total.shareOfMovePct)}%）`;
-    parts.push(`名單 ${signed(s.mag7Total.contributionPts, 1)} 點${share}`);
+    const share = s.mag7Total.shareOfMovePct === null ? "" : `${Math.round(s.mag7Total.shareOfMovePct)}%`;
+    const label = s.mag7.map((r) => unverified(r.check)).find(Boolean);
+    const detail = [share, label].filter(Boolean).join("，");
+    parts.push(`名單 ${signed(s.mag7Total.contributionPts, 1)} 點${detail ? `（${detail}）` : ""}`);
     const top = [...s.mag7].filter((r) => r.contributionPts !== null).sort((a, b) => Math.abs(b.contributionPts!) - Math.abs(a.contributionPts!))[0];
     if (top) parts.push(`${top.key} ${signed(top.contributionPts!, 1)}`);
   }
   return {
     kind: "daily",
-    title: `S&P 500 ${md(s.tradeDate)} 收盤 ${signed(index.returnPct)}%`,
+    title: `S&P 500 ${md(s.tradeDate)} 收盤 ${signed(index.returnPct)}%${indexLabel ? `（${indexLabel}）` : ""}`,
     body: parts.join(" · "),
     data: { screen: "overview", date: s.tradeDate },
   };
@@ -64,13 +67,17 @@ export function bigMoves(s: Snapshot, thresholdPct: number): PushMessage | null 
     .filter((r) => r.returnPct !== null && Math.abs(r.returnPct) >= thresholdPct)
     .sort((a, b) => Math.abs(b.returnPct!) - Math.abs(a.returnPct!));
   if (!hits.length) return null;
-  const list = hits.map((r) => `${r.company}（${r.key}）${signed(r.returnPct!, 1)}%`);
+  const list = hits.map((r) => {
+    const label = unverified(r.check);
+    return `${r.company}（${r.key}）${signed(r.returnPct!, 1)}%${label ? `（${label}）` : ""}`;
+  });
+  const firstLabel = unverified(hits[0].check);
   const up = hits.filter((r) => r.returnPct! > 0).length;
   const down = hits.length - up;
   const verb = up && down ? "大漲大跌" : up ? "大漲" : "大跌";
   return {
     kind: "moves",
-    title: hits.length === 1 ? `${hits[0].key} ${md(s.tradeDate)} ${verb} ${signed(hits[0].returnPct!, 1)}%` : `名單 ${hits.length} 家${verb}超過 ${thresholdPct}%`,
+    title: hits.length === 1 ? `${hits[0].key} ${md(s.tradeDate)} ${verb} ${signed(hits[0].returnPct!, 1)}%${firstLabel ? `（${firstLabel}）` : ""}` : `名單 ${hits.length} 家${verb}超過 ${thresholdPct}%`,
     body: list.join("、"),
     data: { screen: "overview", date: s.tradeDate },
   };
@@ -99,4 +106,8 @@ export function eventReminder(date: string, events: EventRow[], keys: string[]):
     body: text.join("、"),
     data: { screen: "news", date },
   };
+}
+
+function unverified(status: CheckStatus): string {
+  return status === "mismatch" ? "未核對" : "";
 }

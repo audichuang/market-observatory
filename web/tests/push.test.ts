@@ -31,12 +31,12 @@ after(() => restore());
 const snap = (over: Partial<Snapshot> = {}): Snapshot =>
   ({
     tradeDate: "2026-10-23",
-    index: { close: 6812.34, changePts: 57.4, returnPct: 0.85, prevClose: 6754.94 },
+    index: { close: 6812.34, changePts: 57.4, returnPct: 0.85, prevClose: 6754.94, check: { status: "match" } },
     vix: { close: 15.23 },
     mag7: [
-      { key: "NVDA", company: "NVIDIA", tickers: ["NVDA"], returnPct: 5.4, contributionPts: 30.1 },
-      { key: "TSLA", company: "Tesla", tickers: ["TSLA"], returnPct: -6.25, contributionPts: -8.2 },
-      { key: "AAPL", company: "Apple", tickers: ["AAPL"], returnPct: 0.3, contributionPts: 1.2 },
+      { key: "NVDA", company: "NVIDIA", tickers: ["NVDA"], returnPct: 5.4, contributionPts: 30.1, check: "match" },
+      { key: "TSLA", company: "Tesla", tickers: ["TSLA"], returnPct: -6.25, contributionPts: -8.2, check: "match" },
+      { key: "AAPL", company: "Apple", tickers: ["AAPL"], returnPct: 0.3, contributionPts: 1.2, check: "match" },
     ],
     mag7Total: { contributionPts: 23.1, shareOfMovePct: 40.24, weightPct: 20 },
     ...over,
@@ -49,6 +49,26 @@ test("收盤摘要：漲跌、VIX、名單合計、貢獻最大的一家；算�
   assert.equal(dailySummary(snap({ index: { close: 1, changePts: null, returnPct: null } as never })), null);
 });
 
+test("收盤摘要：SPX 來源不一致時標題附未核對", () => {
+  const s = snap();
+  s.index.check.status = "mismatch";
+  assert.equal(dailySummary(s)!.title, "S&P 500 10/23 收盤 +0.85%（未核對）");
+});
+
+test("收盤摘要：名單任一列來源不一致時在占比內標未核對", () => {
+  const s = snap();
+  s.mag7[0].check = "mismatch";
+  assert.equal(dailySummary(s)!.title, "S&P 500 10/23 收盤 +0.85%");
+  assert.equal(dailySummary(s)!.body, "6,812.34（+57.40 點） · VIX 15.2 · 名單 +23.1 點（40%，未核對） · NVDA +30.1");
+});
+
+test("收盤摘要：名單來源不一致且沒有占比時仍標未核對", () => {
+  const s = snap();
+  s.mag7[2].check = "mismatch";
+  s.mag7Total.shareOfMovePct = null;
+  assert.equal(dailySummary(s)!.body, "6,812.34（+57.40 點） · VIX 15.2 · 名單 +23.1 點（未核對） · NVDA +30.1");
+});
+
 test("大漲大跌：只列超過門檻的，依幅度排序", () => {
   const m = bigMoves(snap(), 5)!;
   assert.equal(m.title, "名單 2 家大漲大跌超過 5%");
@@ -56,6 +76,34 @@ test("大漲大跌：只列超過門檻的，依幅度排序", () => {
   assert.equal(bigMoves(snap(), 6)!.title, "TSLA 10/23 大跌 −6.3%");
   assert.equal(bigMoves(snap(), 10), null);
 });
+
+test("大漲大跌：來源不一致的項目附未核對，多家公司時標題不變", () => {
+  const s = snap();
+  s.mag7[1].check = "mismatch";
+  const m = bigMoves(s, 5)!;
+  assert.equal(m.title, "名單 2 家大漲大跌超過 5%");
+  assert.equal(m.body, "Tesla（TSLA）−6.3%（未核對）、NVIDIA（NVDA）+5.4%");
+});
+
+test("大漲大跌：只有一家公司且來源不一致時標題也附未核對", () => {
+  const s = snap();
+  s.mag7[1].check = "mismatch";
+  const m = bigMoves(s, 6)!;
+  assert.equal(m.title, "TSLA 10/23 大跌 −6.3%（未核對）");
+  assert.equal(m.body, "Tesla（TSLA）−6.3%（未核對）");
+});
+
+for (const status of ["pending", "unavailable"] as const) {
+  test(`收盤推播：${status} 的摘要與單家／多家大漲大跌文字和 match 逐字相同`, () => {
+    const clean = snap();
+    const s = snap();
+    s.index.check.status = status;
+    for (const row of s.mag7) row.check = status;
+    assert.deepEqual(dailySummary(s), dailySummary(clean));
+    assert.deepEqual(bigMoves(s, 5), bigMoves(clean, 5));
+    assert.deepEqual(bigMoves(s, 6), bigMoves(clean, 6));
+  });
+}
 
 test("事件提醒：只提名單上的財報與總經事件，標出盤前盤後、推估與預期", () => {
   const events = [

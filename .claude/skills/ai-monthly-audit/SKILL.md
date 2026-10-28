@@ -65,7 +65,7 @@ missing、rejected、unavailable 與使用者回報一律另列「問題案例�
 
 案例的 id、task、group（company／event／article）、tags、input、gold.requiredFacts 與 gold.forbidden 依該文件；translate 的 gold.focus 及各 task 輸入型別也跟隨現行規格，不在此另定格式。同步在 `web/evals/news-ai/dev/answers-good.json`／`web/evals/news-ai/dev/answers-bad.json` 補齊新 id 的合成正反例，更新 `web/tests/news-ai-eval.test.ts` 的案例數量斷言（含 prepare 任務數與有阻擋案例數）及 `expected` 阻擋種類對照；commit 前在 `web/` 跑 `node --test tests/news-ai-eval.test.ts`。
 
-依文件的 dev 流程分別 score 合成正反例，保存報告中該案例的 `blockers`：正例應為空陣列，反例須命中 `gold.forbidden` 對應的 `kind`／`detail`；不能只以 exit 1 判定重現，缺人工逐句／必要事實標註也會 exit 1。這不是重新生成正式內容。只寫 dev，不讀寫 `web/evals/news-ai/holdout/` 或 `web/evals/news-ai/holdout.lock.json` 來調案例。交付具體案例 diff 與驗證結果後，取得使用者同意才 commit 回填檔；沒有同意就保留草稿並註明。
+依文件的 dev 流程分別 score 合成正反例，保存報告中該案例的 `blockers`：正例應為空陣列，反例的 `blockers` 須含該失敗樣態設計的 `kind`（比照 `news-ai-eval.test.ts` 的 `expected`）；由 `gold.forbidden` 命中時，`detail` 等於該條 `reason`；`number`、`company`、`format` 由確定性檢查產生，不另加 `forbidden` 規則；不能只以 exit 1 判定重現，缺人工逐句／必要事實標註也會 exit 1。這不是重新生成正式內容。只寫 dev，不讀寫 `web/evals/news-ai/holdout/` 或 `web/evals/news-ai/holdout.lock.json` 來調案例。交付具體案例 diff 與驗證結果後，取得使用者同意才 commit 回填檔；沒有同意就保留草稿並註明。
 
 要求降低「原因不明」比例時，拒絕訂理想比例或把抽到「原因不明」扣分；有無出處才是判準。若要改提示詞或模型，轉到 `web/docs/news-ai-eval.md` 的離線評估流程，月抽查到報告與案例草稿為止，不順手修改。
 

@@ -1,0 +1,90 @@
+[
+  {
+    "id": "UI-01",
+    "verdict": "pass",
+    "observed": "iPhone 18 Pro Max 一般字級逐頁走訪通過（113.732 秒）。",
+    "expected": "總覽、走勢、名單、新聞、日曆、更多、ETF、展望、推播與帳號可開啟閱讀。",
+    "notes": "iOS 27.0；既有 MO 模擬器，未新增裝置。",
+    "screenshot": "/Users/audichuang/.cache/mo-verify/ui20261028/evidence/ios/02-overview.png"
+  },
+  {
+    "id": "UI-02",
+    "verdict": "pass",
+    "observed": "iPhone 18 Pro Max 深色最大字級完整閱讀流程通過（111.948 秒）；ETF 與登入文字幾何檢查重跑通過。",
+    "expected": "長報告可捲動、說明可展開，報酬正負號保持單行、登入分隔文字不超出畫面。",
+    "notes": "報酬／代號高度同為約63.3pt；分隔文字約52.7pt、輸入欄約88pt。",
+    "screenshot": "/Users/audichuang/.cache/mo-verify/ui20261028/evidence/ios/UI-pro-max-largest-etfs.png"
+  },
+  {
+    "id": "UI-03",
+    "verdict": "pass",
+    "observed": "iPhone 16 Plus 一般字級完整閱讀流程通過（87.933 秒）。",
+    "expected": "所有閱讀入口及日期選取可操作。",
+    "notes": "僅開啟既有 MO iPhone 16 Plus。",
+    "screenshot": "/Users/audichuang/.cache/mo-verify/ui20261028/evidence/ios/UI-plus-normal-calendar-events.png"
+  },
+  {
+    "id": "UI-04",
+    "verdict": "pass",
+    "observed": "iPhone 16 Plus 最大字級完整閱讀流程通過（111.780 秒），ETF／登入幾何檢查通過（35.160 秒）。",
+    "expected": "日期選擇、新聞詳情、模型展開、設定及登入頁可操作，文字沒有越出螢幕。",
+    "notes": "",
+    "screenshot": "/Users/audichuang/.cache/mo-verify/ui20261028/evidence/ios/UI-plus-largest-login.png"
+  },
+  {
+    "id": "A-B-F",
+    "verdict": "pass",
+    "observed": "註冊、登入錯誤、名單增刪、走勢區間／標的、日曆、ETF 試算與儲存、推播偏好、展望展開／收合、刪除一次性帳號均實跑通過。",
+    "expected": "修改的畫面需實際操作，寫入需再讀回。",
+    "notes": "名單恢復7家、定投恢復VOO/3年/10000、每批50000、每日推播開啟及門檻5%；API證據在 evidence/api/reconciliation.json。",
+    "screenshot": "/Users/audichuang/.cache/mo-verify/ui20261028/evidence/ios/F3-dca.png"
+  },
+  {
+    "id": "G3",
+    "verdict": "pass",
+    "observed": "模擬事件推播點開後到達日曆，測試通過（27.477 秒）。",
+    "expected": "推播導向指定日期的新聞日曆。",
+    "notes": "simctl 模擬送達；不代表真實 APNs 傳送已測。",
+    "screenshot": "/Users/audichuang/.cache/mo-verify/ui20261028/evidence/ios/G3-opened-events.png"
+  },
+  {
+    "id": "T1",
+    "verdict": "pass",
+    "observed": "iOS 27項單元測試、3個suite通過。",
+    "expected": "舊／新API fixture、數字文案及重新載入行為通過。",
+    "notes": "unit-tests-final.log",
+    "screenshot": ""
+  },
+  {
+    "id": "T2",
+    "verdict": "pass",
+    "observed": "整合遠端登入閘門修正後，API契約及session撤銷／到期／刪帳號共44項檢查通過。",
+    "expected": "API形狀不變，失效session不可寫入。",
+    "notes": "node --test tests/api-contract.test.ts tests/deleted-session.test.ts",
+    "screenshot": ""
+  },
+  {
+    "id": "R1",
+    "verdict": "pass",
+    "observed": "多個 Terra 分工實作與獨立覆核；最後覆核未發現可具體重現的新功能問題。",
+    "expected": "審查上限3輪，依實際截圖與操作驗證修正。",
+    "notes": "實看後修正ETF正號拆行與登入分隔文字擠成三行；未修改API與模型。",
+    "screenshot": ""
+  },
+  {
+    "id": "ENV",
+    "verdict": "pass",
+    "observed": "原暫存驗證目錄中途被移除後，重建隔離後端並恢復測試資料。",
+    "expected": "不使用主checkout的開發D1。",
+    "notes": "行情缺少2026-10-27 ETF／匯率收盤時，由中斷前保存的真實API回應恢復12筆；無正式站寫入。",
+    "screenshot": ""
+  },
+  {
+    "id": "LIMIT",
+    "verdict": "not-run",
+    "observed": "未實測實體 iPhone、Apple ID 登入、真實 APNs 傳送。",
+    "expected": "需要實體裝置、專用Apple測試帳號與APNs環境。",
+    "notes": "",
+    "screenshot": ""
+  }
+]

@@ -714,6 +714,9 @@ final class VerifyInteractionTests: XCTestCase {
         keepAboveTabBar(app, reveal(app, signOut))
         signOut.tap()
         let email = app.textFields["email"], divider = app.staticTexts["login-email-divider"]
+        snap("UI-\(variant)-after-signout")
+        reveal(app, email)
+        if !email.exists { note("UI-\(variant)-signout-failed", app.debugDescription) }
         XCTAssertTrue(email.waitForExistence(timeout: 10))
         reveal(app, divider)
         XCTAssertTrue(divider.isHittable)

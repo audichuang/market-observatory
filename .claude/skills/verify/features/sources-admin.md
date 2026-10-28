@@ -41,3 +41,12 @@ Preconditions:
 - 橫向捲動表格看條款欄：Nasdaq 版本日為「未核實」，原因提到 V-B #15 未親見 2026-05-11；Yahoo 註「沿前輪 2026-08-04 版，本輪未重核」；Cboe 版本為 2022-11-16，衍生計算欄提到「核對或更正他源資料」限制。本站查閱日皆為 2026-10-28。展開「依據文件」可讀文件與程式位置。
 - 證據：站長表格與 Nasdaq 列存 `sources-registry.png`，條款欄存 `sources-registry-terms.png`；用測試帳號從導覽列進入 `/sources`，確認沒有清冊標題與表，存 `sources-registry-non-owner.png`。App 無此頁。
 - 清冊是 repo 公開的靜態資料，props 會嵌入每位登入者的 HTML；只有面板對站長顯示。loader 只需 `env.DB`，不查登入者、不送 RegExp，也不含 email。`tests/source-registry.test.ts` 記錄五支排程與加入全站新公司的每個請求網址，新增上游必須補清冊；APNs／Sign in with Apple 是傳輸與認證例外。此守門只跑 worker，沒有執行本機 AI 排程；本機配對正文可能來自非 Yahoo 網站，仍需另外核查其條款。
+
+## 逐源停用（L1-T8）
+
+- `sources-switches`：清冊只有 8 個 Worker 來源有「停用／恢復」按鈕，顯示「啟用中」或「已停用（台北時間）」。本機、人工與程式內建來源標「不可切換」。Yahoo、Cboe、SSGA 列另寫明抓價／加入新公司／分析師現價失敗、展望等 VIX、權重未更新的影響。
+- 只在本機站驗：站長由導覽列「資料來源」進入清冊，找到 Nasdaq 新聞列的「停用」，確認對話框逐字為「停用後排程不再向這個來源發請求；已存的資料保留，畫面照常顯示到資料過期。確定停用？」；取消時狀態不變，確認後該列變「已停用（時間）」與「恢復」。用 `GET /api/admin/sources` 對帳 switches 中的 `nasdaq-news`（disabled、at，可有 reason，沒有操作者 email）。
+- 在「手動執行」按「新聞」，執行紀錄 summary 含「來源已停用：Nasdaq 新聞」；經導覽列到新聞頁，確認既有新聞仍顯示。停用只擋 Worker 請求，不刪改價格、新聞、G02 或凍結輸入，也不改既有過期規則。
+- 回清冊按「恢復」，該列變「啟用中」；再執行「新聞」應成功。切換成功會更新資料版本並 refresh，重新開頁也要一致。驗完以 GET 確認所有本輪開關都已恢復；正式站不要為驗收停用來源。
+- 測試帳號由導覽列進入 `/sources`，看不到清冊與停用／恢復按鈕；`page.fetch("/api/admin/sources", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: "nasdaq-news", disabled: true }) })` 回 403 `{"error":"只有站長能執行"}`。站長傳未知或非 Worker id、reason 超過 200 字回 400。
+- 證據：停用前後 `sources-switches-before.png`／`sources-switches-disabled.png`、執行紀錄 `sources-switches-run.png`、保留的新聞 `sources-switches-news.png`、恢復後 `sources-switches-restored.png`，另存 API 讀回及非站長 403。`tests/source-switches.test.ts` 對帳停用來源零子請求、未停用分析師仍抓、舊資料不變、恢復後再抓，以及 Yahoo 停用時加入新公司失敗且零請求。

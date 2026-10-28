@@ -20,6 +20,8 @@ export class Budget {
   used = 0;
   readonly byHost: Record<string, number> = {};
   readonly dataIssues: string[] = [];
+  readonly disabledRequests: string[] = [];
+  private blocked: { id: string; label: string; patterns: readonly RegExp[] }[] = [];
   readonly limit: number;
   constructor(limit: number) {
     this.limit = limit;
@@ -27,11 +29,26 @@ export class Budget {
   get remaining(): number {
     return Math.max(0, this.limit - this.used);
   }
+  block(rules: { id: string; label: string; patterns: readonly RegExp[] }[]): void {
+    this.blocked = rules;
+  }
   take(url: string): void {
     const host = new URL(url).host;
+    const disabled = this.blocked.find((rule) => rule.patterns.some((pattern) => pattern.test(url)));
+    if (disabled) {
+      const error = new SourceDisabledError(disabled.label, host);
+      this.disabledRequests.push(error.message);
+      throw error;
+    }
     if (this.used >= this.limit) throw new BudgetError(host, this.limit);
     this.used++;
     this.byHost[host] = (this.byHost[host] ?? 0) + 1;
+  }
+}
+
+export class SourceDisabledError extends Error {
+  constructor(label: string, host: string) {
+    super(`來源已停用：${label}，未請求 ${host}`);
   }
 }
 

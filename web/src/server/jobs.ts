@@ -5,6 +5,7 @@ import { CBOE_SOURCE, fetchCboeDaily } from "../lib/sources/cboe.ts";
 import { type EarningsDate, NASDAQ_SOURCE, fetchAnalystView, fetchEarningsCalendar, fetchEarningsDate, fetchNasdaqHistorical, fetchNasdaqNews } from "../lib/sources/nasdaq.ts";
 import { nextPendingRebase, refetchCoverage } from "../lib/rebase.ts";
 import { bumpDataVersion } from "./page-cache.ts";
+import { applySourceSwitches } from "./source-switches.ts";
 import { fetchSpyHoldings } from "../lib/sources/ssga.ts";
 import { type FactsetInsight, fetchInsight, latestInsightUrl } from "../lib/sources/factset.ts";
 import { YAHOO_SOURCE, fetchYahooDaily, fetchYahooLastCloses, fetchYahooSpark } from "../lib/sources/yahoo.ts";
@@ -763,9 +764,13 @@ export async function runJob(db: D1Database, job: JobName, trigger: string, opts
   const id = await startRun(db, job, trigger);
   const before = budget.used;
   const issuesBefore = budget.dataIssues.length;
+  const disabledBefore = budget.disabledRequests.length;
   const usage = () => ({ subrequests: budget.used - before, budgetLeft: budget.remaining });
   try {
+    await applySourceSwitches(db, budget);
     const r = await JOBS[job](db, opts, budget);
+    const disabled = [...new Set(budget.disabledRequests.slice(disabledBefore))];
+    if (disabled.length) r.summary += `；${disabled.join("；")}`;
     const dataIssues = budget.dataIssues.slice(issuesBefore);
     const status = dataIssues.length && r.status === "ok" ? "partial" as const : r.status;
     const summary = r.summary + (dataIssues.length ? `；${dataIssues.length} 筆日線同日兩筆不同收盤、未採用：${dataIssues.slice(0, 3).join("；")}${dataIssues.length > 3 ? "…" : ""}` : "");
@@ -822,6 +827,7 @@ export const MAX_NEW_TRACKED_PER_DAY = 5;
  * 全站追蹤的公司數到 MAX_TRACKED 時，只能加別人已經在追蹤的公司。
  */
 export async function addWatchSymbol(db: D1Database, input: string, budget = new Budget(SUBREQUEST_BUDGET), listKey = WATCHLIST_KEY): Promise<WatchChange> {
+  await applySourceSwitches(db, budget);
   const list = await loadWatchlist(db, listKey);
   const { holdings } = await latestHoldings(db);
   const res = addToWatchlist(list, input, holdings);

@@ -9,7 +9,7 @@ description: 抽查市場觀測室的 AI 摘要、翻譯與文章重點，逐句
 
 ## 1. 固定抽樣，先記覆蓋
 
-確認使用者要查的年月。在 repo 的 `web/` 跑下列唯讀腳本（入口：`web/scripts/ai-audit-sample.ts`），`--out` 指向批次目錄以外、已存在的暫存目錄：
+確認使用者要查的年月。在 repo 的 `web/` 跑下列唯讀腳本（入口：`web/scripts/ai-audit-sample.ts`），`--out` 指向檔案路徑，放在批次目錄以外、已存在的暫存目錄底下：
 
 ```sh
 node scripts/ai-audit-sample.ts --month <YYYY-MM> --out <檔>
@@ -63,7 +63,9 @@ missing、rejected、unavailable 與使用者回報一律另列「問題案例�
 
 對已確認錯誤，先讀 `web/docs/news-ai-eval.md` 的**現行狀態與案例格式**。若仍為草案／未凍結就照實註記，不宣稱正式閘門已生效。依該格式在 `web/evals/news-ai/dev/` 一檔一案寫回歸案例草稿：使用虛構公司與合成新聞，保留失敗樣態，例如盤後同日消息被寫成收盤原因。不得抄新聞原文或真實公司原句；報告用定位連回問題案例，案例本身使用合成輸入。
 
-案例的 id、task、group（company／event／article）、tags、input、gold.requiredFacts 與 gold.forbidden 依該文件；translate 的 gold.focus 及各 task 輸入型別也跟隨現行規格，不在此另定格式。以合成的失敗答案依文件的 dev 流程確認能重現失敗，保存結果；這不是重新生成正式內容。只寫 dev，不讀寫 `web/evals/news-ai/holdout/` 或 `web/evals/news-ai/holdout.lock.json` 來調案例。交付具體案例 diff 與驗證結果後，取得使用者同意才 commit 回填檔；沒有同意就保留草稿並註明。
+案例的 id、task、group（company／event／article）、tags、input、gold.requiredFacts 與 gold.forbidden 依該文件；translate 的 gold.focus 及各 task 輸入型別也跟隨現行規格，不在此另定格式。同步在 `web/evals/news-ai/dev/answers-good.json`／`web/evals/news-ai/dev/answers-bad.json` 補齊新 id 的合成正反例，更新 `web/tests/news-ai-eval.test.ts` 的案例數量斷言（含 prepare 任務數與有阻擋案例數）及 `expected` 阻擋種類對照；commit 前在 `web/` 跑 `node --test tests/news-ai-eval.test.ts`。
+
+依文件的 dev 流程分別 score 合成正反例，保存報告中該案例的 `blockers`：正例應為空陣列，反例須命中 `gold.forbidden` 對應的 `kind`／`detail`；不能只以 exit 1 判定重現，缺人工逐句／必要事實標註也會 exit 1。這不是重新生成正式內容。只寫 dev，不讀寫 `web/evals/news-ai/holdout/` 或 `web/evals/news-ai/holdout.lock.json` 來調案例。交付具體案例 diff 與驗證結果後，取得使用者同意才 commit 回填檔；沒有同意就保留草稿並註明。
 
 要求降低「原因不明」比例時，拒絕訂理想比例或把抽到「原因不明」扣分；有無出處才是判準。若要改提示詞或模型，轉到 `web/docs/news-ai-eval.md` 的離線評估流程，月抽查到報告與案例草稿為止，不順手修改。
 

@@ -8,6 +8,15 @@ VERIFY_ROOT="${MO_VERIFY_ROOT:-$HOME/.cache/mo-verify}"
 die() { echo "✗ $*" >&2; exit 1; }
 ok() { echo "✓ $*"; }
 
+# simulator_name <device>: the two reusable devices allowed by AGENTS.md.
+simulator_name() {
+  case "${1:-}" in
+    16-plus) echo "MO iPhone 16 Plus" ;;
+    18-pro-max) echo "MO iPhone 18 Pro Max" ;;
+    *) die "機型必填，只能選 16-plus 或 18-pro-max" ;;
+  esac
+}
+
 # run_dir <run-id>：回傳這次驗證的目錄（不存在就 die）。
 run_dir() {
   [ -n "${1:-}" ] || die "要給 run-id（web-up.sh 建立時印出的那個）"

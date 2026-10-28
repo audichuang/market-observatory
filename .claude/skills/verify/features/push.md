@@ -19,7 +19,7 @@ App 登入後註冊 APNs；每個帳號可以設定每日收盤摘要、名單�
 
 Preconditions:
 
-- 「MO Verify <run-id>」模擬器上 App 已登入測試帳號（跑過 walkthrough）。
+- 本輪 `ios-up.sh` 開的 MO 機上 App 已登入測試帳號（跑過 walkthrough）。
 
 - **裝置衛生。** 本機測試跑 `cd web && node --test tests/devices.test.ts tests/push.test.ts tests/push-route.test.ts`，涵蓋重新註冊、換帳號／環境、成功清錯、APNs reason 分類、第 11 台淘汰，以及 POST 測試推播送達成功清除上次失敗（與排程共用相同 SQL）。真實 APNs 驗收需 TestFlight 實機：推播設定按「測試推播」，成功後「上次失敗」清空；模擬器僅驗呈現與點開導向。
 - **設定頁。** walkthrough 的 `09-push.png`、`09b-push-more.png`。改偏好跑 `ios-test.sh … VerifyInteractionTests/test07_PushPrefs`：關「每日收盤摘要」、門檻按兩次＋變 ±6.0%，離開再進來寫 `F8-reopen.txt`，再改回寫 `F8-restored.txt`。在改回之前要讀 API 的話，另用網頁的 `page.fetch("/api/v1/push")`（同一個測試帳號）比 `prefs`。

@@ -3,15 +3,18 @@
 #   ios-test.sh <run-id> <email> <密碼檔> <Class/testName>[,<Class/testName>…]
 # 例：ios-test.sh proof4 verify-proof4@example.test "$RUN/user.pw" VerifyInteractionTests/test04_Watchlist
 # 先增量 build-for-testing（改過測試檔也會帶進去），再跑。帳號要先在本機站註冊好。
-# 截圖、*.txt 與 xcresult 寫到 $RUN/evidence/ios/。
+# Screenshots, *.txt and xcresult go to $RUN/evidence/ios/<device>/.
 source "$(dirname "$0")/lib.sh"
 RUN="$(run_dir "${1:-}")"
 source "$RUN/state.env"
 EMAIL="${2:?要給 email}"
 PWFILE="${3:?要給密碼檔（不把密碼放在 argv）}"
 TESTS="${4:?要給 Class/testName}"
-UDID=$(cat "$RUN/sim.udid" 2>/dev/null) || die "先跑 ios-up.sh"
-OUT="$RUN/evidence/ios"
+UDID=$(cat "$RUN/sim.udid" 2>/dev/null) || die "先跑 ios-up.sh <run-id> <機型>"
+DEVICE=$(cat "$RUN/sim.device" 2>/dev/null) || die "先跑 ios-up.sh <run-id> <機型>"
+[ -n "$UDID" ] && [ -n "$DEVICE" ] || die "先跑 ios-up.sh <run-id> <機型>"
+simulator_name "$DEVICE" >/dev/null
+OUT="$RUN/evidence/ios/$DEVICE"
 mkdir -p "$OUT"
 NAME="$(echo "$TESTS" | tr '/,' '__')"
 # 一次跑多個 test 時名字會超過檔名上限（255 bytes）：改用前 60 字＋雜湊。

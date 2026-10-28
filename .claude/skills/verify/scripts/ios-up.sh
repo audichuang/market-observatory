@@ -1,17 +1,31 @@
 #!/usr/bin/env bash
-# 建一台這次驗證專用的模擬器、開機、build-for-testing。不碰別人已開著的模擬器。
-#   ios-up.sh <run-id>
-# 產物：$RUN/sim.udid、$RUN/dd（DerivedData，down.sh 會刪）。
+# Boot an existing MO device and build-for-testing; leave other runs' devices alone.
+#   ios-up.sh <run-id> <16-plus|18-pro-max>
+# Outputs: $RUN/sim.udid, $RUN/sim.device, $RUN/dd (DerivedData, removed by down.sh).
 source "$(dirname "$0")/lib.sh"
+DEVICE="${2:-}"
+DEVICE_NAME="$(simulator_name "$DEVICE")"
 RUN="$(run_dir "${1:-}")"
 source "$RUN/state.env"
-[ -f "$RUN/sim.udid" ] && die "這個 run 已經有模擬器 $(cat "$RUN/sim.udid")"
 
-# iPhone 18 Pro 只配 iOS 27.0 的 runtime（配 27.1 會報 Incompatible device）。
-UDID=$(xcrun simctl create "MO Verify $RUN_ID" com.apple.CoreSimulator.SimDeviceType.iPhone-18-Pro com.apple.CoreSimulator.SimRuntime.iOS-27-0)
+DEVICES=$(xcrun simctl list devices -j)
+MATCHES=$(/usr/bin/jq -c --arg name "$DEVICE_NAME" \
+  '[.devices[][] | select(.name == $name and .isAvailable == true)]' <<<"$DEVICES")
+COUNT=$(/usr/bin/jq 'length' <<<"$MATCHES")
+[ "$COUNT" -eq 1 ] || die "${DEVICE_NAME} 可用裝置有 ${COUNT} 台，必須恰好一台；依 AGENTS.md 不新增模擬器，請使用者處理"
+UDID=$(/usr/bin/jq -r '.[0].udid' <<<"$MATCHES")
+CURRENT_UDID=""
+if [ -f "$RUN/sim.udid" ]; then CURRENT_UDID=$(cat "$RUN/sim.udid"); fi
+BOOTED_MO=$(/usr/bin/jq -r --arg current "$CURRENT_UDID" \
+  '.devices[][] | select((.name | startswith("MO ")) and .state == "Booted" and .udid != $current) | "\(.name) (\(.udid))"' <<<"$DEVICES")
+[ -z "$BOOTED_MO" ] || die "${BOOTED_MO} 已開機，可能有別的驗證在用；確認後 xcrun simctl shutdown <UDID> 再重跑"
+if [ -n "$CURRENT_UDID" ] && [ "$CURRENT_UDID" != "$UDID" ]; then
+  xcrun simctl shutdown "$CURRENT_UDID"
+fi
+xcrun simctl bootstatus "$UDID" -b
 echo "$UDID" >"$RUN/sim.udid"
-xcrun simctl boot "$UDID"
-ok "模擬器 ${UDID}（MO Verify ${RUN_ID}）"
+echo "$DEVICE" >"$RUN/sim.device"
+ok "模擬器 ${UDID}（${DEVICE_NAME}）"
 
 cd "$REPO/ios"
 xcodegen generate >/dev/null

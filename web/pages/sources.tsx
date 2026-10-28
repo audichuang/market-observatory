@@ -44,7 +44,13 @@ const DATA_NOTES = [
   "投行策略師年底目標表是人工維護的背景資訊，不進方向預測模型：標「已核對原文」的列對過機構官方原文，其餘取自媒體報導。",
 ];
 
-export default function SourcesPage({ expected, freshness, mismatches, runs, weights, weightsStale, counts, jobs, tolerance, calendar, links }: Props) {
+const REGISTRY_RIGHTS = [
+  ["automatedAcquisition", "自動取得"], ["storage", "保存"], ["publicDisplay", "公開顯示"],
+  ["derivation", "衍生計算"], ["aiProcessing", "AI 處理"],
+] as const;
+const RUNTIME_LABEL = { worker: "Worker", local: "本機", manual: "人工", static: "程式內建" };
+
+export default function SourcesPage({ expected, freshness, mismatches, runs, weights, weightsStale, counts, jobs, tolerance, calendar, links, registry }: Props) {
   const router = useRouter();
   const { isOwner } = useShared();
   const [busy, setBusy] = useState<string | null>(null);
@@ -156,6 +162,53 @@ export default function SourcesPage({ expected, freshness, mismatches, runs, wei
           </table>
         </div>
       </div>
+
+      {isOwner && <div className="panel section">
+        <h2>來源授權清冊（站長）</h2>
+        <p className="sub">這份清冊整理的是條款文字與本站用途的落差，不是法律意見；列在這裡不代表已取得授權。</p>
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>來源</th><th>用在哪</th>{REGISTRY_RIGHTS.map(([key, title]) => <th key={key}>{title}</th>)}<th>條款（版本日／查閱日）</th></tr></thead>
+            <tbody>
+              {registry.map((source) => (
+                <tr key={source.id}>
+                  <td style={{ minWidth: "10rem" }}>
+                    <strong>{source.name}</strong>
+                    <div className="meta">{source.id}</div>
+                    <div className="meta">{RUNTIME_LABEL[source.runtime]}</div>
+                  </td>
+                  <td style={{ minWidth: "22rem" }}>
+                    <div className="meta">工作：{source.jobs.join("、")}</div>
+                    <div className="meta">畫面：{source.screens.join("、")}</div>
+                    <div className="meta" style={{ marginTop: ".5rem" }}>取得欄位：</div>
+                    {source.fields.map((field) => <div key={field.name} className="meta"><strong>{field.name}</strong>：{field.usage}</div>)}
+                    <div className="meta" style={{ marginTop: ".5rem" }}>停用影響：{source.disableImpact}</div>
+                    {source.notes.map((note) => <p key={note} className="meta">{note}</p>)}
+                  </td>
+                  {REGISTRY_RIGHTS.map(([key]) => (
+                    <td key={key} style={{ minWidth: "10rem" }}>
+                      <strong>{source.rights[key].status}</strong>
+                      <div className="meta">{source.rights[key].basis}</div>
+                    </td>
+                  ))}
+                  <td style={{ minWidth: "16rem" }}>
+                    {source.terms.map((term) => <div key={term.name} style={{ marginBottom: ".5rem" }}>
+                      {term.url ? <a href={term.url} target="_blank" rel="noreferrer">{term.name}</a> : <span>{term.name}；條款網址未查</span>}
+                      <div className="meta">版本日：{term.versionDate ?? "未核實"}</div>
+                      <div className="meta">{term.versionNote}</div>
+                    </div>)}
+                    <div className="meta">本站查閱日：{source.reviewedOn}</div>
+                    <details className="meta" style={{ marginTop: ".5rem" }}>
+                      <summary>依據文件</summary>
+                      {source.evidence.map((doc) => <div key={doc} style={{ overflowWrap: "anywhere" }}>{doc}</div>)}
+                    </details>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>}
 
       {mismatches.length > 0 && (
         <div className="panel section">

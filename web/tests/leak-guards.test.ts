@@ -20,7 +20,9 @@ test("資料來源頁的 loader 不送 detail、不含 email，trigger 只剩 cr
   ins.run("prices", "manual-cron owner@example.com", "ok", "2026-10-26T01:00:00Z", "2026-10-26T01:01:00Z", "完成", detail);
   ins.run("prices", "cron 0 21 * * 1-5", "ok", "2026-10-26T02:00:00Z", "2026-10-26T02:01:00Z", "完成", detail);
   const { loader } = await import("../pages/sources.server.ts");
-  const out = (await (loader as unknown as (c: unknown) => Promise<{ runs: Record<string, unknown>[] }>)({ env: { DB: db } }));
+  const out = (await (loader as unknown as (c: unknown) => Promise<{ runs: Record<string, unknown>[]; registry: Record<string, unknown>[] }>)({ env: { DB: db } }));
+  assert.equal(out.registry.length, 14);
+  assert.ok(out.registry.every((source) => !("patterns" in source)), "清冊不送 RegExp");
   assert.equal(out.runs.length, 3);
   for (const r of out.runs) assert.ok(!("detail" in r), JSON.stringify(r));
   assert.deepEqual(out.runs.map((r) => r.trigger), ["cron", "manual", "manual"]);

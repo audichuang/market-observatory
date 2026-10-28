@@ -374,7 +374,7 @@ async function jobBackfillChecks(db: D1Database, opts: JobOptions, budget: Budge
  * Upsert one article under one symbol. Symbol membership is matched with comma delimiters on both sides,
  * so a substring (MS inside 'SPY,MSFT') does not count as already attached.
  */
-export const NEWS_UPSERT_SQL = `INSERT INTO news (id, symbols, title, url, publisher, published_at, source, fetched_at, summary, primary_symbol) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+export const NEWS_UPSERT_SQL = `INSERT INTO news (id, symbols, title, url, publisher, published_at, source, fetched_at, summary, primary_symbol, published_ago) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET symbols = CASE WHEN instr(',' || news.symbols || ',', ',' || excluded.symbols || ',') > 0 THEN news.symbols ELSE news.symbols || ',' || excluded.symbols END,
        summary = COALESCE(news.summary, excluded.summary), primary_symbol = COALESCE(news.primary_symbol, excluded.primary_symbol),
        -- A newly attached symbol: the AI must re-judge who the article is about
@@ -385,14 +385,17 @@ async function jobNews(db: D1Database, _opts: JobOptions, budget: Budget): Promi
   const all = ["SPY", ...(await loadTrackedMembers(db)).map((m) => m.key)];
   const symbols = all.slice(0, Math.max(0, budget.remaining - RETRY_RESERVE));
   const skipped = all.slice(symbols.length);
-  const results = await mapLimit(symbols, 3, (s) => fetchNasdaqNews(s, 8, budget));
+  const results = await mapLimit(symbols, 3, async (s) => {
+    const news = await fetchNasdaqNews(s, 8, budget);
+    return { news, fetchedAt: nowIso() };
+  });
   const stmt = db.prepare(NEWS_UPSERT_SQL);
   const stmts: D1PreparedStatement[] = [];
   const failed: string[] = [];
   const fetchedAt = nowIso();
   results.forEach((r, i) => {
     if (r.status === "rejected") return failed.push(`${symbols[i]}: ${errText(r.reason)}`);
-    for (const n of r.value) stmts.push(stmt.bind(n.id, symbols[i], n.title, n.url, n.publisher, n.publishedAt, NASDAQ_SOURCE, fetchedAt, n.summary, n.primarySymbol));
+    for (const n of r.value.news) stmts.push(stmt.bind(n.id, symbols[i], n.title, n.url, n.publisher, n.publishedAt, NASDAQ_SOURCE, r.value.fetchedAt, n.summary, n.primarySymbol, n.publishedAgo));
   });
   for (let i = 0; i < stmts.length; i += 100) await db.batch(stmts.slice(i, i + 100));
   // 只保留 120 天，避免表無限長大。

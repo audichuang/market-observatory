@@ -186,6 +186,22 @@ test("十進位半值必須正確四捨五入；B／M／億萬可等值換算", 
   assert.deepEqual(checkAnswer(c, { points: ["每股盈餘 $1.01，營收 12.5億美元，利潤率 -1.01%。"], tone: "neutral" }).blockers, []);
 });
 
+test("兆瓦／兆赫／兆位元不應被當成兆級數值而誤擋", () => {
+  const c = numericCase();
+  assert.ok(c.task === "points");
+  const cases = [
+    { source: "Capacity is 500 MW.", answer: "容量為 500 兆瓦。" },
+    { source: "Capacity is 1,200 megawatts.", answer: "容量為 1,200 兆瓦。" },
+    { source: "Frequency is 800 MHz.", answer: "頻率為 800 兆赫。" },
+    { source: "Capacity is 900 megabits.", answer: "容量為 900 兆位元。" },
+    { source: "Capacity is 500 MW.", answer: "容量為 500 MW。" },
+  ];
+  assert.deepEqual(cases.map(({ source, answer }) => {
+    c.input.body = source;
+    return { source, blockers: checkAnswer(c, { points: [answer], tone: "neutral" }).blockers };
+  }), cases.map(({ source }) => ({ source, blockers: [] })));
+});
+
 test("兆／trillion 市值可與億等值換算，仍須保留貨幣維度", () => {
   const c = numericCase();
   assert.ok(c.task === "points");
@@ -200,6 +216,32 @@ test("兆／trillion 市值可與億等值換算，仍須保留貨幣維度", ()
   assert.ok(check("市值達 7.7 兆美元。").some((b) => b.kind === "number"));
   c.input.body = "合成公司市值達 4.5 兆美元。";
   assert.deepEqual(check("市值達 $4.5 trillion。"), []);
+});
+
+test("T／tn 市值縮寫可與兆美元雙向換算，整數與小數皆不誤擋", () => {
+  const c = numericCase();
+  assert.ok(c.task === "points");
+  const cases = [
+    { source: "$5T", answer: "市值達 5 兆美元。" },
+    { source: "$5tn", answer: "市值達 5 兆美元。" },
+    { source: "$5t", answer: "市值達 5 兆美元。" },
+    { source: "$5TN", answer: "市值達 5 兆美元。" },
+    { source: "$4.5T", answer: "市值達 4.5 兆美元。" },
+    { source: "$4.5tn", answer: "市值達 4.5 兆美元。" },
+    { source: "$5 trillion", answer: "市值達 5 兆美元。" },
+    { source: "$5B", answer: "市值達 50 億美元。" },
+  ];
+  assert.deepEqual(cases.map(({ source, answer }) => {
+    c.input.body = source;
+    const forward = checkAnswer(c, { points: [answer], tone: "neutral" }).blockers;
+    c.input.body = answer;
+    const reverse = checkAnswer(c, { points: [source], tone: "neutral" }).blockers;
+    return { source, forward, reverse };
+  }), cases.map(({ source }) => ({ source, forward: [], reverse: [] })));
+  c.input.body = "Market cap reached $5 trillion; capacity reached 5 trillion.";
+  for (const answer of ["99T", "99tn", "$99T", "$99tn", "$5B"]) {
+    assert.ok(checkAnswer(c, { points: [answer], tone: "neutral" }).blockers.some((b) => b.kind === "number"), answer);
+  }
 });
 
 test("整數兆／trillion 必須核對來源，錯誤數值不能漏擋", () => {

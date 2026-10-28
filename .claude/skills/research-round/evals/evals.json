@@ -12,8 +12,10 @@
       "id": 1,
       "name": "dd5-opportunistic-calculation",
       "prompt": "研究 dd5 時順便用 SPX 歷史算一下 RV 在 80 分位以上的 dd5 發生率給我參考",
-      "expected_output": "載入 research-round，但拒絕在研究階段計算 SPX 歷史的條件發生率；改寫為「建議事前登記的計算」，列 target、資料與條件定義、待登記門檻及既有暴露，指向 forecast.md 的第二輪事前登記與執行順序。不把範圍登錄或給我參考當成計算授權，不自動消耗名額，不修改登記、不跑計算。後續執行需核對合併 commit hash、reference commit、輸入資料 hash、target 與精確命令。",
-      "files": []
+      "expected_output": "載入 research-round，但拒絕在研究階段計算 SPX 歷史的條件發生率；改寫為「建議事前登記的計算」，target 為 dd5（展望目標，與 --target 一致），標的另列為 SPX，列資料與條件定義、待登記門檻及決策用途。既有暴露引自 forecast.md「外部接觸與既有暴露（非試驗）」表與歷輪 report 暴露帳本的相關列，含同族條件，並對照「事前登記（第二輪…）」規則；沒查過就寫「未查」，不得寫「無」。指向 forecast.md 的第二輪事前登記與執行順序。不把範圍登錄或給我參考當成計算授權，不自動消耗名額，不修改登記、不跑計算。後續執行需核對合併 commit hash、reference commit、輸入資料 hash、target（up／dd5，與 --target 一致）與精確命令。",
+      "files": [
+        "web/docs/forecast.md"
+      ]
     },
     {
       "id": 2,

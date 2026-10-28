@@ -1,12 +1,14 @@
 // 新聞 AI 排程（src/server/ai-batch.ts）：待辦只給還沒做的、答案驗證後寫進 D1、格式不對的略過，大盤那段存成 SPX。
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { Hono } from "hono";
+import { POST } from "../routes/api/admin/ai.ts";
 import { easternDate } from "../src/lib/calendar.ts";
 import { Series } from "../src/lib/analytics.ts";
 import { buildSnapshot } from "../src/lib/snapshot.ts";
 import { DEFAULT_WATCHLIST } from "../src/lib/universe.ts";
 import { marketPrompt } from "../src/lib/news-ai.ts";
-import { MARKET_KEY, dailyWork, importResults, translateWork } from "../src/server/ai-batch.ts";
+import { type ImportReceipt, MARKET_KEY, dailyWork, importResults, translateWork } from "../src/server/ai-batch.ts";
 import { saveSnapshots } from "../src/server/repo.ts";
 import { migratedDb } from "./helpers/fake-cloudflare.ts";
 
@@ -32,6 +34,155 @@ async function seeded() {
 
 const translated = (n: number, zh: string, focus: string[], category = "財報") => ({ n, title_zh: zh, tone: "negative", category, focus });
 
+async function adminApi() {
+  const { db, sql } = await seeded();
+  const app = new Hono<{ Bindings: { DB: D1Database; OWNER_EMAIL: string }; Variables: { user: { id: string; email: string } } }>();
+  app.use("*", async (c, next) => {
+    c.set("user", { id: "test-user", email: c.req.header("x-test-user") ?? "owner@example.test" });
+    await next();
+  });
+  app.post("/api/admin/ai", POST as never);
+  const request = (body: unknown, email = "owner@example.test") => app.request("http://localhost/api/admin/ai", {
+    method: "POST", headers: { "content-type": "application/json", "x-test-user": email }, body: JSON.stringify(body),
+  }, { DB: db, OWNER_EMAIL: "owner@example.test" });
+  return { sql, request };
+}
+
+test("匯入回執：不存在的新聞不計入重點寫入數，逐筆列為拒收", async () => {
+  const { db } = await seeded();
+  const r = await importResults(db, { points: [{ id: "absent", answer: { points: ["x"], tone: "neutral" } }] });
+  assert.equal(r.points, 0);
+  assert.deepEqual(r.accepted, []);
+  assert.deepEqual(r.rejected, [{ key: "points:absent", reason: "新聞已不在資料庫，沒有寫入" }]);
+  assert.deepEqual(r.skipped, []);
+});
+
+test("匯入回執：翻譯三則只回答兩則，缺答的新聞逐筆列為拒收", async () => {
+  const { db, sql } = await seeded();
+  const r = await importResults(db, {
+    translate: [{ ids: ["n1", "n2", "n3"], answer: { items: [translated(1, "第一則", ["NVDA"]), translated(3, "第三則", ["SPY"])] } }],
+  });
+  assert.equal(r.translated, 2);
+  assert.deepEqual(r.accepted, ["translate:n1", "translate:n3"]);
+  assert.deepEqual(r.rejected, [{ key: "translate:n2", reason: "答案缺這則或格式不對" }]);
+  assert.deepEqual(r.skipped, [], "缺答維持舊版 skipped 的數量");
+  assert.equal((sql.prepare("SELECT title_zh FROM news WHERE id = 'n2'").get() as { title_zh: string | null }).title_zh, null);
+});
+
+test("批次紀錄：缺答與拒收寫成 partial，保存回執、正文不可得與 manifest", async () => {
+  const { db, sql } = await seeded();
+  const run = {
+    id: "daily-test", kind: "daily" as const,
+    expected: ["points:n1", "points:n2", "points:absent"], missing: ["points:n2"],
+    unavailable: [{ key: "points:n3", reason: "fetch-failed" }], manifest: { model: "sonnet" },
+  };
+  const r = await importResults(db, {
+    points: ["n1", "absent"].map((id) => ({ id, answer: { points: ["重點"], tone: "neutral" } })), run,
+  });
+  const rows = sql.prepare("SELECT * FROM runs").all() as { id: number; job: string; trigger: string; status: string; summary: string; detail: string; finished_at: string | null }[];
+  assert.equal(rows.length, 1);
+  const row = rows[0];
+  assert.deepEqual([row.job, row.trigger, row.status], ["ai-daily", "ai-batch", "partial"]);
+  assert.deepEqual(r.run, { id: row.id, status: "partial" });
+  assert.ok(row.finished_at);
+  assert.equal(row.summary, "預期 3、寫入 1、缺答案 1、拒收 1、正文取不到 1");
+  assert.deepEqual(JSON.parse(row.detail), {
+    runId: run.id, expected: run.expected, accepted: ["points:n1"], missing: run.missing,
+    rejected: [{ key: "points:absent", reason: "新聞已不在資料庫，沒有寫入" }], unavailable: run.unavailable, manifest: run.manifest,
+  });
+});
+
+test("管理 API：接受 optional run 並寫入紀錄，舊請求不建立紀錄，限站長執行", async () => {
+  const { sql, request } = await adminApi();
+  const legacy = await request({ points: [{ id: "n1", answer: { points: ["重點"], tone: "neutral" } }] });
+  assert.equal(legacy.status, 200);
+  const legacyBody = await legacy.json() as ImportReceipt;
+  assert.equal("run" in legacyBody, false);
+  assert.equal((sql.prepare("SELECT COUNT(*) AS n FROM runs").get() as { n: number }).n, 0);
+  const body = { run: { id: "translate-api", kind: "translate", expected: [], missing: [], unavailable: [] } };
+  const response = await request(body);
+  assert.equal(response.status, 200);
+  const receipt = await response.json() as ImportReceipt;
+  assert.deepEqual(receipt.run, { id: 1, status: "ok" });
+  assert.equal((sql.prepare("SELECT job FROM runs").get() as { job: string }).job, "ai-translate");
+  assert.equal((await request(body, "reader@example.test")).status, 403);
+  assert.equal((sql.prepare("SELECT COUNT(*) AS n FROM runs").get() as { n: number }).n, 1);
+});
+
+test("批次紀錄：manifest 以序列化後的 UTF-8 位元組數限制在 16 KB", async () => {
+  const { db, sql } = await seeded();
+  for (const [manifest, saved] of [["x".repeat(16 * 1024 - 2), "x".repeat(16 * 1024 - 2)], ["文".repeat(6000), { truncated: true }]] as const) {
+    const r = await importResults(db, { run: { id: "manifest-test", kind: "daily", expected: [], missing: [], unavailable: [], manifest } });
+    const row = sql.prepare("SELECT detail FROM runs WHERE id = ?").get(r.run!.id) as { detail: string };
+    assert.deepEqual(JSON.parse(row.detail).manifest, saved);
+  }
+});
+
+test("批次紀錄：完整寫入為 ok、部分缺答或拒收為 partial、預期非空卻零寫入為 failed", async (t) => {
+  const cases = [
+    { name: "全部寫入，正文不可得不影響狀態", ids: ["n1"], expected: ["points:n1"], missing: [], status: "ok" },
+    { name: "缺一筆答案", ids: ["n1"], expected: ["points:n1", "points:n2"], missing: ["points:n2"], status: "partial" },
+    { name: "部分拒收", ids: ["n1", "absent"], expected: ["points:n1", "points:absent"], missing: [], status: "partial" },
+    { name: "全部拒收", ids: ["absent"], expected: ["points:absent"], missing: [], status: "failed" },
+    { name: "全部缺答", ids: [], expected: ["points:n1"], missing: ["points:n1"], status: "failed" },
+  ];
+  for (const c of cases) await t.test(c.name, async () => {
+    const { db, sql } = await seeded();
+    const r = await importResults(db, {
+      points: c.ids.map((id) => ({ id, answer: { points: ["重點"], tone: "neutral" } })),
+      run: { id: "status-test", kind: "daily", expected: c.expected, missing: c.missing, unavailable: [{ key: "points:n3", reason: "fetch-failed" }] },
+    });
+    assert.equal(r.run?.status, c.status);
+    const row = sql.prepare("SELECT status, summary FROM runs").get() as { status: string; summary: string };
+    assert.equal(row.status, c.status);
+    assert.ok(row.summary.includes("正文取不到 1"));
+  });
+});
+
+test("翻譯回執：刪除的新聞維持答案序號，格式不對的答案逐筆拒收，skipped 訊息不變", async () => {
+  const { db, sql } = await seeded();
+  const r = await importResults(db, { translate: [{ ids: ["absent", "n1", "n2"], answer: { items: [translated(1, "已刪除", []), translated(2, "第一則", ["NVDA"]), translated(3, "", [])] } }] });
+  assert.equal(r.translated, 1);
+  assert.deepEqual(r.accepted, ["translate:n1"]);
+  assert.deepEqual(r.rejected, [
+    { key: "translate:absent", reason: "新聞已不在資料庫，沒有寫入" },
+    { key: "translate:n2", reason: "答案缺這則或格式不對" },
+  ]);
+  assert.deepEqual(r.skipped, ["翻譯：有 1 則已不在資料庫"]);
+  assert.equal((sql.prepare("SELECT title_zh FROM news WHERE id = 'n1'").get() as { title_zh: string }).title_zh, "第一則");
+});
+
+test("每日重點回執：新增與覆寫都依 D1 實際命中計一筆", async () => {
+  const { db, sql } = await seeded();
+  for (const summary of ["首次寫入公司摘要", "更新後的公司摘要"]) {
+    const r = await importResults(db, { digests: [{ key: "NVDA", date: D2, newsIds: ["n1"], answer: { summary, tone: "neutral" } }] });
+    assert.equal(r.digests, 1);
+    assert.deepEqual(r.accepted, [`digest:NVDA:${D2}`]);
+    assert.deepEqual(r.rejected, []);
+    assert.equal((sql.prepare("SELECT summary FROM news_digests").get() as { summary: string }).summary, summary);
+  }
+});
+
+test("管理 API：驗證 run 的種類、型別與長度上限，超限不寫入", async () => {
+  const { sql, request } = await adminApi();
+  const run = { id: "limit-test", kind: "daily", expected: [], missing: [], unavailable: [] };
+  for (const patch of [
+    { id: "x".repeat(65) }, { kind: "weekly" }, { expected: Array(501).fill("points:n1") },
+    { missing: Array(501).fill("points:n1") }, { unavailable: Array(101).fill({ key: "points:n1", reason: "fetch-failed" }) },
+    { expected: [1] }, { missing: [1] }, { unavailable: [{ key: "points:n1", reason: 1 }] },
+  ]) {
+    assert.equal((await request({ run: { ...run, ...patch } })).status, 400);
+  }
+  assert.equal((sql.prepare("SELECT COUNT(*) AS n FROM runs").get() as { n: number }).n, 0);
+  const atLimit = await request({ run: {
+    ...run, id: "x".repeat(64), expected: Array(500).fill("points:n1"), missing: Array(500).fill("points:n1"),
+    unavailable: Array(100).fill({ key: "points:n3", reason: "fetch-failed" }), manifest: { model: "sonnet" },
+  } });
+  assert.equal(atLimit.status, 200);
+  assert.equal((await atLimit.json() as ImportReceipt).run?.status, "failed");
+  assert.equal(JSON.parse((sql.prepare("SELECT detail FROM runs").get() as { detail: string }).detail).manifest.model, "sonnet");
+});
+
 test("翻譯：只給最近還沒翻的；答案依序號寫回，格式不對的那組略過", async () => {
   const { db, sql } = await seeded();
   const work = await translateWork(db, "2026-10-25");
@@ -41,6 +192,7 @@ test("翻譯：只給最近還沒翻的；答案依序號寫回，格式不對�
   const r = await importResults(db, { translate: [{ ids, answer }, { ids: ["n1"], answer: "胡言亂語" }] });
   assert.equal(r.translated, 3);
   assert.equal(r.skipped.length, 1);
+  assert.deepEqual(r.rejected, [{ key: "translate:n1", reason: "答案缺這則或格式不對" }]);
   assert.equal((sql.prepare("SELECT title_zh, focus FROM news WHERE id = 'n3'").get() as { title_zh: string; focus: string }).focus, "SPY");
   assert.deepEqual(await translateWork(db, "2026-10-25"), [], "翻過的不再給");
 });
@@ -73,6 +225,8 @@ test("每日：重點只給 AI 判定重要的；公司重點與大盤各一份�
     ],
   });
   assert.deepEqual([r.points, r.digests, r.skipped.length], [1, 2, 2]);
+  assert.deepEqual(r.accepted, ["points:n1", `digest:NVDA:${D2}`, `digest:SPX:${D2}`]);
+  assert.deepEqual(r.rejected, [{ key: "points:n3", reason: "格式不對" }, { key: "digest:AAPL:昨天", reason: "格式不對" }]);
   assert.equal((sql.prepare("SELECT points_zh FROM news WHERE id = 'n1'").get() as { points_zh: string }).points_zh, '["營收創新高"]');
   assert.equal((sql.prepare("SELECT model FROM news_digests WHERE symbol = 'SPX'").get() as { model: string }).model, "claude-test");
   work = await dailyWork(db, today);

@@ -3,7 +3,7 @@
 // 這裡不呼叫任何模型，也不打外部請求；只讀寫 D1。
 import { addDays } from "../lib/calendar.ts";
 import { type EnrichInput, isImportant, newsFingerprint, parseDigest, parseEnrich, parsePoints } from "../lib/news-ai.ts";
-import { type Db, getSnapshot, nowIso } from "./repo.ts";
+import { type Db, finishRun, getSnapshot, nowIso, startRun } from "./repo.ts";
 import { loadTrackedMembers } from "./watchlist.ts";
 
 /** 大盤那段存在 news_digests，代號用 SPX（名單公司不會用這個代號）。 */
@@ -134,15 +134,36 @@ export interface ImportBody {
   points?: { id: string; answer: unknown }[];
   digests?: { key: string; date: string; newsIds: string[]; answer: unknown }[];
   model?: string;
+  run?: {
+    id: string;
+    kind: "translate" | "daily";
+    expected: string[];
+    missing: string[];
+    unavailable: { key: string; reason: string }[];
+    manifest?: unknown;
+  };
 }
 
-/** 驗證 agent 的答案並寫進 D1；格式不對的那筆略過（下次排程再給一次）。回傳各類寫入與略過的筆數。 */
-export async function importResults(db: Db, body: ImportBody) {
+export interface ImportReceipt {
+  translated: number;
+  points: number;
+  digests: number;
+  skipped: string[];
+  accepted: string[];
+  rejected: { key: string; reason: string }[];
+  run?: { id: number; status: "ok" | "partial" | "failed" };
+}
+
+/** 驗證 agent 的答案並寫進 D1；回傳實際寫入數與逐筆回執，保留舊版略過訊息。 */
+export async function importResults(db: Db, body: ImportBody): Promise<ImportReceipt> {
   const now = nowIso();
   const model = (body.model ?? "claude").slice(0, 60);
-  const stmts: D1PreparedStatement[] = [];
+  const runId = body.run ? await startRun(db, `ai-${body.run.kind}`, "ai-batch") : null;
+  const writes: { stmt: D1PreparedStatement; kind: "translated" | "points" | "digests"; key: string }[] = [];
   const skipped: string[] = [];
-  let translated = 0;
+  const accepted: string[] = [];
+  const rejected: { key: string; reason: string }[] = [];
+  const counts = { translated: 0, points: 0, digests: 0 };
 
   for (const t of body.translate ?? []) {
     const ids = [...new Set(t.ids)].slice(0, 20);
@@ -155,30 +176,31 @@ export async function importResults(db: Db, body: ImportBody) {
     }
     // 被刪掉的那則留在原位、標成不存在：答案的 n 對的是 agent 拿到的序號
     const inputs = ids.map((id) => (byId.has(id) ? toInput(byId.get(id)!) : { id, title: "", summary: null, symbols: [], primarySymbol: null }));
-    let parsed;
+    let parsed: ReturnType<typeof parseEnrich> = [];
     try {
       parsed = parseEnrich(t.answer, inputs).filter((e) => byId.has(e.id));
     } catch (e) {
       skipped.push(`翻譯：${e instanceof Error ? e.message : String(e)}`);
-      continue;
+    }
+    const answered = new Set(parsed.map((e) => e.id));
+    for (const id of ids) {
+      if (!byId.has(id)) rejected.push({ key: `translate:${id}`, reason: "新聞已不在資料庫，沒有寫入" });
+      else if (!answered.has(id)) rejected.push({ key: `translate:${id}`, reason: "答案缺這則或格式不對" });
     }
     const update = db.prepare("UPDATE news SET title_zh = ?, tone = ?, category = ?, focus = ?, enriched_at = ? WHERE id = ?");
-    for (const e of parsed) stmts.push(update.bind(e.titleZh, e.tone, e.category, e.focus.join(","), now, e.id));
-    translated += parsed.length;
+    for (const e of parsed) writes.push({ stmt: update.bind(e.titleZh, e.tone, e.category, e.focus.join(","), now, e.id), kind: "translated", key: `translate:${e.id}` });
   }
 
-  let points = 0;
   for (const p of body.points ?? []) {
     const out = parsePoints(p.answer);
     if (!out) {
       skipped.push(`重點 ${p.id}：格式不對`);
+      rejected.push({ key: `points:${p.id}`, reason: "格式不對" });
       continue;
     }
-    stmts.push(db.prepare("UPDATE news SET points_zh = ?, tone = COALESCE(tone, ?) WHERE id = ?").bind(JSON.stringify(out.points), out.tone, p.id));
-    points++;
+    writes.push({ stmt: db.prepare("UPDATE news SET points_zh = ?, tone = COALESCE(tone, ?) WHERE id = ?").bind(JSON.stringify(out.points), out.tone, p.id), kind: "points", key: `points:${p.id}` });
   }
 
-  let digests = 0;
   const insert = db.prepare(
     `INSERT INTO news_digests (symbol, date, summary, tone, news_ids, digest, model, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(symbol, date) DO UPDATE SET summary = excluded.summary, tone = excluded.tone, news_ids = excluded.news_ids, digest = excluded.digest, model = excluded.model, created_at = excluded.created_at`,
@@ -192,12 +214,29 @@ export async function importResults(db: Db, body: ImportBody) {
     }
     if (!out || !/^\d{4}-\d{2}-\d{2}$/.test(d.date) || !d.key) {
       skipped.push(`每日重點 ${d.key}：格式不對`);
+      rejected.push({ key: `digest:${d.key}:${d.date}`, reason: "格式不對" });
       continue;
     }
-    stmts.push(insert.bind(d.key, d.date, out.summary, out.tone, d.newsIds.join(","), newsFingerprint(d.newsIds), model, now));
-    digests++;
+    writes.push({ stmt: insert.bind(d.key, d.date, out.summary, out.tone, d.newsIds.join(","), newsFingerprint(d.newsIds), model, now), kind: "digests", key: `digest:${d.key}:${d.date}` });
   }
 
-  if (stmts.length) await db.batch(stmts);
-  return { translated, points, digests, skipped };
+  if (writes.length) {
+    const results = await db.batch(writes.map((w) => w.stmt));
+    results.forEach((result, i) => {
+      const { kind, key } = writes[i];
+      counts[kind] += result.meta.changes;
+      if (result.meta.changes === 0) rejected.push({ key, reason: "新聞已不在資料庫，沒有寫入" });
+      else accepted.push(key);
+    });
+  }
+  const receipt = { ...counts, skipped, accepted, rejected };
+  if (body.run && runId !== null) {
+    const { id, expected, missing, unavailable, manifest } = body.run;
+    const storedManifest = manifest !== undefined && new TextEncoder().encode(JSON.stringify(manifest)).byteLength > 16 * 1024 ? { truncated: true } : manifest;
+    const status = expected.length > 0 && accepted.length === 0 ? "failed" : missing.length || rejected.length ? "partial" : "ok";
+    const summary = `預期 ${expected.length}、寫入 ${accepted.length}、缺答案 ${missing.length}、拒收 ${rejected.length}、正文取不到 ${unavailable.length}`;
+    await finishRun(db, runId, status, summary, { runId: id, expected, accepted, missing, rejected, unavailable, manifest: storedManifest });
+    return { ...receipt, run: { id: runId, status } };
+  }
+  return receipt;
 }

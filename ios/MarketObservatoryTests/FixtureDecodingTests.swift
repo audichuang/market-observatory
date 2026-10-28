@@ -23,6 +23,17 @@ struct FixtureDecodingTests {
     @Test func generatedEtfs() throws {
         let p = try decodeFixture("generated-etfs", as: Etfs.self)
         #expect(p.costScenario?.perBuy?.costPct != nil)
+        #expect(p.overlap?.exposure != nil)
+        let overlap = try #require(p.overlap)
+        #expect(overlap.proxy == "SPY" && overlap.applicable == true)
+        #expect(overlap.members?.first { $0.key == "GOOGL" }?.weightPct == 7.5)
+        #expect(overlap.totalWeight == 34 && overlap.top10CompanyWeight == 36)
+        #expect(overlap.inputs?.ovEtf == 300000 && overlap.inputs?.ov?["NVDA"] == 50000)
+        let nvda = try #require(overlap.exposure?.members?.first { $0.key == "NVDA" })
+        #expect(nvda.viaEtfTwd == 18000 && nvda.directTwd == 50000 && nvda.combinedTwd == 68000)
+        #expect(nvda.sharePct == 19.428571428571427)
+        #expect(overlap.exposure?.totalTwd == 350000 && overlap.exposure?.otherViaEtfTwd == 198000)
+        #expect(overlap.exposure?.watchlistSharePct == 43.42857142857143)
         #expect(p.funding == "monthly")
         #expect(p.dca != nil)
         #expect(p.dca?.firstBuyDate != nil)
@@ -132,6 +143,7 @@ struct FixtureDecodingTests {
     @Test func etfs() throws {
         let e = try decodeFixture("etfs", as: Etfs.self)
         #expect(e.costScenario == nil)
+        #expect(e.overlap == nil)
         #expect(e.funding == nil)
         #expect(e.dca?.firstBuyDate == nil)
         #expect(e.rows.allSatisfy { $0.facts == nil })
@@ -170,5 +182,26 @@ struct FixtureDecodingTests {
         #expect(scenario.promo?.expired == true)
         #expect(scenario.inputs?.costBasis == "index")
         #expect(scenario.inputs?.costTax == "other")
+    }
+
+    @Test func overlapAllowsIssueAndMissingFields() throws {
+        let empty = try API.decoder.decode(Overlap.self, from: Data("{}".utf8))
+        #expect(empty.members == nil && empty.exposure == nil && empty.notes == nil)
+        let partial = try API.decoder.decode(Overlap.self, from: Data(#"{"members":[{}],"exposure":{"members":[{}]},"inputs":{}}"#.utf8))
+        #expect(partial.members?.first?.key == nil && partial.members?.first?.weightPct == nil)
+        #expect(partial.exposure?.members?.first?.combinedTwd == nil)
+        #expect(partial.exposure?.totalTwd == nil && partial.exposure?.watchlistSharePct == nil)
+        #expect(partial.inputs?.ovEtf == nil && partial.inputs?.ov == nil)
+        let issue = try API.decoder.decode(Overlap.self, from: Data(#"{"issue":"金額要是 0 到 10 億台幣的整數"}"#.utf8))
+        #expect(issue.issue == "金額要是 0 到 10 億台幣的整數" && issue.exposure == nil)
+    }
+
+    @Test func overlapDecodesInapplicableAndUndefinedShares() throws {
+        let inapplicable = try API.decoder.decode(Overlap.self, from: Data(#"{"applicable":false,"exposure":null,"notes":["槓桿與反向 ETF 用衍生工具達成每日倍數，不適用持股重疊推估。"]}"#.utf8))
+        #expect(inapplicable.applicable == false && inapplicable.exposure == nil)
+        #expect(inapplicable.notes?.first == "槓桿與反向 ETF 用衍生工具達成每日倍數，不適用持股重疊推估。")
+        let zero = try API.decoder.decode(Overlap.self, from: Data(#"{"exposure":{"members":[{"key":"NVDA","viaEtfTwd":0,"directTwd":0,"combinedTwd":0,"sharePct":null}],"totalTwd":0,"watchlistSharePct":null,"otherViaEtfTwd":0}}"#.utf8))
+        #expect(zero.exposure?.totalTwd == 0 && zero.exposure?.watchlistSharePct == nil)
+        #expect(zero.exposure?.members?.first?.combinedTwd == 0 && zero.exposure?.members?.first?.sharePct == nil)
     }
 }

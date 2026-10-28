@@ -347,3 +347,157 @@ struct TaxChecklistSection: View {
         }
     }
 }
+
+struct OverlapQuery: Equatable, Sendable {
+    var ovEtf = ""
+    var ov: [String: String] = [:]
+
+    var dictionary: [String: String] {
+        var query: [String: String] = [:]
+        let etf = ovEtf.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !etf.isEmpty { query["ovEtf"] = etf }
+        let direct = ov.keys.sorted().compactMap { key -> String? in
+            let amount = ov[key, default: ""].trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !amount.isEmpty, Int(amount) != 0 else { return nil }
+            return "\(key):\(amount)"
+        }.joined(separator: ",")
+        if !direct.isEmpty { query["ov"] = direct }
+        return query
+    }
+}
+
+struct OverlapSection: View {
+    let overlap: Overlap
+    let etf: String
+    let query: OverlapQuery?
+    let apply: (OverlapQuery) -> Void
+    @State private var editing = false
+
+    var body: some View {
+        Section {
+            ForEach(overlap.notes ?? [], id: \.self) { note in
+                Text(note).font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            ForEach(Array((overlap.members ?? []).enumerated()), id: \.offset) { _, member in
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(member.company ?? member.key ?? "—").font(.headline)
+                    Text((member.tickers ?? []).joined(separator: "、"))
+                        .font(.caption).foregroundStyle(.secondary)
+                    CostValueRow(label: "指數權重", value: Fmt.plainPct(overlap.asOf == nil ? nil : member.weightPct, 3))
+                    if let outOfIndex = member.outOfIndex, !outOfIndex.isEmpty {
+                        Text("不在持股檔的代號：\(outOfIndex.joined(separator: "、"))")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                .fixedSize(horizontal: false, vertical: true)
+            }
+            CostValueRow(label: "名單合計覆蓋", value: Fmt.plainPct(overlap.asOf == nil ? nil : overlap.totalWeight, 3))
+            CostValueRow(label: "指數前十大公司合計", value: Fmt.plainPct(overlap.asOf == nil ? nil : overlap.top10CompanyWeight, 3))
+            Button("填金額") { editing = true }
+                .sheet(isPresented: $editing) {
+                    OverlapEditor(etf: etf, members: overlap.members ?? [], query: query ?? OverlapQuery()) { input in
+                        editing = false
+                        apply(input)
+                    }
+                }
+            if let issue = overlap.issue {
+                Notice(kind: .bad, text: issue).noticeRow()
+            }
+            if overlap.applicable == true, let exposure = overlap.exposure {
+                result(exposure)
+            }
+        } header: {
+            Text("與觀察名單的重疊")
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    @ViewBuilder
+    private func result(_ exposure: Overlap.Exposure) -> some View {
+        Text("假設曝險（台幣）").font(.headline)
+        ForEach(Array((exposure.members ?? []).enumerated()), id: \.offset) { _, member in
+            VStack(alignment: .leading, spacing: 6) {
+                Text(overlap.members?.first { $0.key == member.key }?.company ?? member.key ?? "—")
+                    .font(.headline)
+                CostValueRow(label: "經 ETF", value: Fmt.num(member.viaEtfTwd))
+                CostValueRow(label: "另外持有", value: Fmt.num(member.directTwd))
+                CostValueRow(label: "合計", value: Fmt.num(member.combinedTwd))
+                CostValueRow(label: "占你填的總額", value: Fmt.plainPct(member.sharePct, 2))
+            }
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        CostValueRow(label: "你填的總額（台幣）", value: Fmt.num(exposure.totalTwd))
+        CostValueRow(label: "名單占比", value: Fmt.plainPct(exposure.watchlistSharePct, 2))
+        CostValueRow(label: "ETF 中名單以外的金額（台幣）", value: Fmt.num(exposure.otherViaEtfTwd))
+    }
+}
+
+struct OverlapEditor: View {
+    let etf: String
+    let members: [Overlap.Member]
+    let submit: (OverlapQuery) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var query: OverlapQuery
+    @FocusState private var focused: Bool
+
+    init(etf: String, members: [Overlap.Member], query: OverlapQuery, submit: @escaping (OverlapQuery) -> Void) {
+        self.etf = etf
+        self.members = members
+        self.submit = submit
+        let keys = Set(members.compactMap(\.key))
+        _query = State(initialValue: OverlapQuery(ovEtf: query.ovEtf, ov: query.ov.filter { keys.contains($0.key) }))
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    amountField("\(etf) 金額（台幣）", text: $query.ovEtf, key: "ovEtf")
+                }
+                ForEach(Array(members.enumerated()), id: \.offset) { _, member in
+                    if let key = member.key {
+                        Section {
+                            amountField("另外持有（台幣）", text: Binding(
+                                get: { query.ov[key, default: ""] },
+                                set: { query.ov[key] = $0 }
+                            ), key: "ov-\(key)", accessibilityLabel: "\(member.company ?? key)（\(key)）另外持有（台幣）")
+                        } header: {
+                            Text("\(member.company ?? key)（\(key)）")
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+            }
+            .scrollDismissesKeyboard(.interactively)
+            .navigationTitle("填金額")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("計算") {
+                        focused = false
+                        submit(query)
+                    }
+                }
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("完成") { focused = false }
+                }
+            }
+        }
+    }
+
+    private func amountField(_ label: String, text: Binding<String>, key: String, accessibilityLabel: String? = nil) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label).fixedSize(horizontal: false, vertical: true)
+            TextField("0", text: text)
+                .keyboardType(.numberPad)
+                .focused($focused)
+                .accessibilityLabel(accessibilityLabel ?? label)
+                .accessibilityIdentifier(key)
+        }
+    }
+}

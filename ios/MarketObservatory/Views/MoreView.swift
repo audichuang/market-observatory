@@ -55,6 +55,7 @@ struct EtfView: View {
     @State private var simMonthly: Int?
     @State private var simFunding = "monthly"
     @State private var costQuery: CostQuery?
+    @State private var overlapQuery: OverlapQuery?
     @State private var monthlyText = ""
     @State private var loadSeq = 0
     @State private var savingDefault = false
@@ -93,6 +94,9 @@ struct EtfView: View {
             ]
             if let costQuery {
                 query.merge(costQuery.dictionary.mapValues { Optional($0) }) { _, new in new }
+            }
+            if let overlapQuery {
+                query.merge(overlapQuery.dictionary.mapValues { Optional($0) }) { _, new in new }
             }
             let e: Etfs = try await API.get("/api/v1/etfs", query: query)
             // 連續切換時只採用最後一次的結果，避免舊的回應蓋掉新的。
@@ -182,6 +186,13 @@ struct EtfView: View {
                 Text("報酬（資料到 \(Fmt.fullDate(e.asOf))）")
             } footer: {
                 Text("價格報酬，不含配息。近一年偏離 ＝ 槓桿／反向 ETF 實際報酬減「倍數 × 指數報酬」。")
+            }
+
+            if let overlap = e.overlap {
+                OverlapSection(overlap: overlap, etf: simEtf ?? e.sim.etf, query: overlapQuery) { input in
+                    overlapQuery = input
+                    Task { await load() }
+                }
             }
 
             Section {

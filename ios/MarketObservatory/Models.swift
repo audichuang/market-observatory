@@ -413,6 +413,7 @@ struct Etfs: Decodable, Sendable {
     let funding: String?
     let costScenario: CostScenario?
     let checklists: [Checklist]?
+    let overlap: Overlap?
 
     struct Facts: Decodable, Sendable {
         let domicile: String
@@ -757,4 +758,45 @@ struct Checklist: Decodable, Sendable, Identifiable {
     let note: String?
     let footer: String
     let sources: [Source]
+}
+
+struct Overlap: Decodable, Sendable {
+    struct Member: Decodable, Sendable {
+        let key: String?
+        let company: String?
+        let tickers: [String]?
+        let weightPct: Double?
+        let outOfIndex: [String]?
+    }
+
+    struct Exposure: Decodable, Sendable {
+        struct Member: Decodable, Sendable {
+            let key: String?
+            let viaEtfTwd: Double?
+            let directTwd: Double?
+            let combinedTwd: Double?
+            let sharePct: Double?
+        }
+
+        let members: [Member]?
+        let totalTwd: Double?
+        let watchlistSharePct: Double?
+        let otherViaEtfTwd: Double?
+    }
+
+    struct Inputs: Decodable, Sendable {
+        let ovEtf: Int?
+        let ov: [String: Int]?
+    }
+
+    let asOf: String?
+    let proxy: String?
+    let applicable: Bool?
+    let members: [Member]?
+    let totalWeight: Double?
+    let top10CompanyWeight: Double?
+    let exposure: Exposure?
+    let inputs: Inputs?
+    let issue: String?
+    let notes: [String]?
 }

@@ -115,14 +115,16 @@ test("同 run 的 Pro Max 已關機時直接開 Plus 並更新狀態", (t) => {
   assert.doesNotMatch(r.log, new RegExp(oki));
 });
 
-test("其他 run 的 MO 機已開機時停止，不關機也不開另一台", (t) => {
-  const f = fixture(t, "r2", devices("Booted"));
-  const r = f.invoke("ios-up.sh", "18-pro-max");
-  assert.notEqual(r.status, 0, r.output);
-  assert.match(r.output, /可能有別的驗證在用/);
-  assert.doesNotMatch(r.log, /simctl (boot|bootstatus|shutdown|create|install) /);
-  assert.equal(existsSync(join(f.run, "sim.udid")), false);
-});
+for (const state of ["Booted", "Booting", "Shutting Down"]) {
+  test(`其他 run 的 MO 機為 ${state} 時停止，不關機也不開另一台`, (t) => {
+    const f = fixture(t, "r2", devices(state));
+    const r = f.invoke("ios-up.sh", "18-pro-max");
+    assert.notEqual(r.status, 0, r.output);
+    assert.match(r.output, /可能有別的驗證在用/);
+    assert.doesNotMatch(r.log, /simctl (boot|bootstatus|shutdown|create|install) /);
+    assert.equal(existsSync(join(f.run, "sim.udid")), false);
+  });
+}
 
 for (const args of [[], ["pro"]]) {
   test(`機型${args.length ? "不在清單" : "未提供"}時停止並列出兩個選項`, (t) => {

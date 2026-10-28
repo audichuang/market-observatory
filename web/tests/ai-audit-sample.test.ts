@@ -198,6 +198,26 @@ test("覆蓋用 daily snapshot.date 與 translate pulledAt；保留 partial、fa
   assert.ok(!r.population.digest.some((item) => item.key === digestKey("OUTSIDE")));
 });
 
+for (const { id, pulledAt, day } of [
+  { id: "friday", pulledAt: "2026-09-19T00:20:00Z", day: "2026-09-18" },
+  { id: "month-end", pulledAt: "2026-10-01T00:20:00Z", day: "2026-09-30" },
+]) {
+  test(`translate ${id} 批次以 pulledAt 的美東日期歸入覆蓋與當月母體`, async (t) => {
+    const root = fixture(t);
+    const key = `translate:nasdaq:${id}`;
+    save(root, "translate", id, [], {}, [key], { pulledAt });
+    const r = await report(root);
+    assert.deepEqual(r.coverage.sessions.find((item) => item.date === day)!.translate, {
+      status: "ok", batches: [{ runId: id, directory: `translate/runs/${id}`, status: "ok" }],
+    });
+    assert.deepEqual(r.samples.translate, [key]);
+    if (id === "month-end") {
+      const nextMonth = await report(root, ["--month", "2026-10"]);
+      assert.deepEqual(nextMonth.population.translate, []);
+    }
+  });
+}
+
 test("空且無回執的工作批次不把同日已成功的 daily、translate 覆蓋降為 unknown", async (t) => {
   const root = fixture(t);
   const b = await digests([{ symbol: "AAPL" }]);
@@ -237,6 +257,29 @@ test("空 daily 工作批次的 unavailable 仍列問題案例，無回執時不
   }]);
   const day = r.coverage.sessions.find((day) => day.date === date)!;
   assert.deepEqual(day.daily, { status: "missing", batches: [] });
+});
+
+test("空且無日期的 daily 工作批次含 unavailable 時仍列為不可判定", async (t) => {
+  const root = fixture(t);
+  const dir = save(root, "daily", "daily-undated-unavailable", [], {}, [], {
+    working: true, noReceipt: true, unavailable: [{ key: "points:nasdaq:28651961", reason: "no-match" }],
+  });
+  const manifest = JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8")) as BatchManifest;
+  manifest.snapshot = { date: null, revision: null };
+  writeFileSync(join(dir, "manifest.json"), JSON.stringify(manifest));
+  const r = await report(root);
+  assert.deepEqual(r.coverage.undatedBatches, [{
+    runId: "daily-undated-unavailable", directory: "daily", taskId: null,
+    reason: "缺 manifest 或 daily snapshot.date，無法判定月份與交易日",
+  }]);
+});
+
+test("只有 tasks.json=[] 的舊版 daily 目錄不列入 undatedBatches", async (t) => {
+  const root = fixture(t);
+  mkdirSync(join(root, "daily"));
+  writeFileSync(join(root, "daily/tasks.json"), "[]");
+  const r = await report(root);
+  assert.deepEqual(r.coverage.undatedBatches, []);
 });
 
 test("HOME 空白、無帳密、禁止網路與子程序仍能執行", async (t) => {

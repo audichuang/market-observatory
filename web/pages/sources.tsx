@@ -2,6 +2,7 @@ import { useRouter, useShared } from "@void/react";
 import { useState } from "react";
 import { CheckBadge, RunStatusBadge, runStatusText } from "../src/ui/bits.tsx";
 import { num, taipeiTime } from "../src/ui/format.ts";
+import { refreshPage } from "../src/ui/refresh.ts";
 import type { CheckStatus } from "../src/lib/snapshot.ts";
 import type { Props } from "./sources.server";
 
@@ -80,7 +81,7 @@ export default function SourcesPage({ expected, freshness, mismatches, runs, wei
       const res = await fetch(`/api/admin/run?job=${job}`, { method: "POST" });
       const body = (await res.json()) as { status?: string; summary?: string; error?: string };
       setMessage(`${label(job)}：${body.status ? runStatusText(body.status) : `錯誤 ${res.status}`} ${body.summary ?? body.error ?? ""}`);
-      router.refresh();
+      await refreshPage(router);
     } catch {
       setMessage(`${label(job)} 失敗：連不上伺服器或回應格式不對，請稍後再試`);
     } finally {
@@ -104,7 +105,7 @@ export default function SourcesPage({ expected, freshness, mismatches, runs, wei
         return;
       }
       setSwitchMessage(`${name}：${disabled ? "已停用" : "已恢復"}`);
-      router.refresh();
+      await refreshPage(router);
     } catch {
       setSwitchMessage(`${name} 切換失敗：連不上伺服器或回應格式不對，請稍後再試`);
     } finally {

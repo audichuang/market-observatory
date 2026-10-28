@@ -29,9 +29,7 @@ export default function EtfPage({ asOf, catalogAsOf, rows, periods, plan, sim, d
   const costInputs = costScenario && !("issue" in costScenario) ? costScenario.inputs
     : Object.fromEntries([...router.query].filter(([key]) => key.startsWith("cost")));
   const [costForm, setCostForm] = useState(costFormOf(costInputs));
-  useEffect(() => {
-    if (!costScenario || !("issue" in costScenario)) setCostForm(costFormOf(costInputs));
-  }, [costScenario]);
+  useEffect(() => setCostForm(costFormOf(costInputs)), [costScenario]);
 
   async function saveDefault() {
     setSavingDefault(true);

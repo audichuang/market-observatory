@@ -14,11 +14,17 @@ export async function migratedDb() {
   for (const f of readdirSync(dir).filter((f) => f.endsWith(".sql")).sort()) {
     for (const part of readFileSync(join(dir, f), "utf8").split("--> statement-breakpoint")) if (part.trim()) sql.exec(part);
   }
-  const bound = (q: string, args: unknown[]) => ({
-    first: async () => sql.prepare(q).get(...(args as never[])) ?? null,
-    all: async () => ({ results: sql.prepare(q).all(...(args as never[])) }),
-    run: async () => ({ meta: { changes: Number(sql.prepare(q).run(...(args as never[])).changes) } }),
-  });
+  const bound = (q: string, args: unknown[]) => {
+    const statement = () => {
+      if (args.length > 100) throw new Error(`too many SQL variables: ${args.length} (maximum 100)`);
+      return sql.prepare(q);
+    };
+    return {
+      first: async () => statement().get(...(args as never[])) ?? null,
+      all: async () => ({ results: statement().all(...(args as never[])) }),
+      run: async () => ({ meta: { changes: Number(statement().run(...(args as never[])).changes) } }),
+    };
+  };
   const db = {
     prepare: (q: string) => ({ ...bound(q, []), bind: (...args: unknown[]) => bound(q, args) }),
     batch: async (stmts: { run: () => Promise<unknown> }[]) => {

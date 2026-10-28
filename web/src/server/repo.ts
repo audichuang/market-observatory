@@ -3,12 +3,22 @@ import type { PriceCheck, Snapshot } from "../lib/snapshot.ts";
 import { detectRebase } from "../lib/rebase.ts";
 import type { DailyBar } from "../lib/sources/http.ts";
 
-// 直接用 D1 prepared statement：批次寫入比 ORM 快，也不會撞到單一查詢參數上限。
+// Use D1 prepared statements for batch writes; split IN queries to respect the parameter limit.
 
 /** D1 主庫或讀取 session（withSession）都可以：這裡只用得到 prepare 與 batch。 */
 export type Db = Pick<D1Database, "prepare" | "batch">;
 
 export const nowIso = () => new Date().toISOString();
+
+export const D1_MAX_BOUND_PARAMS = 100;
+
+export function inChunks<T>(values: T[], reserved: number): T[][] {
+  const unique = [...new Set(values)];
+  const size = D1_MAX_BOUND_PARAMS - reserved;
+  const chunks: T[][] = [];
+  for (let i = 0; i < unique.length; i += size) chunks.push(unique.slice(i, i + size));
+  return chunks;
+}
 
 const CHUNK = 200;
 
@@ -22,7 +32,7 @@ export interface BarBatch {
   bars: DailyBar[];
 }
 
-// 免費方案每次呼叫的 D1 查詢與子請求有上限：多檔標的一律「一次查詢＋分塊 batch」，不逐檔來回。
+// Bound each multi-symbol query and batch the writes to limit D1 round trips.
 
 /**
  * 寫入主來源日線；收盤價改變時清掉舊的交叉核對結果。
@@ -39,12 +49,14 @@ export async function upsertBars(
   const withBars = items.filter((i) => i.bars.length);
   if (!withBars.length) return { changed: {}, rebased: {} };
   const minDate = withBars.reduce((m, i) => (i.bars[0].date < m ? i.bars[0].date : m), "9999-12-31");
-  const symbols = withBars.map((i) => i.symbol);
-  const rows = await db
-    .prepare(`SELECT symbol, date, close FROM prices WHERE symbol IN (${symbols.map(() => "?").join(",")}) AND date >= ?`)
-    .bind(...symbols, minDate)
-    .all<{ symbol: string; date: string; close: number }>();
-  const existing = new Map(rows.results.map((r) => [`${r.symbol}|${r.date}`, r.close]));
+  const existing = new Map<string, number>();
+  for (const symbols of inChunks(withBars.map((i) => i.symbol), 1)) {
+    const rows = await db
+      .prepare(`SELECT symbol, date, close FROM prices WHERE symbol IN (${symbols.map(() => "?").join(",")}) AND date >= ?`)
+      .bind(...symbols, minDate)
+      .all<{ symbol: string; date: string; close: number }>();
+    for (const r of rows.results) existing.set(`${r.symbol}|${r.date}`, r.close);
+  }
   const stmt = db.prepare(
     `INSERT INTO prices (symbol, date, open, high, low, close, volume, source, fetched_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -139,12 +151,14 @@ export async function applyCrossChecks(db: Db, items: BarBatch[], checkedAt = no
   const withBars = items.filter((i) => i.bars.length);
   if (!withBars.length) return [];
   const minDate = withBars.reduce((m, i) => (i.bars[0].date < m ? i.bars[0].date : m), "9999-12-31");
-  const symbols = withBars.map((i) => i.symbol);
-  const rows = await db
-    .prepare(`SELECT symbol, date, close FROM prices WHERE symbol IN (${symbols.map(() => "?").join(",")}) AND date >= ?`)
-    .bind(...symbols, minDate)
-    .all<{ symbol: string; date: string; close: number }>();
-  const primary = new Map(rows.results.map((r) => [`${r.symbol}|${r.date}`, r.close]));
+  const primary = new Map<string, number>();
+  for (const symbols of inChunks(withBars.map((i) => i.symbol), 1)) {
+    const rows = await db
+      .prepare(`SELECT symbol, date, close FROM prices WHERE symbol IN (${symbols.map(() => "?").join(",")}) AND date >= ?`)
+      .bind(...symbols, minDate)
+      .all<{ symbol: string; date: string; close: number }>();
+    for (const r of rows.results) primary.set(`${r.symbol}|${r.date}`, r.close);
+  }
   const stmt = db.prepare("UPDATE prices SET check_close = ?, check_source = ?, check_status = ?, checked_at = ? WHERE symbol = ? AND date = ?");
   const stmts: D1PreparedStatement[] = [];
   const results: CheckResult[] = [];
@@ -167,20 +181,22 @@ export interface LoadedPrices {
 }
 
 export async function loadPrices(db: Db, symbols: string[], fromDate: string, toDate = "9999-12-31"): Promise<LoadedPrices> {
-  const placeholders = symbols.map(() => "?").join(",");
-  const rows = await db
-    .prepare(`SELECT symbol, date, close, check_status, check_source, check_close FROM prices WHERE symbol IN (${placeholders}) AND date >= ? AND date <= ? ORDER BY date`)
-    .bind(...symbols, fromDate, toDate)
-    .all<{ symbol: string; date: string; close: number; check_status: string | null; check_source: string | null; check_close: number | null }>();
   const pts: Record<string, { date: string; close: number }[]> = Object.fromEntries(symbols.map((s) => [s, []]));
   const checks: LoadedPrices["checks"] = Object.fromEntries(symbols.map((s) => [s, new Map()]));
-  for (const r of rows.results) {
-    pts[r.symbol].push({ date: r.date, close: r.close });
-    checks[r.symbol].set(r.date, {
-      status: (r.check_status as PriceCheck["status"]) ?? "pending",
-      source: r.check_source,
-      close: r.check_close,
-    });
+  for (const chunk of inChunks(symbols, 2)) {
+    const placeholders = chunk.map(() => "?").join(",");
+    const rows = await db
+      .prepare(`SELECT symbol, date, close, check_status, check_source, check_close FROM prices WHERE symbol IN (${placeholders}) AND date >= ? AND date <= ? ORDER BY date`)
+      .bind(...chunk, fromDate, toDate)
+      .all<{ symbol: string; date: string; close: number; check_status: string | null; check_source: string | null; check_close: number | null }>();
+    for (const r of rows.results) {
+      pts[r.symbol].push({ date: r.date, close: r.close });
+      checks[r.symbol].set(r.date, {
+        status: (r.check_status as PriceCheck["status"]) ?? "pending",
+        source: r.check_source,
+        close: r.check_close,
+      });
+    }
   }
   return { series: Object.fromEntries(Object.entries(pts).map(([s, p]) => [s, new Series(p)])), checks };
 }
@@ -200,14 +216,18 @@ export interface WeightAnchors {
 
 /** 一次載入所有持股檔中指定代號的權重，再在記憶體裡挑最近的一份。 */
 export async function loadWeightAnchors(db: Db, tickers: string[]): Promise<WeightAnchors> {
-  const rows = await db
-    .prepare(`SELECT as_of, ticker, weight_pct FROM weights WHERE ticker IN (${tickers.map(() => "?").join(",")}) ORDER BY as_of`)
-    .bind(...tickers)
-    .all<{ as_of: string; ticker: string; weight_pct: number }>();
+  const rows: { as_of: string; ticker: string; weight_pct: number }[] = [];
+  for (const chunk of inChunks(tickers, 0)) {
+    const result = await db
+      .prepare(`SELECT as_of, ticker, weight_pct FROM weights WHERE ticker IN (${chunk.map(() => "?").join(",")}) ORDER BY as_of`)
+      .bind(...chunk)
+      .all<{ as_of: string; ticker: string; weight_pct: number }>();
+    rows.push(...result.results);
+  }
   // 日期取所有持股檔（名單清空或某檔已調出指數時，仍知道有哪幾份持股檔）。
   const dates = await db.prepare("SELECT DISTINCT as_of FROM weights ORDER BY as_of").all<{ as_of: string }>();
   const byDate = new Map<string, Map<string, number>>(dates.results.map((d) => [d.as_of, new Map()]));
-  for (const r of rows.results) {
+  for (const r of rows) {
     if (!byDate.has(r.as_of)) byDate.set(r.as_of, new Map());
     byDate.get(r.as_of)!.set(r.ticker, r.weight_pct);
   }

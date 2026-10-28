@@ -39,10 +39,18 @@ Preconditions:
 - **共識表桌機換行（網頁）。** 準備 12 列，含 `fiscalEnd: "Jan 2027"`、`estimates: 64`、四位數股價與「Nasdaq 無資料」列；在 1024px、1100px、1280px 與 1440px 寬度確認半寬面板的 `.table-wrap` 滿足 `scrollWidth === clientWidth`、`scrollLeft === 0`，EPS 表頭與各列完整位於可視範圍，表頭、年度／估計數及缺資料文字可換行。390px 時 EPS 欄隱藏且表格仍不溢出。可在 `web/` 跑 `node tests/outlook-consensus-layout.mjs <證據目錄>`，用實際頁面 JSX 與 CSS 重現，留下兩組資料、五種寬度的截圖與 `metrics.json`；本機實例仍須依上段登入、點導覽並對 API。
 - **共識（App）。** 「更多 → 下月展望 → 成分股分析師共識」，對同帳號 `/api/v1/outlook` 的三組 `coverage`、資料狀態與 footer 四種日期。展開「權重前 N 檔」，逐列核對目標價區間、EPS 次數、會計年度與估計數；另檢查 0／0 與 null 的兩種文案及舊回應缺欄位的省略行為。共識證據由整合驗收人工操作取得：
 
-  1. 依 [verify 的 Launch／Drive](../SKILL.md)，在全域模擬器鎖內執行 `ios-up.sh <run-id> 16-plus`，登入本機測試帳號並捲到共識區塊。
+  1. 依 [verify 的 Launch／Drive](../SKILL.md)，在全域模擬器鎖內沿用本輪已開的 `MO iPhone 16 Plus`；首次啟動或換機才執行 `ios-up.sh <run-id> 16-plus`。`ios-up.sh` 只安裝 App；接著在同一個 shell 載入本輪本機站位址、建立證據目錄並啟動 App，再登入本機測試帳號、捲到共識區塊：
+
+     ```sh
+     RUN="${MO_VERIFY_ROOT:-$HOME/.cache/mo-verify}/<run-id>"
+     source "$RUN/state.env"
+     mkdir -p "$RUN/evidence/ios/16-plus"
+     xcrun simctl launch "$(cat "$RUN/sim.udid")" com.audichuang.observatory -debugBaseURL "$BASE"
+     ```
+
   2. 先截三項指標及資料狀態，再展開「權重前 N 檔」逐屏截個股列並捲到 footer。每屏用 `xcrun simctl io "$(cat "$RUN/sim.udid")" screenshot "$RUN/evidence/ios/16-plus/outlook-consensus-<階段>-<序號>.png"` 存圖，階段分 `summary`、`expanded`、`footer`。
   3. 最大 Dynamic Type 重走一次，階段加 `largest-`，實看所有新文字完整換行；以同帳號存下的 `outlook-consensus.api.json` 對帳，EPS 數字＝`revisionBreadth * 100`（四捨五入到整數）。缺對應案例時各自標「未驗證：缺 0／0、null 或舊回應案例」。
-  4. 驗完依 verify 的 Cleanup 執行 `down.sh <run-id>`。
+  4. 繼續下列 App 滾動驗證等本輪其餘步驟；整輪驗證結束後才依 [verify 的 Cleanup](../SKILL.md) 執行 `down.sh <run-id>` 一次。
 
   `test12_Outlook` 產出的是 `H1-outlook-summary.png`、`H1-model-*` 與 `H1-validation-*`，涵蓋摘要、模型與滾動驗證的展開收合；共識沒有自動捲動及展開，須另留上述人工截圖。
 

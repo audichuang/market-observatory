@@ -376,3 +376,10 @@ extension View {
             .dynamicTypeSize(...DynamicTypeSize.xLarge)
     }
 }
+
+extension Fmt {
+    static func pp(_ v: Double?, _ digits: Int = 2) -> String {
+        let s = signed(v, digits)
+        return s == "—" ? s : "\(s) 個百分點"
+    }
+}

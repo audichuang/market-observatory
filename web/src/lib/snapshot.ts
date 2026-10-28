@@ -64,7 +64,7 @@ export interface Snapshot {
   breadth: {
     rspReturnPct: number | null;
     spxReturnPct: number | null;
-    /** 等權減市值加權（百分點）；負值代表大型權值股撐盤、多數股票較弱 */
+    /** 等權重減市值加權（百分點）；負值代表等權重落後市值加權，不代表多數股票下跌 */
     spreadPct: number | null;
     rspMonthPct: number | null;
     spxMonthPct: number | null;

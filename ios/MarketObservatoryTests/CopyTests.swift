@@ -20,4 +20,11 @@ struct CopyTests {
         #expect(RestLabel.note == "其他成分股（含近似誤差）＝指數漲跌減掉名單合計（權重與價格口徑不同造成的誤差也算在這裡）。")
         #expect(RestLabel.note.components(separatedBy: "近似誤差").count - 1 == 1)
     }
+
+    @Test func percentagePointTextMatchesWeb() {
+        // Must equal ppText in web/src/ui/format.ts (see web/tests/format.test.ts).
+        #expect(Fmt.pp(0.35) == "+0.35 個百分點")
+        #expect(Fmt.pp(-1.2) == "−1.20 個百分點")
+        #expect(Fmt.pp(nil) == "—")
+    }
 }

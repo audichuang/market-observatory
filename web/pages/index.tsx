@@ -3,7 +3,7 @@ import { FORECAST_CALL, NO_INCREMENTAL_SKILL, dd5Definition, dd5ShortLabel, upTa
 import { HORIZON } from "../src/lib/forecast.ts";
 import { REST_LABEL_SHORT, REST_NOTE, type Mag7Row } from "../src/lib/snapshot.ts";
 import { CenteredBar, CheckBadge, Delta } from "../src/ui/bits.tsx";
-import { dateWithWeekday, num, pctText, signed, taipeiTime } from "../src/ui/format.ts";
+import { dateWithWeekday, num, pctText, ppText, signed, taipeiTime, tone } from "../src/ui/format.ts";
 import { NewsFeed, ToneBadge } from "../src/ui/NewsFeed.tsx";
 import type { Props } from "./index.server";
 
@@ -72,7 +72,7 @@ export default function Overview({ snapshot, dates, expectedClose, news, digests
         </div>
         <div className="panel kpi">
           <div className="label">等權重 RSP − 市值加權</div>
-          <div className="value"><Delta value={s.breadth.spreadPct} percent /></div>
+          <div className="value"><span className={tone(s.breadth.spreadPct)}>{ppText(s.breadth.spreadPct)}</span></div>
           <div className="delta sub">RSP {pctText(s.breadth.rspReturnPct)} vs SPX {pctText(s.breadth.spxReturnPct)}</div>
         </div>
         <div className="panel kpi">

@@ -6,6 +6,7 @@
 
 - `overview-title`（B1）：標題「S&P 500 收盤 YYYY-MM-DD（週X）」（網頁）／「S&P 500 M/D（週X）」（App），日期＝API `snapshot.tradeDate`。
 - `overview-kpi`（B2）：KPI 卡片等於 API `snapshot.data`；App 的「市場指標」是可展開的按鈕（label 以「市場指標」開頭，value「已收合／已展開」），預設收起只顯示 VIX、距高、200 日線一行，展開後全部。只有 `index.check.status` 為 mismatch 才出現「來源不一致」。
+- `overview-spread`（B2）：網頁「等權重 RSP − 市值加權」與 App 展開市場指標後的「等權重 − 市值加權」以 `snapshot.data.breadth.spreadPct` 原尺度顯示「+0.35 個百分點」／「−1.20 個百分點」（兩位小數、紅漲綠跌）；null 只顯示「—」。下方 RSP 與 SPX 各自的報酬仍用 %。
 - `overview-attribution`（B3）：名單每家的收盤、漲跌 %、權重、貢獻點數＝API；順序同 API `mag7`；「其他成分股 N 檔（推算）」列存在（App 列標題「其他成分股」、副標「N 檔（推算）」）；說明句寫「其他成分股（含近似誤差）＝指數漲跌減掉名單合計（權重與價格口徑不同造成的誤差也算在這裡）。」（「近似誤差」只出現一次）（網頁在表格上方；App 在表格下方的「說明」展開區）；名單合計＋其他成分股＝指數漲跌點數（差 ≤ 0.02）。
 - `overview-symbol-link`（B4）：點公司 → 走勢頁、標的是那家。
 - `overview-date`（B5）：選其他交易日 → 標題與數字換成 `?date=` 的值；能回到最新。
@@ -29,6 +30,7 @@ Preconditions:
 
 - **讀 API。** `page.fetch("/api/v1/overview")`，記下 `snapshot.tradeDate`、`snapshot.data` 的 index、vix、rsp、名單合計與 `mag7`。
 - **標題與 KPI。** `goto("/")`，等 `text=S&P 500 收盤`。`evaluate` 讀 `h1` 與卡片文字，跟 API 比（B1、B2）。截圖 `overview-kpi.png`。
+- **等權重差值。** 網頁一般與窄螢幕、App `test02_Overview` 的 `B2-kpi-expanded.png`／`.txt` 核對「等權重 − 市值加權」數值與 API `snapshot.data.breadth.spreadPct`（容許兩位小數四捨五入），確認單位「個百分點」、正負號、顏色與缺值「—」；下方 RSP／SPX 仍為 %。App 另在最大字級截圖確認數值與單位完整、不截字。
 - **名單拆解。** 在「觀察名單，拆開來看」表格用 `evaluate` 讀每列的儲存格，逐欄比 API `snapshot.data.mag7`、`rest`、`index`（實測 54 項全對）（B3）；每列的貢獻點數加總＋「其他成分股」列＝最下面 S&P 500 列的點數。
 - **其他交易日。** `page.selectOption("select", { index: 1 })`（「查看其他交易日」的第二天；也可直接給選項值 `"2026-10-22"`），等網址出現 `?date=`、`h1` 換日期；`fetch("/api/v1/overview?date=<那天>")` 比數字；再選回第一項，標題回到最新（B5）。
 - **公司連結。** 點 `loc=href:/history?symbol=NVDA`（`text=NVIDIA` 也會對到新聞標題），網址變 `/history?symbol=NVDA`（B4）。

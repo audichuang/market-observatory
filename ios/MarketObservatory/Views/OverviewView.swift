@@ -320,7 +320,7 @@ struct OverviewView: View {
     }
 
     private func spreadCard(_ s: Snapshot) -> some View {
-        Kpi(label: "等權重 − 市值加權", value: Fmt.pct(s.breadth.spreadPct), tone: s.breadth.spreadPct) {
+        Kpi(label: "等權重 − 市值加權", value: Fmt.pp(s.breadth.spreadPct), tone: s.breadth.spreadPct) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("RSP \(Fmt.pct(s.breadth.rspReturnPct))")
                 Text("vs SPX \(Fmt.pct(s.breadth.spxReturnPct))")

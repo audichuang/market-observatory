@@ -42,6 +42,8 @@ Preconditions:
 ## Gotchas
 
 - Void 的前端預載導覽可能直接顯示已載入的舊頁面，不發出新請求；撤銷／刪帳號的閘門證據用網頁寫入、完整重新載入或 API 確認下一個伺服器請求已遭拒。
+- App 登入表單增加欄位與段落留白；`test16_Readability` 最後登出並拍登入畫面，用來檢查最大字級可捲動讀到表單。錯誤密碼與短密碼仍由 `test10_SignOutAndErrors` 驗證。
+
 - 本機登入頁所有按鈕沒反應＝頁面沒 hydrate（gate 擋了 `/pages/login.tsx`）；doctor 會抓到。
 - App 的 Apple 登入在沒登入 Apple ID 的模擬器跳不出視窗，記 not-run 並寫明看到什麼。
 - 站長帳號（`OWNER_EMAIL`）不能從 App 刪除，正式站的站長帳號絕不能拿來測刪除。

@@ -32,7 +32,9 @@ Preconditions:
 
 - **語氣與篩選無障礙（App）。** `test15_DigestToneLabels` 一般與最大字級各檢查 `news-digest-<symbol>` 的文字與利多／利空 staticTexts，並確認選中篩選 chip 的 `isSelected`；截圖 `E9-tone-normal`／`E9-tone-largest`。本機需有近三天、前幾家名單公司 positive/negative 重點，缺資料測試明確失敗。
 
-- App 一般及最大字級檢查新聞標題與事件列完整換行、摘要展開後可讀；月曆大字級改以單欄列出本月日期與事件標記，檢查選取日期及上／下個月按鈕。
+- App 一般及最大字級檢查新聞標題與事件列完整換行、摘要展開後可讀；大字月曆用「選擇日期」開啟原生 sheet，以單欄日期與事件標記選取，選完自動關閉並在原位置呈現當日事件。`test16_Readability` 檢查換月、回今天、選取事件日與關閉狀態；實看 `UI-<variant>-calendar-selected.png`，確認不用再捲過整月才能看到結果。
+- 新聞詳情使用大型原生 sheet 閱讀；`test16_Readability` 點一則新聞、捲到「開啟原文」、關閉回列表。截圖 `UI-<variant>-news-detail*.png` 檢查標題、段落、來源與原文入口。
+- 要驗長篇中文重點，可只在本機 D1 準備 `id=verify-ui-reading-news`、`source=verify` 的合成新聞，標題以「【排版驗證】」開頭、`points_zh` 放三段中文、`focus=NVDA`、`published_at` 設現在，讓它排在列表前面；截圖不能當成真實新聞。驗完刪掉這個 id，不能寫進正式站。
 
 ## Gotchas
 

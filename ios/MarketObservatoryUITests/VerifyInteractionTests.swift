@@ -56,6 +56,12 @@ final class VerifyInteractionTests: XCTestCase {
             if !app.buttons["總覽"].waitForExistence(timeout: 8), email.exists { app.buttons["submit"].tap() }
         }
         XCTAssertTrue(app.buttons["總覽"].waitForExistence(timeout: 20), "沒有進到主畫面")
+        // A fresh verification simulator asks for notification permission on its first sign-in.
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        for label in ["允許", "Allow"] {
+            let allow = springboard.buttons[label]
+            if allow.waitForExistence(timeout: 2) { allow.tap(); break }
+        }
         return app
     }
 
@@ -65,6 +71,7 @@ final class VerifyInteractionTests: XCTestCase {
 
     private func open(_ app: XCUIApplication, _ prefix: String) {
         let b = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", prefix)).firstMatch
+        reveal(app, b)
         XCTAssertTrue(b.waitForExistence(timeout: 8), "找不到「\(prefix)」")
         b.tap()
     }
@@ -84,9 +91,9 @@ final class VerifyInteractionTests: XCTestCase {
 
     /// List 是 lazy 的：畫面外的列不在無障礙樹裡，要先捲到它出現。
     @discardableResult
-    private func reveal(_ app: XCUIApplication, _ el: XCUIElement, up: Bool = true) -> XCUIElement {
-        for _ in 0 ..< 6 where !(el.exists && el.isHittable) { up ? app.swipeUp() : app.swipeDown() }
-        for _ in 0 ..< 8 where !(el.exists && el.isHittable) { up ? app.swipeDown() : app.swipeUp() }
+    private func reveal(_ app: XCUIApplication, _ el: XCUIElement, up: Bool = true, scrolls: Int = 6) -> XCUIElement {
+        for _ in 0 ..< scrolls where !(el.exists && el.isHittable) { up ? app.swipeUp() : app.swipeDown() }
+        for _ in 0 ..< scrolls + 2 where !(el.exists && el.isHittable) { up ? app.swipeDown() : app.swipeUp() }
         return el
     }
 
@@ -163,7 +170,7 @@ final class VerifyInteractionTests: XCTestCase {
         snap("B5-latest")
 
         let nvda = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'NVDA、'")).firstMatch
-        nvda.tap()
+        reveal(app, nvda).tap()
         XCTAssertTrue(app.buttons["標的：NVIDIA"].waitForExistence(timeout: 10), "點 NVDA 沒切到走勢 NVIDIA")
         snap("B4-nvda-history")
 
@@ -516,19 +523,55 @@ final class VerifyInteractionTests: XCTestCase {
         tab(app, "新聞")
         XCTAssertTrue(app.buttons["日曆"].waitForExistence(timeout: 15))
         snap("UI-\(variant)-news")
+        let article = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'news-article-'")).firstMatch
+        reveal(app, article)
+        XCTAssertTrue(article.isHittable, "新聞資料不足或新聞列點不到")
+        article.tap()
+        XCTAssertTrue(app.navigationBars["新聞"].waitForExistence(timeout: 5))
+        snap("UI-\(variant)-news-detail")
+        reveal(app, app.buttons["開啟原文"])
+        XCTAssertTrue(app.buttons["開啟原文"].isHittable, "詳情無法捲到原文入口")
+        snap("UI-\(variant)-news-detail-bottom")
+        app.buttons["完成"].tap()
+        reveal(app, app.buttons["日曆"], up: false)
         app.buttons["日曆"].tap()
         XCTAssertTrue(app.buttons["下個月"].waitForExistence(timeout: 5))
         snap("UI-\(variant)-calendar")
         app.buttons["下個月"].tap()
         XCTAssertTrue(app.buttons["今天"].waitForExistence(timeout: 5))
         app.buttons["今天"].tap()
+        let datePicker = app.buttons["calendar-date-picker"]
+        if variant.contains("largest") {
+            XCTAssertTrue(datePicker.waitForExistence(timeout: 5), "大字月曆缺少日期選擇器")
+            XCTAssertEqual(datePicker.value as? String, "已收合")
+            datePicker.tap()
+        }
         let eventDate = try injectedDate("MO_EVENT_DATE")
-        let event = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@ AND NOT (label CONTAINS '、')", dayPrefix(eventDate))).firstMatch
-        reveal(app, event)
+        let event = app.buttons["calendar-day-\(eventDate)"]
+        if variant.contains("largest") {
+            let dates = app.scrollViews["calendar-date-list"]
+            XCTAssertTrue(dates.waitForExistence(timeout: 5))
+            for _ in 0 ..< 12 where !(event.exists && event.isHittable) { dates.swipeUp() }
+        } else {
+            reveal(app, event)
+        }
+        if !event.isHittable {
+            snap("UI-\(variant)-calendar-failed")
+            note("UI-\(variant)-calendar-failed", app.debugDescription)
+        }
         XCTAssertTrue(event.isHittable, "大字日期清單無法選取事件日")
         event.tap()
-        XCTAssertTrue(event.isSelected, "事件日期選取沒有生效")
+        if variant.contains("largest") {
+            XCTAssertEqual(datePicker.value as? String, "已收合", "選完日期沒有收起清單")
+            XCTAssertTrue(datePicker.label.contains(dayPrefix(eventDate)), "事件日期選取沒有生效")
+        } else {
+            XCTAssertTrue(event.isSelected, "事件日期選取沒有生效")
+        }
         snap("UI-\(variant)-calendar-selected")
+        let selectedHeading = app.staticTexts["calendar-selected-heading"]
+        reveal(app, selectedHeading)
+        XCTAssertTrue(selectedHeading.isHittable, "選取後無法讀取當日事件")
+        snap("UI-\(variant)-calendar-events")
 
         tab(app, "更多")
         snap("UI-\(variant)-more")
@@ -544,10 +587,20 @@ final class VerifyInteractionTests: XCTestCase {
         XCTAssertTrue(waitLabel(app, contains: "定義：以資料日收盤為起點"))
         snap("UI-\(variant)-outlook-risk")
         let model = app.buttons["機率與模型說明"]
-        reveal(app, model)
+        // At AX5 the always-visible definitions and model limitations span more than six screens.
+        reveal(app, model, scrolls: variant.contains("largest") ? 24 : 6)
+        XCTAssertTrue(model.isHittable, "無法捲到模型說明")
+        // On SE, a multiline label can be hittable while its tap point sits under the floating tab bar.
+        let window = app.windows.firstMatch
+        for _ in 0 ..< 4 where model.frame.midY > window.frame.height * 0.65 {
+            window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7))
+                .press(forDuration: 0.05, thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45)))
+        }
         snap("UI-\(variant)-outlook-conclusion")
         model.tap()
-        XCTAssertTrue(app.staticTexts["outlook-interval"].waitForExistence(timeout: 5))
+        let interval = app.staticTexts["outlook-interval"]
+        reveal(app, interval, scrolls: variant.contains("largest") ? 24 : 6)
+        XCTAssertTrue(interval.waitForExistence(timeout: 5))
         snap("UI-\(variant)-outlook-details")
         back(app)
         open(app, "推播設定")
@@ -561,6 +614,47 @@ final class VerifyInteractionTests: XCTestCase {
         reveal(app, app.buttons["登出"]).tap()
         XCTAssertTrue(app.textFields["email"].waitForExistence(timeout: 10))
         snap("UI-\(variant)-login")
+    }
+
+    /// Requires the local outlook fixture's globalCaveat; it must remain visible while method details are collapsed.
+    func test17_OutlookCaveatVisibleByDefault() throws {
+        let app = try signedIn()
+        tab(app, "更多"); open(app, "下月展望")
+        let caveat = app.staticTexts.matching(NSPredicate(format: "label CONTAINS '整體滾動驗證中'")).firstMatch
+        reveal(app, caveat)
+        XCTAssertTrue(caveat.isHittable, "整體模型驗證限制預設看不到")
+        XCTAssertFalse(app.staticTexts["outlook-interval"].exists, "驗證前方法區塊應維持收合")
+        snap("H2-global-caveat-visible"); note("H2-global-caveat-visible", caveat.label)
+    }
+
+    func test18_CalendarLargest() throws {
+        let app = try signedIn(arguments: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
+        tab(app, "新聞")
+        XCTAssertTrue(app.buttons["日曆"].waitForExistence(timeout: 15))
+        app.buttons["日曆"].tap()
+        let eventDate = try injectedDate("MO_EVENT_DATE"), today = try injectedDate("MO_TODAY")
+        let months = (Int(eventDate.prefix(4))! * 12 + Int(eventDate.dropFirst(5).prefix(2))!) - (Int(today.prefix(4))! * 12 + Int(today.dropFirst(5).prefix(2))!)
+        for _ in 0 ..< months { app.buttons["下個月"].tap() }
+        let picker = app.buttons["calendar-date-picker"]
+        reveal(app, picker).tap()
+        let dates = app.scrollViews["calendar-date-list"]
+        XCTAssertTrue(dates.waitForExistence(timeout: 5))
+        snap("E10-date-sheet")
+        note("E10-date-sheet-tree", app.debugDescription)
+        if months == 0 {
+            let current = dates.buttons["calendar-day-\(today)"]
+            XCTAssertTrue(current.isHittable, "日期選擇器未定位到目前日期")
+        }
+        let event = dates.buttons["calendar-day-\(eventDate)"]
+        for _ in 0 ..< 12 where !(event.exists && event.isHittable) { dates.swipeUp() }
+        XCTAssertTrue(event.isHittable, "最大字級無法選到事件日期")
+        event.tap()
+        XCTAssertTrue(dates.waitForNonExistence(timeout: 5), "日期選完沒有關閉")
+        XCTAssertTrue(picker.label.contains(dayPrefix(eventDate)))
+        let heading = app.staticTexts["calendar-selected-heading"]
+        reveal(app, heading)
+        XCTAssertTrue(heading.isHittable, "最大字級選取後看不到事件區塊")
+        snap("E10-selected-events")
     }
 
     // Z1、A5、A2：登出、錯誤密碼、短密碼，最後用正確密碼登入回來。

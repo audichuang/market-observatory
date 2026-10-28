@@ -186,7 +186,7 @@ struct ProbabilityComparison: View {
                 }
             }
             let difference = (probability - baseline) * 100
-            Text("與歷史基準相差 \(Fmt.signed(difference, 1)) 個百分點")
+            Text("與歷史基準相差約 \(Fmt.signed(difference, 1)) 個百分點")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

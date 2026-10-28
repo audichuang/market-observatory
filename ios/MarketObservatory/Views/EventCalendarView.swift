@@ -16,6 +16,7 @@ struct EventCalendarView: View {
     @Binding var selected: String
 
     @State private var month: Month?
+    @State private var choosingDay = false
     @Environment(\.dynamicTypeSize) private var typeSize
 
     struct Month: Equatable {
@@ -68,11 +69,18 @@ struct EventCalendarView: View {
         VStack(spacing: 10) {
             header
             if typeSize.isAccessibilitySize {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(cells(shown).compactMap { $0 }, id: \.self) { date in
-                        accessibleDayRow(date)
+                Button { choosingDay = true } label: {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("選擇日期").font(.headline)
+                        Text(Fmt.dateWithWeekday(selected))
+                            .font(.body.monospacedDigit())
+                            .foregroundStyle(.secondary)
                     }
                 }
+                .accessibilityIdentifier("calendar-date-picker")
+                .accessibilityLabel("選擇日期，\(Fmt.dateWithWeekday(selected))")
+                .accessibilityValue(choosingDay ? "已展開" : "已收合")
+                .sheet(isPresented: $choosingDay) { dateSelectionSheet }
             } else {
                 calendarGrid
                     .contentShape(Rectangle())
@@ -86,8 +94,24 @@ struct EventCalendarView: View {
         }
         .padding(.vertical, 6)
         .onChange(of: selected) { _, new in
+            choosingDay = false
             // 外部改了選取的日子（例如點推播進來）：翻到那個月
             if let m = Month(new), m != shown { withAnimation { month = m } }
+        }
+    }
+
+    private var dateSelectionSheet: some View {
+        NavigationStack {
+            CalendarDateList(dates: cells(shown).compactMap { $0 }, selected: selected) { date in
+                accessibleDayRow(date)
+            }
+            .navigationTitle(shown.title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { choosingDay = false }
+                }
+            }
         }
     }
 
@@ -116,13 +140,14 @@ struct EventCalendarView: View {
         let isSelected = date == selected
         return Button {
             selected = date
+            choosingDay = false
         } label: {
             HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(Fmt.dateWithWeekday(date)).font(.body.monospacedDigit())
                     if date == today { Text("今天").font(.caption).foregroundStyle(.secondary) }
-                    if marks.macro { Label("總經事件", systemImage: "circle.fill").foregroundStyle(Color.up) }
-                    if marks.earnings { Label("財報", systemImage: "circle.fill").foregroundStyle(Color.accentColor) }
+                    if marks.macro { Label("總經事件", systemImage: "circle.fill").font(.footnote).foregroundStyle(Color.up) }
+                    if marks.earnings { Label("財報", systemImage: "circle.fill").font(.footnote).foregroundStyle(Color.accentColor) }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 if isSelected { Image(systemName: "checkmark").foregroundStyle(Color.accentColor) }
@@ -133,8 +158,8 @@ struct EventCalendarView: View {
         .buttonStyle(.plain)
         .disabled(!range.contains(date))
         .opacity(range.contains(date) ? 1 : 0.3)
-        .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibility(date, marks))
+        .accessibilityIdentifier("calendar-day-\(date)")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
@@ -150,6 +175,7 @@ struct EventCalendarView: View {
                     Button("今天") {
                         withAnimation { month = Month(today) }
                         selected = today
+                        choosingDay = false
                     }
                     .font(.subheadline)
                     .frame(minHeight: 44)
@@ -167,7 +193,9 @@ struct EventCalendarView: View {
     }
 
     private func go(_ n: Int) {
-        withAnimation(.easeInOut(duration: 0.2)) { month = shown.adding(n) }
+        withAnimation(.easeInOut(duration: 0.2)) {
+            month = shown.adding(n)
+        }
     }
 
     private func dayCell(_ d: String) -> some View {
@@ -200,6 +228,7 @@ struct EventCalendarView: View {
         .disabled(!inRange)
         .opacity(inRange ? 1 : 0.3)
         .accessibilityLabel(accessibility(d, m))
+        .accessibilityIdentifier("calendar-day-\(d)")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
@@ -209,5 +238,38 @@ struct EventCalendarView: View {
         if m.macro { parts.append("有總經事件") }
         if m.earnings { parts.append("有財報") }
         return parts.joined(separator: "，")
+    }
+}
+
+/// A bounded month of rows uses declarative positioning so the sheet opens at the selected date.
+private struct CalendarDateList<Row: View>: View {
+    let dates: [String]
+    @ViewBuilder let row: (String) -> Row
+    @State private var scrollID: String?
+
+    init(dates: [String], selected: String, @ViewBuilder row: @escaping (String) -> Row) {
+        self.dates = dates
+        self.row = row
+        _scrollID = State(initialValue: dates.contains(selected) ? selected : nil)
+    }
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(spacing: 0) {
+                ForEach(dates, id: \.self) { date in
+                    VStack(spacing: 0) {
+                        row(date)
+                        Divider()
+                    }
+                    .id(date)
+                }
+            }
+            .scrollTargetLayout()
+            .cardBackground()
+            .padding(20)
+        }
+        .scrollPosition(id: $scrollID, anchor: .center)
+        .background(Color(.systemGroupedBackground))
+        .accessibilityIdentifier("calendar-date-list")
     }
 }

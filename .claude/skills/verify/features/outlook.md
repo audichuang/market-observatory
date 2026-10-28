@@ -14,7 +14,7 @@
 - `outlook-strategists`：投行年底目標價表。中位數＝API `strategists.median`、家數＝`medianCount`（一家一票、只算年底目標：UBS GWM 與 Wells Fargo Investment Institute 標「不計入中位數」）；每列有「資料日期」、「已核對原文」或「媒體轉述，待原文核對」標章，資料日期超過 `staleAfterDays`（45）天的列標「待重新核對」（中性灰，不是紅綠）；WFII 顯示「區間 7,800–8,000 的中點」；註腳有一家一票規則與全表核對日 `checked`。App 同一區塊用小字列出同樣的標章。
 - `outlook-overview-card`：總覽的「下月展望」卡片與此頁一致（dd5 在前）。
 
-- `outlook-disclosure`：App 的下跌風險與上漲展望分區呈現，模型判斷（含「偵測不到預測力」）預設可見；「機率與模型說明」與兩個滾動驗證可展開查看細節。
+- `outlook-disclosure`：App 的下跌風險與上漲展望分區呈現，本次估計與歷史基準並列並標出百分點差；大字時自動直排。模型判斷（含「偵測不到預測力」）與整體模型限制 `globalCaveat` 預設可見；「機率與模型說明」與兩個滾動驗證可展開查看細節。`test12_Outlook` 操作三個區塊展開與收合；本機 `globalCaveat` 有值時用 `test17_OutlookCaveatVisibleByDefault` 確認方法區塊仍收合時已能看到限制。
 
 ## How to get to it (user POV)
 

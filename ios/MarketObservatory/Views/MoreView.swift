@@ -377,7 +377,7 @@ struct OutlookView: View {
                         VStack(alignment: .leading, spacing: 16) {
                             Text("期間內收盤跌 5% 以上的機率")
                                 .font(.headline)
-                            ProbabilityComparison(probability: d.pick.p, baseline: d.pick.base.p, digits: 0)
+                            ProbabilityComparison(probability: d.pick.p, baseline: d.pick.base.p)
                             if let frequency = p.frequency?.dd5 { Text("\(frequency)。").font(.body) }
                             if !d.scored {
                                 Text("未通過驗證，只供參考").font(.subheadline.weight(.semibold)).foregroundStyle(.orange)
@@ -394,6 +394,10 @@ struct OutlookView: View {
                         CallBadge(call: o.call)
                         Text("目標：\(Copy.upTargetLabel(horizon: p.horizon))。" ).font(.footnote).foregroundStyle(.secondary)
                         Text(Self.callWhy[o.call] ?? Self.callWhy["inconclusive"]!).font(.body)
+                        if let caveat = o.globalCaveat, !caveat.isEmpty {
+                            Notice(kind: .info, text: caveat)
+                                .accessibilityIdentifier("outlook-global-caveat")
+                        }
                         if let frequency = p.frequency?.up { Text("\(frequency)。").font(.body) }
                         Text("對每月定期定額：這不是加碼或停扣的訊號，它描述下個月可能的波動。").font(.footnote.weight(.semibold))
                     }
@@ -404,7 +408,6 @@ struct OutlookView: View {
                                 .accessibilityIdentifier("outlook-interval")
                             if let q = o.returnQuantiles?.cell { quantileText(q, all: o.returnQuantiles?.all, horizon: p.horizon) }
                             if let a = o.assessments { assessmentRows(a) }
-                            if let c = o.globalCaveat, !c.isEmpty { Text(c) }
                             ForEach(o.reasons, id: \.self) { Text($0) }
                             if let h = o.historyStart { LabeledContent("樣本起點", value: h) }
                             if let v = o.modelVersion { LabeledContent("模型版本", value: v) }

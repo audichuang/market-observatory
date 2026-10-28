@@ -125,6 +125,7 @@ struct NewsView: View {
             NewsRow(titleZh: n.titleZh, title: n.title, tone: n.tone, category: n.category, symbols: n.symbols, publisher: n.publisher, publishedAt: n.publishedAt, titleLines: 3)
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("news-article-\(n.id)")
         .listRowInsets(EdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16))
     }
 
@@ -178,6 +179,7 @@ struct NewsView: View {
                 today: p.today,
                 selected: Binding(get: { day }, set: { calendarDay = $0 })
             )
+            .id(session.deepLinkRevision)
             .listRowInsets(EdgeInsets(top: 8, leading: 8, bottom: 4, trailing: 8))
             .listRowSeparator(.hidden)
             ViewThatFits(in: .horizontal) {
@@ -203,6 +205,7 @@ struct NewsView: View {
             ForEach(todays) { e in eventRow(e, showDate: false) }
         } header: {
             Text(dayHeader(day, today: p.today))
+                .accessibilityIdentifier("calendar-selected-heading")
         }
         let upcoming = p.events.filter { $0.date >= p.today && $0.date != day }.prefix(5)
         if !upcoming.isEmpty {

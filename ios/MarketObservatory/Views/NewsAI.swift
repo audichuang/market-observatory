@@ -121,7 +121,7 @@ struct NewsDetailSheet: View {
                         Text(item.title).font(.footnote).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     }
                     Text([item.publisher ?? "Nasdaq", item.publishedAt.map { $0.count == 10 ? Fmt.dateWithWeekday($0) : Fmt.taipeiTime($0) } ?? ""].filter { !$0.isEmpty }.joined(separator: " · "))
-                        .font(.caption2)
+                        .font(.footnote)
                         .foregroundStyle(.secondary)
 
                     if let points = item.pointsZh, !points.isEmpty {
@@ -147,7 +147,7 @@ struct NewsDetailSheet: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(16)
+                .padding(20)
             }
             .navigationTitle("新聞")
             .navigationBarTitleDisplayMode(.inline)
@@ -155,7 +155,7 @@ struct NewsDetailSheet: View {
                 ToolbarItem(placement: .topBarTrailing) { Button("完成") { dismiss() } }
             }
         }
-        .presentationDetents([.medium, .large])
+        .presentationDetents([.large])
         .presentationDragIndicator(.visible)
     }
 }

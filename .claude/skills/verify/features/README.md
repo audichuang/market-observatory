@@ -28,6 +28,7 @@
 - **反應**：每個操作 15 秒內有可見結果，載入中要有提示。
 - **穩定**：不閃退；每個功能做完 App 仍在前景可操作（`ls ~/Library/Logs/DiagnosticReports | grep -i MarketObservatory` 沒有新檔）。
 - **iOS 深色與大字（H1、H2）**：`simctl ui <UDID> appearance dark` 看五個分頁、`content_size accessibility-large` 看總覽／名單／日曆／ETF；看完改回 `light`、`large`。
+- **iOS 閱讀矩陣**：`test16_Readability` 走總覽、名單、走勢、新聞、日曆、更多、ETF、規劃、展望、推播、帳號與登入。預設用最大輔助使用字級；外部設定 `TEST_RUNNER_MO_READING_VARIANT=dark-normal` 可拍一般字級，`dark-largest` 拍最大字級。深淺模式另以 `simctl ui` 設定，名稱只用來標記證據。逐張檢查 `UI-<variant>-*.png`；通過測案不代表已看過畫面。
 - 整輪沒有英文錯誤訊息、原始 JSON、`Optional(...)`、`nil`（H4）。
 
 ## 證據與回報

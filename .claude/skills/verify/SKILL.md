@@ -45,10 +45,10 @@ description: 像使用者一樣實際操作市場觀測室（網站 web/ 與 iOS
 3. **iOS**（第一次 build 約 2–4 分鐘）：
 
    ```sh
-   "$S/ios-up.sh" <run-id>
+   "$S/ios-up.sh" <run-id> 18-pro-max
    ```
 
-   建一台專用模擬器「MO Verify <run-id>」（iPhone 18 Pro、iOS 27.0）、開機、`xcodegen generate`、`build-for-testing`、安裝 App。App 是 Debug 版，啟動參數 `-debugBaseURL http://localhost:<port>` 讓它連這次的本機站（UserDefaults 的參數網域，不會寫進 App 設定）。
+   機型必填：`16-plus` 重用既有 `MO iPhone 16 Plus`，`18-pro-max` 重用既有 `MO iPhone 18 Pro Max`。腳本以完整名稱找唯一可用裝置，找不到或同名多台就停下請使用者處理，依 AGENTS.md 不新增模擬器。一次只開一台；其他 run 的 MO 機開著就停，同 run 換機重跑 `ios-up.sh <run-id> <機型>`，會先關掉前一台。開機後執行 `xcodegen generate`、`build-for-testing`、安裝 App，並記下 `sim.udid` 與 `sim.device`；證據路徑的 `<機型>` 就是 `sim.device` 的代稱。App 是 Debug 版，啟動參數 `-debugBaseURL http://localhost:<port>` 讓它連這次的本機站（UserDefaults 的參數網域，不會寫進 App 設定）。
 
 沒有本機站可用時（例如只想看正式站上已部署的 App），才連正式站，而且只用一次性帳號，見下方「正式站」。
 
@@ -110,7 +110,7 @@ printf '%s' 'verify-<run-id>-pw' > "$RUN/user.pw"; chmod 600 "$RUN/user.pw"
 "$S/ios-test.sh" <run-id> verify-<run-id>@example.test "$RUN/user.pw" VerifyInteractionTests/test02_Overview,VerifyInteractionTests/test03_History
 ```
 
-帳號要先在本機站註冊（網頁 drive 第一步就會建）。`ios-test.sh <run-id> <email> <密碼檔> <Class/test>[,...]` 先增量 `build-for-testing`（改過測試檔會帶進去）再跑指定的 test，連這次的本機站；截圖、`<ID>.txt` 與 xcresult 寫到 `$RUN/evidence/ios/`。`ios-walkthrough.sh` 就是它跑 `WalkthroughTests/test1_SignInAndVisitEveryScreen`：登入後逐頁截圖約 20 張（總覽、走勢、名單、新聞、日曆、更多 → ETF、展望、推播、帳號），只確認找得到按鈕。
+帳號要先在本機站註冊（網頁 drive 第一步就會建）。`ios-test.sh <run-id> <email> <密碼檔> <Class/test>[,...]` 先增量 `build-for-testing`（改過測試檔會帶進去）再跑指定的 test，連這次的本機站；截圖、`<ID>.txt` 與 xcresult 寫到 `$RUN/evidence/ios/<機型>/`。`ios-walkthrough.sh` 就是它跑 `WalkthroughTests/test1_SignInAndVisitEveryScreen`：登入後逐頁截圖約 20 張（總覽、走勢、名單、新聞、日曆、更多 → ETF、展望、推播、帳號），只確認找得到按鈕。
 
 實際操作（切換、輸入、左滑、對話框、存了再讀回）在 `ios/MarketObservatoryUITests/VerifyInteractionTests.swift`，會改資料的 test 結束前改回基準：
 
@@ -129,7 +129,7 @@ printf '%s' 'verify-<run-id>-pw' > "$RUN/user.pw"; chmod 600 "$RUN/user.pw"
 | `test13_PushDismissesWatchlist` | G4 名單 sheet 開好後寫 `G4-push-ready.txt` 才開始送 daily 推播，點開後等待 sheet 消失且日期等於 payload；單獨跑 |
 | `test14_ForegroundLoadsNewTradingDay` | B11 背景時還原較新快照，回前景自動換到新交易日且不變暗；資料準備見下方 |
 | `test15_DigestToneLabels` | B12／E9 一般與最大字級的摘要語氣、完整市場標題（截圖 OCR）與 chip selected；先準備下方利多／利空 fixture |
-| `test11_DeleteAccount` | 刪除一次性帳號；會讓後續測試無法登入，整輪最後才單獨跑 |
+| `test11_DeleteAccount` | 刪除一次性帳號；會讓後續測試無法登入，只在最後一台的最後單獨跑 |
 
 每個 test 把看到的畫面文字寫成 `<ID>.txt`（例如 `B5-older.txt`、`D2-added.txt`），拿去跟同帳號的 `/api/v1/*` 對帳。test 不寫死資料日期：test02 從「交易日」清單讀最新與第二新的一天（寫在 `B5-dates.txt`）；`ios-test.sh` 每次先用這個帳號讀本機站 API，把第二新的交易日（`MO_PUSH_DATE`）、今天以後第一個事件日（`MO_EVENT_DATE`）與 API 的 today 傳給 test，開頭印出「日期：推播 …、事件 …」。名單只斷言「7/30 家」，合計權重寫在 `D1-before.txt`／`D8-removed.txt`，跟 `/api/v1/watchlist` 的 `totalWeight` 對帳。
 
@@ -141,7 +141,7 @@ printf '%s' 'verify-<run-id>-pw' > "$RUN/user.pw"; chmod 600 "$RUN/user.pw"
 "$S/ios-test.sh" <run-id> verify-<run-id>@example.test "$RUN/user.pw" VerifyInteractionTests/test13_PushDismissesWatchlist
 ```
 
-整輪不要直接跑整個 `VerifyInteractionTests` class：XCTest 按名字排序，`test11_DeleteAccount` 會先刪帳號，排在後面的 `test12_Outlook`、`test13`、`test14`、`test15` 都會失敗。先跑 02–07、10、12、15 的明確清單，再各自單跑 08、09、13、14；所有非破壞情境完成後，最後才單跑 `test11_DeleteAccount`。15 與 14 的資料準備與還原如下。
+整輪不要直接跑整個 `VerifyInteractionTests` class：XCTest 按名字排序，`test11_DeleteAccount` 會先刪帳號，排在後面的 `test12_Outlook`、`test13`、`test14`、`test15` 都會失敗。先跑 02–07、10、12、15 的明確清單，再各自單跑 08、09、13、14。驗兩台時先跑完 `18-pro-max` 的清單，再用 `ios-up.sh <run-id> 16-plus` 換機，跑同一份清單；`test11_DeleteAccount` 只在最後一台的最後單獨跑，讓兩台都能先用同一帳號驗完非破壞情境。15 與 14 的資料準備與還原如下。
 
 #### test14：背景時出現較新的交易日
 
@@ -162,14 +162,14 @@ S="$(git rev-parse --show-toplevel)/.claude/skills/verify/scripts"
    npx void db execute "CREATE TABLE verify_held_snapshots AS SELECT * FROM snapshots WHERE trade_date = (SELECT MAX(trade_date) FROM snapshots);
    DELETE FROM snapshots WHERE trade_date IN (SELECT trade_date FROM verify_held_snapshots);
    INSERT INTO settings (key,value) VALUES ('data_version',json_object('v',CAST((julianday('now')-2440587.5)*86400000 AS INTEGER))) ON CONFLICT(key) DO UPDATE SET value=excluded.value;"
-   rm -f "$RUN/evidence/ios/B11-ready.txt"
+   rm -f "$RUN/evidence/ios/<機型>/B11-ready.txt"
    ```
 
 2. **終端 A 單獨啟動** `ios-test.sh <run-id> <email> "$RUN/user.pw" VerifyInteractionTests/test14_ForegroundLoadsNewTradingDay`。test 用 DEBUG `-verifyOverviewRefreshInterval 0` 避免等 10 分鐘；先顯示較舊日期，回桌面後寫 `B11-ready.txt`。
 3. **終端 B 等就緒旗標，再搬回最新一天與 bump 版本。**
 
    ```sh
-   while [ ! -f "$RUN/evidence/ios/B11-ready.txt" ]; do sleep 1; done
+   while [ ! -f "$RUN/evidence/ios/<機型>/B11-ready.txt" ]; do sleep 1; done
    cd "$WEB"
    npx void db execute "INSERT INTO snapshots SELECT * FROM verify_held_snapshots;
    DROP TABLE verify_held_snapshots;
@@ -219,7 +219,7 @@ DROP TABLE verify_saved_digests;"
 
 ## Evidence
 
-- 全部放在 `$RUN/evidence/web/` 與 `$RUN/evidence/ios/`，檔名用功能檔裡的子功能 ID（例如 `watchlist-add.png`、`watchlist-add.api.json`）。
+- 全部放在 `$RUN/evidence/web/` 與 `$RUN/evidence/ios/<機型>/`，檔名用功能檔裡的子功能 ID（例如 `watchlist-add.png`、`watchlist-add.api.json`），兩台的同名檔各自保留。
 - 每個證據記下：功能 ID、入口、帳號、commit（doctor 印的那個）。
 - 回報（PR 描述或給使用者的訊息）寫：驗了哪些功能與入口、證據目錄、發現的問題、**沒驗到的項目與原因**。不要把沒走到的入口說成驗過。
 - 證據在 `down.sh` 之後仍留著；`~/.cache` 不會自動清，舊的 run 目錄可以手動刪。
@@ -230,7 +230,7 @@ DROP TABLE verify_saved_digests;"
 "$S/down.sh" <run-id>
 ```
 
-只收這次啟動的東西：dev server 的整棵程序樹（vite＋workerd，用記下的 PID，不用 process 名稱）、這次建的模擬器（刪除）、DerivedData、密碼與 cookie 檔。證據保留，腳本最後確認 `$RUN/evidence` 不是空的並印出位置。ego-browser 那邊在最後一輪呼叫 `task.finish({ keep: [] })`；忘了的話 `down.sh` 會收掉名為 `mo-verify-<run-id>` 的 task space。失敗中斷的嘗試也要跑 `down.sh`，別留下佔著 port 的 dev server。不要動別人開著的模擬器（例如 `okinawa-e2e`、`MO iPhone 18 Pro Max`）；不要用 `killall` 收 CoreSimulatorService。
+只收這次啟動的東西：dev server 的整棵程序樹（vite＋workerd，用記下的 PID，不用 process 名稱）、本輪 `ios-up.sh` 開的 MO 機（關機保留）、DerivedData、密碼與 cookie 檔；清除 `sim.udid` 與 `sim.device`。兩台既有 MO 機都保留，證據也保留，腳本最後確認 `$RUN/evidence` 不是空的並印出位置。ego-browser 那邊在最後一輪呼叫 `task.finish({ keep: [] })`；忘了的話 `down.sh` 會收掉名為 `mo-verify-<run-id>` 的 task space。失敗中斷的嘗試也要跑 `down.sh`，別留下佔著 port 的 dev server。不要動別人開著的模擬器（例如 `OKI`／`CB` 開頭的機型）；不要用 `killall` 收 CoreSimulatorService。
 
 ## 正式站（只在必要時）
 
@@ -241,7 +241,7 @@ DROP TABLE verify_saved_digests;"
 ## Gotchas
 
 - 本機登入頁按鈕沒反應：未登入時 `middleware/01.gate.ts` 把 `/pages/*.tsx` 導去 `/login`，頁面不會 hydrate。dev 時已放行 `/pages/`、`/src/`、`/node_modules/`、`/@`；doctor 會檢查。有人改 gate 時再看一次。
-- 剛建好的模擬器第一次跑 walkthrough，送出登入的那一下可能被鍵盤上的密碼建議列吃掉；測試已經會在 8 秒後還停在登入畫面時再點一次。
+- 第一次在這台機上跑 walkthrough，送出登入的那一下可能被鍵盤上的密碼建議列吃掉；測試已經會在 8 秒後還停在登入畫面時再點一次。
 - 未簽章的模擬器版註冊不了推播，推播設定頁頂端的紅色說明（「這個版本無法註冊推播」）是預期的。
 - ego-browser 的 cookie 以主機區分、不分 port：`localhost:5181` 的登入會蓋掉同一個瀏覽器裡 `localhost:5173` 的 session（使用者自己的 dev server）。驗證完告訴使用者 5173 可能要重新登入。`127.0.0.1` 繞不過去：vite 只聽 `[::1]`，連不上。
 - 回補打的是 Yahoo／Nasdaq／Cboe 真實端點，本機 IP 被限流時 `web-up.sh` 會失敗在回補步驟；隔幾分鐘再跑，不要改成假資料。

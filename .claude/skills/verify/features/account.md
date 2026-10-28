@@ -37,7 +37,7 @@ Preconditions:
 - **刪帳號的快取身分。** 沿用一次性帳號，再登入建立另一個 session 並保留 cookie；其中一個裝置 `DELETE /api/v1/me` 後，以另一個舊 cookie 呼叫裝置註冊、定投儲存、推播偏好、總覽／新聞／名單（含會初始化名單的 GET）與加入公司，API 全部回 401，網頁 loader/action 導回登入，devices／settings 不再建立該 user id 的列。自動化回歸為 `cd web && node --test tests/deleted-session.test.ts`，另涵蓋 DB session 已到期但 cookie 尚未到期；cookieCache 保留，每個認證請求只做一次主庫 session 查詢（id、userId、expiresAt）。
 - **App 登入。** `ios-walkthrough.sh <run-id> <email> <密碼檔>`：`01-login.png` 是登入畫面，`02-overview.png` 已在總覽，底部四個分頁：總覽、走勢、新聞、更多（名單在總覽右上星號）。再 `simctl terminate` + `simctl launch` 一次，直接進總覽（A4）。
 - **App 刪除帳號。** 只對一次性帳號：`-only-testing:MarketObservatoryUITests/WalkthroughTests/test2_DeleteAccount`（環境變數同 walkthrough）。`11-delete-confirm.png` 是確認對話框、`12-after-delete.png` 回到登入畫面；之後用同帳密打 `POST /api/auth/sign-in/email` 要失敗。
-- **Proof。** `evidence/web/account-signup.png`（總覽＋右上 email）、`evidence/ios/01-login.png`、`02-overview.png`；刪除時加上登入失敗的 API 回應。
+- **Proof。** `evidence/web/account-signup.png`（總覽＋右上 email）、`evidence/ios/<機型>/01-login.png`、`evidence/ios/<機型>/02-overview.png`；刪除時加上登入失敗的 API 回應。
 
 ## Gotchas
 

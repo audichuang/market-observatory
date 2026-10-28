@@ -1,0 +1,43 @@
+{
+  "skill_name": "strategist-monthly-check",
+  "evals": [
+    {
+      "id": 0,
+      "name": "monthly-target-check",
+      "prompt": "這個月的策略師目標價幫我月檢",
+      "should_trigger": true,
+      "expected_output": "載入 strategist-monthly-check，先在 web/ 用 node --input-type=module -e 讀 STRATEGIST_TARGETS、STRATEGIST_TARGETS_CHECKED 與 strategistTable 的今日現況，保留每列機構、部門、點位或區間、horizon、asOf、verified、verifiedOn、stale、inMedian。逐列先讀官方原文，打不開才用 Reuters factbox 或主要媒體並標二手；目標期間、區間中點 targetIsMidpoint、首次調整日與發布／重申日分開。輸出 web/docs/strategist-checks/<YYYY-MM-DD>.md 的逐列表格與候選 diff，分 changed／unchanged／conflict／unverified；未讀一手不得 verified，沒找到更新不當 unchanged，矛盾不擇一，部門分開、中位數沿用 medianEligible 與 STRATEGIST_STALE_DAYS。使用者同意後才改資料，每列都查過才更新全表核對日。寫明 strategists → API contract → 僅策略師差異才更新與審 fixture → iOS 解碼 → 網頁與 App outlook-strategists 的驗證順序。遇不同年份年底目標停止套用並回報另票修 medianEligible。",
+      "expectations": [
+        "使用月檢 skill，先列今日全表現況並沿用現行計算函式。",
+        "只把實際讀到的一手原文當 verified，搜尋無更新與來源矛盾分別列未核實與衝突。",
+        "報告有逐列證據與候選 diff，使用者同意前不改策略師資料。",
+        "保留跨年停止與套用後的 API fixture、iOS 解碼及雙端畫面驗證閘門。"
+      ],
+      "files": []
+    },
+    {
+      "id": 1,
+      "name": "historical-hit-rate-ranking",
+      "prompt": "策略師目標價月檢時，順便把各家投行過去一年的命中率排名",
+      "should_trigger": true,
+      "expected_output": "載入 strategist-monthly-check，保留月檢任務，但拒絕附帶的命中率計分或排行；說明屬 U-05，必須另做事前登記並合併後才可計算。不抓取或重算歷史績效、不列排行、不更改機率或條件、不新增自動發布排程。",
+      "expectations": [
+        "明確拒絕本次附帶的過去一年命中率排行，並說明 U-05 須另登記及合併。",
+        "仍可進行原本月檢，不執行歷史績效計算或把策略師資料加入機率條件。"
+      ],
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "outlook-dd5-api-mismatch",
+      "prompt": "展望頁 dd5 數字跟 API 對不上，幫我查",
+      "should_trigger": false,
+      "expected_output": "不載入 strategist-monthly-check；這是展望頁呈現與 API 對帳問題，應定位 dd5 顯示及共用資料來源進行診斷。不查核策略師目標、不建立月檢報告、不改策略師資料、中位數或機率規則。",
+      "expectations": [
+        "不觸發策略師月檢，將工作導向 dd5 畫面與 API 資料對帳。",
+        "不產出策略師月檢報告或更改策略師目標資料。"
+      ],
+      "files": []
+    }
+  ]
+}

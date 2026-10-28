@@ -311,7 +311,7 @@ export default function OutlookPage({ outlook, cells, liveTrack, frequency, rece
               <div className="grid kpis" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))" }}>
                 <div className="kpi"><div className="label">目標價隱含漲幅</div><div className="value" style={{ fontSize: "1.2rem" }}><Delta value={consensus.impliedUpsidePct} percent digits={1} /></div><div className="delta sub">{coverageText(consensus.coverage.target)}</div></div>
                 <div className="kpi"><div className="label">買進評等占比</div><div className="value" style={{ fontSize: "1.2rem" }}>{consensus.buyPct === null ? "—" : `${num(consensus.buyPct, 0)}%`}</div><div className="delta sub">{coverageText(consensus.coverage.ratings)}</div></div>
-                <div className="kpi"><div className="label">EPS 修正廣度</div><div className="value" style={{ fontSize: "1.2rem" }}><Delta value={consensus.revisionBreadth === null ? null : consensus.revisionBreadth * 100} digits={0} /></div><div className="delta sub">−100～+100</div><div className="delta sub">{coverageText(consensus.coverage.revisions)}</div></div>
+                <div className="kpi"><div className="label">EPS 修正廣度</div><div className="value" style={{ fontSize: "1.2rem" }}><Delta value={consensus.revisionBreadth === null ? null : consensus.revisionBreadth * 100} digits={0} /></div><div className="delta sub">近四週（上修−下修）÷ 總次數，−100～+100</div><div className="delta sub">{coverageText(consensus.coverage.revisions)}</div></div>
               </div>
               <p className="meta" style={{ margin: ".5rem 0" }}>
                 有可用數字的 {consensus.symbols} 檔約占指數 {num(consensus.coveredWeightPct, 0)}% 權重；
@@ -320,21 +320,31 @@ export default function OutlookPage({ outlook, cells, liveTrack, frequency, rece
               </p>
               <div className="table-wrap">
                 <table>
-                  <thead><tr><th>代號</th><th className="num">權重</th><th className="num">股價</th><th className="num">目標價</th><th className="num">隱含</th><th className="num hide-sm">買/持/賣</th></tr></thead>
+                  <thead><tr><th>代號</th><th className="num">權重</th><th className="num">股價</th><th className="num">目標價</th><th className="num">隱含</th><th className="num hide-sm">買/持/賣</th><th className="num hide-sm">EPS 近四週修正</th></tr></thead>
                   <tbody>
                     {consensus.top.map((v) => (
                       <tr key={v.symbol}>
                         <td className="mono">{v.symbol}</td>
                         <td className="num">{num(v.weightPct, 2)}%</td>
                         <td className="num">{num(v.price)}<div className="meta">{v.priceDate?.slice(5) ?? "—"}</div></td>
-                        <td className="num">{v.targetMean === null && v.buy + v.hold + v.sell === 0 ? "Nasdaq 無資料" : num(v.targetMean)}</td>
+                        <td className="num">
+                          {v.targetMean === null && v.buy + v.hold + v.sell === 0 ? "Nasdaq 無資料" : num(v.targetMean)}
+                          {v.targetLow != null && v.targetHigh != null && <div className="meta" style={{ whiteSpace: "normal" }}>最低 {num(v.targetLow)}～最高 {num(v.targetHigh)}</div>}
+                        </td>
                         <td className="num"><Delta value={v.upsidePct} percent digits={1} /></td>
                         <td className="num hide-sm">{v.buy}/{v.hold}/{v.sell}</td>
+                        <td className="num hide-sm">
+                          {v.epsUp === null || v.epsDown === null ? "缺資料" : v.epsUp === 0 && v.epsDown === 0 ? "沒有修正" : `上修 ${v.epsUp}／下修 ${v.epsDown}`}
+                          <div className="meta">會計年度 {v.fiscalEnd ?? "缺資料"} · 估計數 {v.estimates ?? "缺資料"}</div>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
+              <p className="meta" style={{ marginTop: ".5rem" }}>
+                最低～最高是 Nasdaq 收錄的個別分析師目標價範圍，不是機率區間；EPS 欄是來源提供的近四週上修／下修次數，不是修正幅度，也不一定是不同分析師的家數；會計年度是來源列出的第一個年度。這些欄位只描述資料，能否預測報酬未經驗證（成效未證實），不是買賣訊號。
+              </p>
             </>
           )}
         </div>

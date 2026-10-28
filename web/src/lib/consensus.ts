@@ -7,11 +7,15 @@ export interface ViewRow {
   price: number | null;
   priceDate?: string | null;
   targetMean: number | null;
+  targetLow?: number | null;
+  targetHigh?: number | null;
   buy: number;
   hold: number;
   sell: number;
   epsUp: number | null;
   epsDown: number | null;
+  fiscalEnd?: string | null;
+  estimates?: number | null;
 }
 
 interface Coverage {

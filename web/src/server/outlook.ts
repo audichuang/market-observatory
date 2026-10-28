@@ -72,7 +72,7 @@ export async function outlookView(c: ViewCtx) {
       .all<{ ticker: string; weight_pct: number; as_of: string }>();
     const weights = new Map(weightsRows.results.map((w) => [w.ticker, w.weight_pct]));
     const views = await db
-      .prepare("SELECT symbol, as_of AS asOf, price, price_date AS priceDate, target_mean AS targetMean, buy, hold, sell, eps_up AS epsUp, eps_down AS epsDown FROM analyst_views WHERE as_of >= ?")
+      .prepare("SELECT symbol, as_of AS asOf, price, price_date AS priceDate, target_mean AS targetMean, target_low AS targetLow, target_high AS targetHigh, buy, hold, sell, eps_up AS epsUp, eps_down AS epsDown, fiscal_end AS fiscalEnd, estimates FROM analyst_views WHERE as_of >= ?")
       .bind(cutoff)
       .all<ViewRow>();
     const freshViews = freshLatestViews(views.results, weights, cutoff);

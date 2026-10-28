@@ -69,6 +69,33 @@ test("匯入回執：翻譯三則只回答兩則，缺答的新聞逐筆列為�
   assert.equal((sql.prepare("SELECT title_zh FROM news WHERE id = 'n2'").get() as { title_zh: string | null }).title_zh, null);
 });
 
+test("翻譯回執：重複序號只計一次寫入、保留最後答案，批次紀錄與回執一致", async () => {
+  const { db, sql } = await seeded();
+  const r = await importResults(db, {
+    translate: [{ ids: ["n1", "n2", "n3"], answer: { items: [
+      translated(1, "第一A", ["NVDA"]),
+      { ...translated(1, "第一B", ["SPY"], "投資觀點"), tone: "positive" },
+      translated(3, "第三", ["SPY"]),
+    ] } }],
+    run: { id: "duplicate-translate", kind: "translate", expected: ["translate:n1", "translate:n2", "translate:n3"], missing: [], unavailable: [] },
+  });
+  assert.deepEqual({ translated: r.translated, accepted: r.accepted, rejected: r.rejected, skipped: r.skipped }, {
+    translated: 2, accepted: ["translate:n1", "translate:n3"],
+    rejected: [{ key: "translate:n2", reason: "答案缺這則或格式不對" }], skipped: [],
+  });
+  assert.deepEqual({ ...sql.prepare("SELECT title_zh, tone, category, focus FROM news WHERE id = 'n1'").get() }, {
+    title_zh: "第一B", tone: "positive", category: "投資觀點", focus: "SPY",
+  });
+  assert.equal((sql.prepare("SELECT title_zh FROM news WHERE id = 'n2'").get() as { title_zh: string | null }).title_zh, null);
+  assert.equal((sql.prepare("SELECT title_zh FROM news WHERE id = 'n3'").get() as { title_zh: string }).title_zh, "第三");
+  const row = sql.prepare("SELECT id, job, trigger, status, summary, detail FROM runs").get() as { id: number; job: string; trigger: string; status: string; summary: string; detail: string };
+  assert.deepEqual(r.run, { id: row.id, status: "partial" });
+  assert.deepEqual([row.job, row.trigger, row.status], ["ai-translate", "ai-batch", "partial"]);
+  assert.equal(row.summary, "預期 3、寫入 2、缺答案 0、拒收 1、正文取不到 0");
+  assert.deepEqual(JSON.parse(row.detail).accepted, ["translate:n1", "translate:n3"]);
+  assert.deepEqual(JSON.parse(row.detail).rejected, r.rejected);
+});
+
 test("批次紀錄：缺答與拒收寫成 partial，保存回執、正文不可得與 manifest", async () => {
   const { db, sql } = await seeded();
   const run = {

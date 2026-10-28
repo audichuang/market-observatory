@@ -182,6 +182,7 @@ export async function importResults(db: Db, body: ImportBody): Promise<ImportRec
     } catch (e) {
       skipped.push(`翻譯：${e instanceof Error ? e.message : String(e)}`);
     }
+    parsed = [...new Map(parsed.map((e) => [e.id, e])).values()];
     const answered = new Set(parsed.map((e) => e.id));
     for (const id of ids) {
       if (!byId.has(id)) rejected.push({ key: `translate:${id}`, reason: "新聞已不在資料庫，沒有寫入" });

@@ -1,7 +1,9 @@
 import { Series } from "../lib/analytics.ts";
 import type { PriceCheck, Snapshot } from "../lib/snapshot.ts";
 import { detectRebase } from "../lib/rebase.ts";
-import type { DailyBar } from "../lib/sources/http.ts";
+import { type DailyBar, sameClose } from "../lib/sources/http.ts";
+
+export { sameClose } from "../lib/sources/http.ts";
 
 // Use D1 prepared statements for batch writes; split IN queries to respect the parameter limit.
 
@@ -124,12 +126,6 @@ export async function insertMissingBars(db: Db, batch: BarBatch, opts: { before:
   }
   return inserted;
 }
-
-/**
- * 同一個收盤的兩種寫法：Yahoo spark 的收盤是單精度浮點，與 chart 的值差在第 8 位有效數字左右
- * （實測 ^GSPC 差 0.0002、相對 3e-8；單精度誤差上限約 6e-8）。門檻 1e-6 留了十幾倍餘裕；價格一萬美元以下時，它小於一分錢，真的修正收盤一定看得出來。這種差異不算「收盤改了」，否則每天都會把整個月重寫一遍、清掉已做完的交叉核對。
- */
-export const sameClose = (a: number, b: number) => Math.abs(a - b) <= Math.max(Math.abs(a), Math.abs(b)) * 1e-6;
 
 export const CHECK_ABS_TOLERANCE = 0.011;
 export const CHECK_REL_TOLERANCE = 0.0005;

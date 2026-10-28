@@ -65,10 +65,10 @@ export const fakeClose = (symbol: string, date: string) => {
 const tsOf = (date: string) => Date.parse(`${date}T20:00:00Z`) / 1000; // 美東 16:00
 const mdy = (d: string) => `${d.slice(5, 7)}/${d.slice(8, 10)}/${d.slice(0, 4)}`;
 
-function chartResult(symbol: string, days: string[], closeOnly: boolean) {
+export function chartResult(symbol: string, days: string[], closeOnly: boolean) {
   const close = days.map((d) => fakeClose(symbol, d));
   return {
-    meta: { symbol, exchangeTimezoneName: "America/New_York" },
+    meta: { symbol, exchangeTimezoneName: "America/New_York", dataGranularity: "1d" },
     timestamp: days.map(tsOf),
     indicators: { quote: [closeOnly ? { close } : { open: close, high: close, low: close, close, volume: close.map(() => 1000) }] },
   };

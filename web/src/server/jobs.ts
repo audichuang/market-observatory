@@ -747,16 +747,20 @@ const JOBS: Record<JobName, (db: D1Database, opts: JobOptions, budget: Budget) =
 export async function runJob(db: D1Database, job: JobName, trigger: string, opts: JobOptions = {}, budget = new Budget(SUBREQUEST_BUDGET)) {
   const id = await startRun(db, job, trigger);
   const before = budget.used;
+  const issuesBefore = budget.dataIssues.length;
   const usage = () => ({ subrequests: budget.used - before, budgetLeft: budget.remaining });
   try {
     const r = await JOBS[job](db, opts, budget);
-    const detail = { ...r.detail, ...usage() };
-    await finishRun(db, id, r.status, r.summary, detail);
+    const dataIssues = budget.dataIssues.slice(issuesBefore);
+    const status = dataIssues.length && r.status === "ok" ? "partial" as const : r.status;
+    const summary = r.summary + (dataIssues.length ? `；${dataIssues.length} 筆日線同日兩筆不同收盤、未採用：${dataIssues.slice(0, 3).join("；")}${dataIssues.length > 3 ? "…" : ""}` : "");
+    const detail = { ...r.detail, ...usage(), dataIssues };
+    await finishRun(db, id, status, summary, detail);
     await bumpDataVersion(db);
-    return { id, ...r, detail };
+    return { id, ...r, status, summary, detail };
   } catch (e) {
     const summary = errText(e);
-    const detail = { stack: e instanceof Error ? e.stack : null, ...usage() };
+    const detail = { stack: e instanceof Error ? e.stack : null, ...usage(), dataIssues: budget.dataIssues.slice(issuesBefore) };
     await finishRun(db, id, "failed", summary, detail);
     await bumpDataVersion(db);
     return { id, status: "failed" as const, summary, detail };
@@ -829,13 +833,16 @@ export async function addWatchSymbol(db: D1Database, input: string, budget = new
   let summary = `已加入 ${member.company}（${member.tickers.join("＋")}）`;
   if (isNew) {
     const expected = latestExpectedClose();
+    const issuesBefore = budget.dataIssues.length;
     const { ok, failed } = await fetchYahooBatch(member.tickers.map((t) => [t, t] as [string, string]), "10y", expected, budget);
+    const dataIssues = budget.dataIssues.slice(issuesBefore);
     const failedNames = Object.keys(failed);
     if (failedNames.length) return { ok: false, error: `抓不到 ${failedNames.join(",")} 的歷史股價（${Object.values(failed)[0]}），稍後再試` };
     await upsertBars(db, ok, { allowRebase: true });
     // Nasdaq 核對最近兩個月；失敗不擋（之後的排程會再核對）。
     await crossCheckNasdaq(db, member.tickers.map((t) => ({ symbol: t, assetClass: "stocks" as const })), addDays(expected, -60), 60, budget).catch(() => null);
     summary += `，補了 ${ok.reduce((a, b) => a + b.bars.length, 0)} 筆日線`;
+    if (dataIssues.length) summary += `；略過 ${dataIssues.length} 天同日兩筆不同收盤的日線（${dataIssues.map((issue) => issue.split(" ")[2]).join("、")}）`;
   }
   // 抓價花了幾秒，這段時間名單可能被別的裝置改過：存檔時重讀、重新套用。
   const saved = await updateWatchlist(

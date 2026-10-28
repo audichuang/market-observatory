@@ -1,0 +1,49 @@
+{
+  "id": "points-conflict-truncated",
+  "task": "points",
+  "group": {
+    "company": "KITE",
+    "event": "points-conflict-truncated-event",
+    "article": "points-conflict-truncated-original"
+  },
+  "tags": [
+    "正文截斷",
+    "來源矛盾",
+    "否定句"
+  ],
+  "input": {
+    "title": "Kite Harbor revenue reports conflict",
+    "body": "Kite Harbor said revenue was $120M. A synthetic wire reported $125M without reconciliation. The company did not raise its outlook. The transcript ends mid-sentence: next quarter we expect",
+    "summary": null,
+    "symbols": [
+      "KITE"
+    ]
+  },
+  "gold": {
+    "requiredFacts": [
+      {
+        "id": "conflict",
+        "description": "保留矛盾來源",
+        "pattern": "公司.*\\$120M.*通訊社.*\\$125M"
+      },
+      {
+        "id": "denial",
+        "description": "未上修展望",
+        "pattern": "未調升財測"
+      },
+      {
+        "id": "truncated",
+        "description": "不補完截斷資訊",
+        "pattern": "下季展望尚未完整"
+      }
+    ],
+    "forbidden": [
+      {
+        "kind": "inference",
+        "pattern": "公司確認營收|並調升財測|下季營收保證",
+        "reason": "矛盾或截斷資料不可自行定案"
+      }
+    ],
+    "tone": "neutral"
+  }
+}

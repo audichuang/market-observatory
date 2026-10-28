@@ -93,6 +93,7 @@ export interface NewsItem {
   url: string;
   publisher: string | null;
   publishedAt: string | null;
+  publishedAgo: string | null;
   /** 英文摘要（description），可能是空的 */
   summary: string | null;
   /** 文章主角（primarysymbol），Yahoo 格式（BRK-B） */
@@ -104,6 +105,7 @@ interface NewsRow {
   url?: string;
   publisher?: string;
   created?: string;
+  ago?: string;
   id?: number | string;
   description?: string;
   primarysymbol?: string;
@@ -127,6 +129,7 @@ export function parseNasdaqNews(rows: NewsRow[]): NewsItem[] {
       url,
       publisher: r.publisher?.trim() || null,
       publishedAt: parseNasdaqCreated(r.created),
+      publishedAgo: r.ago?.trim().slice(0, 40) || null,
       // description 常以「Key Points」開頭、句子黏在一起：去掉開頭字樣、限制長度
       summary: r.description?.replace(/^\s*Key Points\s*/i, "").trim().slice(0, 600) || null,
       primarySymbol: r.primarysymbol ? fromNasdaqSymbol(r.primarysymbol.toUpperCase()) : null,

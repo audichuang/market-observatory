@@ -62,6 +62,8 @@ export const news = sqliteTable(
     url: text("url").notNull(),
     publisher: text("publisher"),
     publishedAt: text("published_at"),
+    /** Relative time from the first upstream response, paired with fetched_at from that response. */
+    publishedAgo: text("published_ago"),
     source: text("source").notNull(),
     fetchedAt: text("fetched_at").notNull(),
     /** 來源附的英文摘要（Nasdaq description），給 AI 寫重點用 */

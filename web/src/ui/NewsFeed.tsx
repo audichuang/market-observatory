@@ -21,7 +21,11 @@ export interface DigestItem {
   date: string;
   summary: string;
   tone: string;
+  sources: DigestSource[];
+  sourcesMissing: number;
 }
+
+type DigestSource = Pick<NewsItem, "id" | "title" | "title_zh" | "url" | "publisher" | "published_at">;
 
 // 紅漲綠跌：利多紅、利空綠。
 const TONE: Record<string, [string, string]> = {
@@ -34,6 +38,30 @@ export function ToneBadge({ tone }: { tone: string | null }) {
   const t = tone ? TONE[tone] : undefined;
   if (!t) return null;
   return <span className={`badge ${t[0]}`}>{t[1]}</span>;
+}
+
+export function DigestSources({ sources, sourcesMissing, market = false }: {
+  sources: DigestSource[];
+  sourcesMissing: number;
+  market?: boolean;
+}) {
+  return (
+    <details className="digest-sources">
+      <summary>參考來源（整篇，非逐句）· {sources.length} 則</summary>
+      {sources.length > 0 && (
+        <ul className="list">
+          {sources.map((source) => (
+            <li key={source.id}>
+              <a href={source.url} target="_blank" rel="noreferrer">{source.title_zh || source.title}</a>
+              <div className="meta">{source.publisher ?? "出處不明"} · {source.published_at?.slice(0, 10) ?? "日期不明"}</div>
+            </li>
+          ))}
+        </ul>
+      )}
+      {sourcesMissing > 0 && <p className="meta">另有 {sourcesMissing} 則來源已不在資料庫，無法列出</p>}
+      {market && sources.length === 0 && sourcesMissing === 0 && <p className="meta">這段只根據行情數字，沒有引用新聞</p>}
+    </details>
+  );
 }
 
 /** 新聞列表＋每日重點：中文標題為主、英文原文小字。翻譯、重點與每日重點都由排程寫好（scripts/ai-batch.ts），這裡只顯示。 */
@@ -76,6 +104,7 @@ export function NewsFeed({ news, digests, showOthers = true, showDigests = true 
               <strong>{d.company}</strong> <span className="mono meta">{d.symbol}</span> <ToneBadge tone={d.tone} />
               <div>{d.summary}</div>
               <div className="meta">{d.date}</div>
+              <DigestSources sources={d.sources} sourcesMissing={d.sourcesMissing} />
             </div>
           ))}
         </div>

@@ -12,7 +12,7 @@ import { z } from "zod";
 import { type Viewer, getViewerSetting, settingKey, viewerWatchlist } from "./account.ts";
 import { rebuildSnapshots, WATCHLIST_REBUILD_SESSIONS } from "./jobs.ts";
 import { MARKET_KEY } from "./ai-batch.ts";
-import { latestDigests } from "./news-ai.ts";
+import { latestDigests, withDigestSources } from "./news-ai.ts";
 import { bumpDataVersion, cachedPage, readDb } from "./page-cache.ts";
 import { getSnapshot, listRevisions, listSnapshotDates, loadPrices, putSetting } from "./repo.ts";
 import { latestHoldings, loadTrackedMembers } from "./watchlist.ts";
@@ -93,7 +93,7 @@ export async function overviewView(c: ViewCtx, v: Viewer) {
           .bind(s.weights.asOf, ...tickers)
           .first<{ n: number }>()
       : Promise.resolve(null),
-    s ? latestDigests(c.env.DB, members, s.tradeDate, addDays(s.tradeDate, 1)) : Promise.resolve([]),
+    s ? latestDigests(c.env.DB, members, s.tradeDate, s.tradeDate) : Promise.resolve([]),
     s ? marketDigest(c.env.DB, s.tradeDate) : Promise.resolve(null),
   ]);
   return {
@@ -109,7 +109,7 @@ export async function overviewView(c: ViewCtx, v: Viewer) {
     forecast: shared.forecast,
     restCount: rest?.n ?? null,
     viewingLatest: !date,
-    // 名單公司在這個交易日（或之後一天，盤後新聞）的 AI 新聞重點
+    // 名單公司的 AI 新聞重點：只取這個交易日的摘要
     digests,
     market,
   };
@@ -117,7 +117,8 @@ export async function overviewView(c: ViewCtx, v: Viewer) {
 
 /** 總覽最上面那段「今天為什麼漲跌」：排程寫在 news_digests（代號 SPX），沒寫到就不顯示。 */
 async function marketDigest(db: D1Database, date: string) {
-  return db.prepare("SELECT date, summary, tone FROM news_digests WHERE symbol = ? AND date = ?").bind(MARKET_KEY, date).first<{ date: string; summary: string; tone: string }>();
+  const digest = await db.prepare("SELECT date, summary, tone, news_ids FROM news_digests WHERE symbol = ? AND date = ?").bind(MARKET_KEY, date).first<{ date: string; summary: string; tone: string; news_ids: string }>();
+  return digest ? (await withDigestSources(db, [digest]))[0] : null;
 }
 
 // ── 走勢 ───────────────────────────────────────────────
@@ -370,11 +371,17 @@ export async function newsView(c: ViewCtx, v: Viewer) {
   // 指定代號時，「重要」是這則真的在講那家公司
   const important = importanceFor(members, symbol);
   const digestMembers = symbol ? members.filter((m) => m.key === symbol) : members;
-  const [events, news, digests] = await Promise.all([eventsTask, newsTask, latestDigests(c.env.DB, digestMembers, addDays(today, -3))]);
+  const [events, news, digests, latest] = await Promise.all([
+    eventsTask,
+    newsTask,
+    latestDigests(c.env.DB, digestMembers, addDays(today, -3)),
+    c.env.DB.prepare("SELECT MAX(trade_date) AS d FROM snapshots").first<{ d: string | null }>(),
+  ]);
   return {
     symbol,
     keys,
     today,
+    latestTradeDate: latest?.d ?? null,
     news: news.results.map((n) => newsOut(n, important(n))),
     digests,
     events: events.filter((e) => e.kind !== "earnings" || (e.symbol !== null && keys.includes(e.symbol))),

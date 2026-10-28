@@ -16,12 +16,31 @@ struct FixtureDecodingTests {
     @Test func generatedOverview() throws {
         let p = try decodeFixture("generated-overview", as: Overview.self)
         #expect(p.snapshot != nil && p.forecast?.drawdown != nil)
+        let market = try #require(p.market)
+        #expect(market.sourcesMissing == 1)
+        #expect(market.sources?.count == 1)
+        #expect(market.sources?.first?.url == "https://example.test/news")
+        #expect(p.digests?.first?.sources?.first?.titleZh == "NVIDIA 財報更新")
     }
     @Test func generatedHistory() throws {
         let p = try decodeFixture("generated-history", as: History.self)
         #expect(p.stats.allSatisfy { $0.first != nil })
     }
-    @Test func generatedNews() throws { _ = try decodeFixture("generated-news", as: NewsPage.self) }
+    @Test func generatedNews() throws {
+        let p = try decodeFixture("generated-news", as: NewsPage.self)
+        #expect(p.latestTradeDate == "2026-10-28")
+        let digest = try #require(p.digests?.first { $0.symbol == "NVDA" })
+        let sources = try #require(digest.sources)
+        #expect(sources.count == 1)
+        let source = try #require(sources.first)
+        #expect(source.id == "contract-news")
+        #expect(source.title == "NVIDIA earnings")
+        #expect(source.titleZh == "NVIDIA 財報更新")
+        #expect(source.url == "https://example.test/news")
+        #expect(source.publisher == "合成新聞")
+        #expect(source.publishedAt == "2026-10-28T23:00:00.000Z")
+        #expect(digest.sourcesMissing == 0)
+    }
     @Test func generatedWatchlist() throws { _ = try decodeFixture("generated-watchlist", as: Watchlist.self) }
     @Test func generatedEtfs() throws {
         let p = try decodeFixture("generated-etfs", as: Etfs.self)
@@ -56,13 +75,35 @@ struct FixtureDecodingTests {
         #expect(oldConsensus.top.first?.targetLow == nil)
     }
     @Test func me() throws { _ = try decodeFixture("me", as: Me.self) }
-    @Test func overview() throws { _ = try decodeFixture("overview", as: Overview.self) }
+    @Test func overview() throws {
+        let p = try decodeFixture("overview", as: Overview.self)
+        #expect(p.market?.sources == nil && p.market?.sourcesMissing == nil)
+        #expect(p.digests?.first?.sources == nil)
+    }
     @Test func history() throws {
         let p = try decodeFixture("history", as: History.self)
         #expect(p.stats.allSatisfy { $0.first == nil })
     }
     @Test func historyForSymbol() throws { _ = try decodeFixture("history_symbol_NVDA_months_3", as: History.self) }
-    @Test func news() throws { _ = try decodeFixture("news", as: NewsPage.self) }
+    @Test func news() throws {
+        let p = try decodeFixture("news", as: NewsPage.self)
+        #expect(p.latestTradeDate == nil)
+        #expect(p.digests?.first?.sources == nil && p.digests?.first?.sourcesMissing == nil)
+    }
+    @Test func legacyDigestsWithoutSources() throws {
+        let company = #"{"symbol":"NVDA","date":"2026-10-28","summary":"舊格式公司重點","tone":"positive"}"#
+        let news = try API.decoder.decode(NewsDigest.self, from: Data(company.utf8))
+        #expect(news.sources == nil && news.sourcesMissing == nil)
+        let market = #"{"date":"2026-10-28","summary":"舊格式市場重點","tone":"neutral"}"#
+        let digest = try API.decoder.decode(MarketDigest.self, from: Data(market.utf8))
+        #expect(digest.sources == nil && digest.sourcesMissing == nil)
+    }
+    @Test func digestSourceWithoutMetadata() throws {
+        let json = #"{"id":"source-en","title":"English source","url":"https://example.test/source"}"#
+        let source = try API.decoder.decode(DigestSource.self, from: Data(json.utf8))
+        #expect(source.title == "English source")
+        #expect(source.titleZh == nil && source.publisher == nil && source.publishedAt == nil)
+    }
     @Test func outlook() throws { _ = try decodeFixture("outlook", as: OutlookPage.self) }
     // 策略師表 2026-10 加的欄位：舊回應沒有時為 nil，新回應解得開。
     @Test func strategistMetadata() throws {

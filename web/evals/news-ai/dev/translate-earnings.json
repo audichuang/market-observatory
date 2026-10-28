@@ -1,0 +1,48 @@
+{
+  "id": "translate-earnings",
+  "task": "translate",
+  "group": {
+    "company": "NIMB",
+    "event": "translate-earnings-event",
+    "article": "translate-earnings-original"
+  },
+  "tags": [
+    "actual vs estimate",
+    "GAAP vs adjusted"
+  ],
+  "input": {
+    "id": "t-earn",
+    "title": "Nimbus Loom reports GAAP EPS $0.85 and adjusted EPS $1.20 versus adjusted estimate $1.10",
+    "summary": "Reported figures are actual; $1.10 was an estimate.",
+    "symbols": [
+      "NIMB"
+    ],
+    "primarySymbol": "NIMB"
+  },
+  "gold": {
+    "requiredFacts": [
+      {
+        "id": "gaap",
+        "description": "GAAP 實際數",
+        "pattern": "GAAP 每股盈餘 \\$0.85"
+      },
+      {
+        "id": "adjusted",
+        "description": "調整後實際與估計分開",
+        "pattern": "調整後.*\\$1.20.*預估.*\\$1.10"
+      }
+    ],
+    "forbidden": [
+      {
+        "kind": "inference",
+        "pattern": "GAAP 每股盈餘為 \\$1\\.20",
+        "reason": "把 adjusted 寫成 GAAP"
+      }
+    ],
+    "focus": [
+      "NIMB"
+    ],
+    "category": "財報",
+    "tone": "positive"
+  }
+}

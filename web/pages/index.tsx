@@ -4,7 +4,7 @@ import { HORIZON } from "../src/lib/forecast.ts";
 import { REST_LABEL_SHORT, REST_NOTE, type Mag7Row } from "../src/lib/snapshot.ts";
 import { CenteredBar, CheckBadge, Delta } from "../src/ui/bits.tsx";
 import { dateWithWeekday, num, pctText, ppText, signed, taipeiTime, tone } from "../src/ui/format.ts";
-import { NewsFeed, ToneBadge } from "../src/ui/NewsFeed.tsx";
+import { DigestSources, NewsFeed, ToneBadge } from "../src/ui/NewsFeed.tsx";
 import type { Props } from "./index.server";
 
 export default function Overview({ snapshot, dates, expectedClose, news, digests, market, events, lastPriceRun, forecast, restCount, viewingLatest }: Props) {
@@ -56,6 +56,7 @@ export default function Overview({ snapshot, dates, expectedClose, news, digests
         <div className="panel" style={{ marginBottom: "1rem" }}>
           <div className="label">今天為什麼漲跌 <ToneBadge tone={market.tone} /></div>
           <p style={{ margin: ".35rem 0 0" }}>{market.summary}</p>
+          <DigestSources sources={market.sources} sourcesMissing={market.sourcesMissing} market />
         </div>
       )}
 

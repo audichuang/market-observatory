@@ -226,12 +226,34 @@
       "date": "2026-10-28",
       "summary": "合成公司重點",
       "tone": "positive",
-      "company": "NVIDIA"
+      "company": "NVIDIA",
+      "sources": [
+        {
+          "id": "contract-news",
+          "title": "NVIDIA earnings",
+          "title_zh": "NVIDIA 財報更新",
+          "url": "https://example.test/news",
+          "publisher": "合成新聞",
+          "published_at": "2026-10-28T23:00:00.000Z"
+        }
+      ],
+      "sourcesMissing": 0
     }
   ],
   "market": {
     "date": "2026-10-28",
     "summary": "合成市場重點",
-    "tone": "negative"
+    "tone": "negative",
+    "sources": [
+      {
+        "id": "contract-news",
+        "title": "NVIDIA earnings",
+        "title_zh": "NVIDIA 財報更新",
+        "url": "https://example.test/news",
+        "publisher": "合成新聞",
+        "published_at": "2026-10-28T23:00:00.000Z"
+      }
+    ],
+    "sourcesMissing": 1
   }
 }

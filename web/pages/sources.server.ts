@@ -11,6 +11,7 @@ import { yahooDisplayUrl } from "../src/lib/sources/yahoo.ts";
 import { JOB_NAMES } from "../src/server/jobs.ts";
 import { CHECK_ABS_TOLERANCE, CHECK_REL_TOLERANCE } from "../src/server/repo.ts";
 import { loadSourceSwitches } from "../src/server/source-switches.ts";
+import { aiPipelineStatus } from "../src/server/ai-batch.ts";
 
 export type Props = InferProps<typeof loader>;
 
@@ -19,7 +20,7 @@ const registry = SOURCE_REGISTRY.map(({ patterns: _patterns, ...source }) => sou
 export const loader = defineHandler(async (c) => {
   const db = readDb(c.env);
   // 頁面資料依資料版本快取，見 src/server/page-cache.ts。
-  return cachedPage(c, db, `sources?close=${latestScheduledClose()}`, async () => {
+  const cached = cachedPage(c, db, `sources?close=${latestScheduledClose()}`, async () => {
     // 「落後」標記的基準：抓價排程該跑完了才算，與總覽的過期警告一致。
     const expected = latestScheduledClose();
     const [freshness, mismatches, runs, weights, counts, switches] = await Promise.all([
@@ -36,7 +37,7 @@ export const loader = defineHandler(async (c) => {
       // Page props are embedded in the HTML for every signed-in user: never send detail (other users' ids, token prefixes, stacks)
       // or the raw trigger (manual triggers used to carry the owner's email).
       db
-        .prepare("SELECT id, job, CASE WHEN trigger LIKE 'cron%' THEN 'cron' ELSE 'manual' END AS trigger, status, started_at, finished_at, summary FROM runs ORDER BY id DESC LIMIT 60").all<{ id: number; job: string; trigger: string; status: string; started_at: string; finished_at: string | null; summary: string | null }>(),
+        .prepare("SELECT id, job, CASE WHEN trigger LIKE 'cron%' THEN 'cron' WHEN trigger = 'ai-batch' THEN 'local' ELSE 'manual' END AS trigger, status, started_at, finished_at, summary FROM runs ORDER BY id DESC LIMIT 60").all<{ id: number; job: string; trigger: string; status: string; started_at: string; finished_at: string | null; summary: string | null }>(),
       db.prepare("SELECT as_of, COUNT(*) AS n, ROUND(SUM(weight_pct), 2) AS total, MAX(fetched_at) AS fetched_at FROM weights GROUP BY as_of ORDER BY as_of DESC LIMIT 10").all<{ as_of: string; n: number; total: number; fetched_at: string }>(),
       db.prepare("SELECT (SELECT COUNT(*) FROM prices) AS prices, (SELECT COUNT(*) FROM snapshots) AS snapshots, (SELECT COUNT(DISTINCT trade_date) FROM snapshots) AS days, (SELECT COUNT(*) FROM news) AS news, (SELECT COUNT(*) FROM events) AS events").first<Record<string, number>>(),
       loadSourceSwitches(db),
@@ -61,6 +62,9 @@ export const loader = defineHandler(async (c) => {
       links: { ssga: SSGA_DISPLAY_URL, cboeSpx: CBOE_URLS.SPX },
     };
   });
+  // AI imports do not bump data_version, so read their status from the primary DB on every request.
+  const [page, ai] = await Promise.all([cached, aiPipelineStatus(c.env.DB)]);
+  return { ...page, ai };
 });
 
 export const head = defineHead(() => ({ title: "資料來源" }));

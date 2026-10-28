@@ -4,9 +4,10 @@
 
 ## Sub-features
 
-- `sources-page`：各區塊（手動執行、排程、SPY 持股檔、資料性質、各標的最新資料、執行紀錄）有內容；「資料性質」列三條註記（Yahoo／Nasdaq 是非官方端點、價格不含股息、策略師目標表人工維護）；「近 60 天來源不一致」只在有不一致時才出現，沒出現不算 fail。
+- `sources-page`：各區塊（手動執行、排程、SPY 持股檔、新聞 AI（本機排程）、資料性質、各標的最新資料、執行紀錄）有內容；「資料性質」列三條註記（Yahoo／Nasdaq 是非官方端點、價格不含股息、策略師目標表人工維護）；「近 60 天來源不一致」只在有不一致時才出現，沒出現不算 fail。
 - `sources-weights-stale`：最新 SPY 持股落後 `latestScheduledClose()` 超過 2 個 NYSE 交易日時，「SPY 持股檔」標題下顯示共用的「權重未更新：最新 SPY 持股停在 …」橘色警示。weights 工作則以 `latestExpectedClose()` 判斷，過期檔仍寫入，執行狀態為 partial、摘要開頭帶同一警示。
-- `sources-no-leak`：頁面資料（嵌在 HTML 裡）的執行紀錄只有 `id, job, trigger, status, started_at, finished_at, summary`，`trigger` 只會是 `cron` 或 `manual`，不含 `detail`、email 或 stack；非站長看頁面原始碼搜 `@`、`stack`、`detail` 應無命中。
+- `sources-ai-status`：新聞 AI 三行列每日重點（最近一次狀態、時間、計數 summary、最後完整成功、最新交易日大盤重點是否寫入）、標題翻譯（最近一次、最後完整成功、待翻譯筆數與最早抓取時間）、新聞來源（最後成功抓取）。結果以 D1 為準，AI 匯入後重新載入即更新；沒有快照或執行紀錄時顯示尚無資料。
+- `sources-no-leak`：頁面資料（嵌在 HTML 裡）的執行紀錄只有 `id, job, trigger, status, started_at, finished_at, summary`，`trigger` 只會是 `cron`、`manual` 或 `local`（畫面為排程／手動／本機）；`ai` 只放公開狀態、時間與計數，不含 `detail`、email 或 stack；非站長看頁面原始碼搜 `@`、`stack`、`detail` 應無命中。
 - `sources-manual-run`：站長按某個工作的按鈕 → 執行紀錄多一筆、狀態 ok。
 - `sources-forecast-phase`：站長可手動執行「展望相位平均」；交叉核對排程（週一至五 UTC 22:50）依序執行 `crosscheck`、`forecast-phase`，頁面說明「之後重算展望相位平均」。新工作只讀 SPX／VIX 算摘要存 settings，不打外部請求（detail.subrequests = 0）；同資料日與模型版本回「已是最新」、computedAt 不變；資料不足回「資料不足，略過」、status 仍 ok。
 - `sources-analysts`：分析師工作以抓取時的 `latestExpectedClose()` 為股價日上限；美東 16:30 前（含夏令時間 UTC 20:00 的 news 排程）採前一交易日收盤。EPS 請求失敗仍寫入目標價、EPS 欄為 null，工作為 partial，摘要保留「分析師共識 x/y 檔」開頭並追加「；EPS 失敗 N 檔」；`detail.epsFailed` 列出失敗代號，沒有失敗時為空陣列。
@@ -28,7 +29,8 @@ Preconditions:
 - **相位平均。** 點 `button:text-is("展望相位平均")`，執行紀錄出現成功；讀 `/api/v1/outlook` 留下 `phaseSummary`，再執行一次，摘要「已是最新」且 API computedAt 不變。交叉核對排程的本機／部署後 API 對帳須含兩個工作，確認 `forecast-phase` status ok、detail.subrequests = 0；留 `sources-forecast-phase.png` 與 API JSON。
 - **分析師對帳。** 本機 `web-up.sh` 跑完 news 後，在 `/sources` 核對 analysts 紀錄為 ok 或帶「EPS 失敗 N 檔」的 partial；查本輪 `analyst_views.price_date` 不晚於抓取時的 `latestExpectedClose()`。部署後由站長執行 `POST /api/admin/cron?name=news`，留存 analysts 的 `status`、`summary`、`detail.subrequests`、`detail.epsFailed`，並對帳新寫入列；請求數量級與原流程相同（輪替常數與端點數不變）。EPS 失敗的合成情境與盤中日期界線由 `web/tests/analysts-job.test.ts` 重現。
 - **非站長。** 測試帳號 `goto("/sources")`：沒有 `h2:text-is("手動執行")`，截圖 `sources-non-owner.png`；`page.fetch("/api/admin/run?job=weights", { method: "POST" })` 回 403、`{"error":"只有站長能執行"}`。
-- **Proof。** `sources.png`、`sources-manual-run.png`、`sources-non-owner.png`、403 的回應。
+- **新聞 AI。** 站長在本機站用 `MO_URL`、暫存的 `MO_AI_BATCH_DIR` 跑 `node scripts/ai-batch.ts pull daily`，保留至少兩個任務，只答一題再 push；確認結束碼 3、輸出「缺答案」，保存 `receipt.json`。重新載入 `/sources`，「新聞 AI（本機排程）」每日重點最近一次為 partial（徽章「部分成功」），時間與 summary 對上回執，最後完整成功維持前一筆 ok；最新交易日的大盤重點標示依該日 SPX 摘要是否寫入。標題翻譯顯示待翻譯筆數與最早抓取時間，新聞來源顯示最後成功抓取。執行紀錄依 `data_version` 快取；檢查前先在本機 worktree 的 `web/` 執行 `npx void db execute "INSERT INTO settings (key,value) VALUES ('data_version',json_object('v',CAST((julianday('now')-2440587.5)*86400000 AS INTEGER))) ON CONFLICT(key) DO UPDATE SET value=excluded.value;"`，再重新載入 `/sources`。執行紀錄列「新聞 AI 每日重點 · 本機」；翻譯紀錄標「新聞 AI 標題翻譯」。截圖 `sources-ai-partial.png`。再 pull 確認 `runs/<runId>/manifest.json` 與答案仍在；`pull daily --check` 前後檔案與 mtime 不變。用測試帳號看原始碼，搜尋 `@`、`stack`、`detail` 無命中，保存結果 `sources-no-leak.txt`。
+- **Proof。** `sources.png`、`sources-manual-run.png`、`sources-non-owner.png`、403 的回應；AI 驗收另附 `sources-ai-partial.png`、`receipt.json`、歸檔 manifest、precheck 前後比對與 `sources-no-leak.txt`。
 
 ## Gotchas
 

@@ -3,9 +3,20 @@ import { test } from "node:test";
 import { isNyseSession, latestExpectedClose } from "../src/lib/calendar.ts";
 import { parseCboeCsv } from "../src/lib/sources/cboe.ts";
 import type { DayConflict } from "../src/lib/sources/http.ts";
-import { parseEarningsCalendar, parseEarningsDate, parseNasdaqHistorical } from "../src/lib/sources/nasdaq.ts";
+import { parseEarningsCalendar, parseEarningsDate, parseNasdaqHistorical, parseNasdaqNews } from "../src/lib/sources/nasdaq.ts";
 import { parseSpyHoldings } from "../src/lib/sources/ssga.ts";
 import { parseYahooChart, parseYahooSpark } from "../src/lib/sources/yahoo.ts";
+
+test("Nasdaq 新聞：保留 ago 原文、去除首尾空白並限制 40 字，發布日期不變", () => {
+  const rows = parseNasdaqNews([
+    { title: "News", url: "/articles/time", created: "Oct 23, 2026", ago: "  2 hours ago  " },
+    { title: "Long", url: "/articles/long", ago: `  ${"x".repeat(41)}  ` },
+    { title: "Empty", url: "/articles/empty", ago: "  " },
+    { title: "Missing", url: "/articles/missing" },
+  ]);
+  assert.equal(rows[0].publishedAt, "2026-10-23");
+  assert.deepEqual(rows.map((row) => row.publishedAgo), ["2 hours ago", "x".repeat(40), null, null]);
+});
 
 test("Yahoo：依交易所時區換日期、丟掉空收盤、代號不符就報錯", () => {
   const json = {

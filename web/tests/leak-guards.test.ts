@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { FakeUpstream, migratedDb } from "./helpers/fake-cloudflare.ts";
 import { FILLERS, consistentSpx, seededDb } from "./helpers/stress-env.ts";
+import { importResults } from "../src/server/ai-batch.ts";
 
 const upstream = new FakeUpstream();
 let restore: () => void;
@@ -12,23 +13,49 @@ before(() => {
 });
 after(() => restore());
 
-test("資料來源頁的 loader 不送 detail、不含 email，trigger 只剩 cron／manual", async () => {
+test("資料來源頁的 loader 不送 detail、不含 email，trigger 只剩 cron／manual／local", async () => {
   const { db, sql } = await migratedDb();
   const ins = sql.prepare("INSERT INTO runs (job, trigger, status, started_at, finished_at, summary, detail) VALUES (?, ?, ?, ?, ?, ?, ?)");
   const detail = JSON.stringify({ userId: "user-abc", token: "deadbeef", stack: "Error: boom\n    at x (owner@example.com)" });
   ins.run("prices", "manual owner@example.com", "error", "2026-10-26T00:00:00Z", "2026-10-26T00:01:00Z", "失敗", detail);
   ins.run("prices", "manual-cron owner@example.com", "ok", "2026-10-26T01:00:00Z", "2026-10-26T01:01:00Z", "完成", detail);
   ins.run("prices", "cron 0 21 * * 1-5", "ok", "2026-10-26T02:00:00Z", "2026-10-26T02:01:00Z", "完成", detail);
+  ins.run("ai-daily", "ai-batch", "partial", "2026-10-26T03:00:00Z", "2026-10-26T03:01:00Z", "預期 2、寫入 1", detail);
   const { loader } = await import("../pages/sources.server.ts");
-  const out = (await (loader as unknown as (c: unknown) => Promise<{ runs: Record<string, unknown>[]; registry: Record<string, unknown>[] }>)({ env: { DB: db } }));
+  const out = (await (loader as unknown as (c: unknown) => Promise<{ runs: Record<string, unknown>[]; registry: Record<string, unknown>[]; ai: unknown }>)({ env: { DB: db } }));
   assert.equal(out.registry.length, 14);
   assert.ok(out.registry.every((source) => !("patterns" in source)), "清冊不送 RegExp");
-  assert.equal(out.runs.length, 3);
+  assert.equal(out.runs.length, 4);
   for (const r of out.runs) assert.ok(!("detail" in r), JSON.stringify(r));
-  assert.deepEqual(out.runs.map((r) => r.trigger), ["cron", "manual", "manual"]);
+  assert.deepEqual(out.runs.map((r) => r.trigger), ["local", "cron", "manual", "manual"]);
+  assert.ok(out.ai);
+  assert.doesNotMatch(JSON.stringify(out.ai), /detail/);
   const json = JSON.stringify(out);
   assert.ok(!json.includes("@"), json);
   assert.ok(!json.includes("stack"), json);
+  assert.ok(!json.includes("detail"), json);
+});
+
+test("資料來源頁命中快取後，AI 匯入未 bump data_version 仍立即反映 D1 狀態", async (t) => {
+  const { db, sql } = await migratedDb();
+  const original = Object.getOwnPropertyDescriptor(globalThis, "caches");
+  const stored = new Map<string, Response>();
+  let hits = 0;
+  Object.defineProperty(globalThis, "caches", { configurable: true, value: { default: {
+    match: async (key: string) => { const hit = stored.get(key); if (hit) hits++; return hit?.clone(); },
+    put: async (key: string, response: Response) => { stored.set(key, response.clone()); },
+  } } });
+  t.after(() => { if (original) Object.defineProperty(globalThis, "caches", original); else Reflect.deleteProperty(globalThis, "caches"); });
+  const { loader } = await import("../pages/sources.server.ts");
+  const load = loader as unknown as (c: unknown) => Promise<{ ai: { daily: { lastRun: { status: string; summary: string } | null } } }>;
+  const ctx = { env: { DB: db } };
+  assert.equal((await load(ctx)).ai.daily.lastRun, null);
+  await importResults(db, { run: { id: "cached-page-partial", kind: "daily", expected: ["points:missing"], missing: ["points:missing"], unavailable: [] } });
+  const out = await load(ctx);
+  assert.equal(hits, 1, "第二次確實從相同版本的頁面快取讀取");
+  assert.equal(out.ai.daily.lastRun?.status, "failed");
+  assert.equal(out.ai.daily.lastRun?.summary, "預期 1、寫入 0、缺答案 1、拒收 0、正文取不到 0");
+  assert.equal(sql.prepare("SELECT value FROM settings WHERE key = 'data_version'").get(), undefined);
 });
 
 test("一般使用者每天最多加入 5 家全站新公司；第 6 家不打上游，已有人追蹤的與站長名單不受限", async () => {

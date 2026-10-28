@@ -818,7 +818,7 @@ struct OutlookView: View {
                         Text("\(coverage.symbols) 檔 · \(Fmt.plainPct(coverage.weightPct)) 權重\(coverage.weightPct < 50 ? "（不到一半）" : "")")
                             .font(.caption).foregroundStyle(.secondary)
                     }
-                    Text("近四週（上修−下修）÷ 總次數，−100～+100")
+                    Text("近四週各檔（上修−下修）÷（上修＋下修），依權重平均後 ×100，−100～+100")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 .fixedSize(horizontal: false, vertical: true)

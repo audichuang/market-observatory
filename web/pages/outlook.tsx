@@ -334,7 +334,7 @@ export default function OutlookPage({ outlook, outlookUnavailable, cells, liveTr
               <div className="grid kpis" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))" }}>
                 <div className="kpi"><div className="label">目標價隱含漲幅</div><div className="value" style={{ fontSize: "1.2rem" }}><Delta value={consensus.impliedUpsidePct} percent digits={1} /></div><div className="delta sub">{coverageText(consensus.coverage.target)}</div></div>
                 <div className="kpi"><div className="label">買進評等占比</div><div className="value" style={{ fontSize: "1.2rem" }}>{consensus.buyPct === null ? "—" : `${num(consensus.buyPct, 0)}%`}</div><div className="delta sub">{coverageText(consensus.coverage.ratings)}</div></div>
-                <div className="kpi"><div className="label">EPS 修正廣度</div><div className="value" style={{ fontSize: "1.2rem" }}><Delta value={consensus.revisionBreadth === null ? null : consensus.revisionBreadth * 100} digits={0} /></div><div className="delta sub">近四週（上修−下修）÷ 總次數，−100～+100</div><div className="delta sub">{coverageText(consensus.coverage.revisions)}</div></div>
+                <div className="kpi"><div className="label">EPS 修正廣度</div><div className="value" style={{ fontSize: "1.2rem" }}><Delta value={consensus.revisionBreadth === null ? null : consensus.revisionBreadth * 100} digits={0} /></div><div className="delta sub">近四週各檔（上修−下修）÷（上修＋下修），依權重平均後 ×100，−100～+100</div><div className="delta sub">{coverageText(consensus.coverage.revisions)}</div></div>
               </div>
               <p className="meta" style={{ margin: ".5rem 0" }}>
                 有可用數字的 {consensus.symbols} 檔約占指數 {num(consensus.coveredWeightPct, 0)}% 權重；

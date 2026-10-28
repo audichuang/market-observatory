@@ -124,17 +124,19 @@ test("定投試算依所選標的顯示 1x 或槓桿證據邊界，資料卡含�
     sim: { ...simulation.sim!, etf: "UPRO" },
     rows: [uproRow, vooRow] as any,
   }).render();
-  const textUpro = pageText(renderedUpro);
-  assert.ok(textUpro.includes(copy.EVIDENCE_LEVERAGED), "UPRO 試算須含 EVIDENCE_LEVERAGED");
-  assert.ok(textUpro.includes("註冊地"), "資料卡須含「註冊地」");
-  assert.ok(textUpro.includes("ISIN"), "資料卡須含「ISIN」");
-  assert.ok(textUpro.includes("每日重設"), "資料卡須含「每日重設」");
+  const uproNodes = nodes(renderedUpro);
+  assert.deepEqual(uproNodes.filter((n) => n.props.className === "notice warn").map(pageText), [copy.EVIDENCE_LEVERAGED], "UPRO 試算須顯示槓桿證據警示");
+  const factsText = pageText(uproNodes.filter((n) => n.type === "details" && n.props.className === "etf-facts"));
+  assert.ok(factsText.includes("註冊地"), "資料卡須含「註冊地」");
+  assert.ok(factsText.includes("ISIN"), "資料卡須含「ISIN」");
+  assert.ok(factsText.includes("倍數：3x，每日重設"), "UPRO 資料卡須顯示實際倍數與每日重設身分");
 
   const renderedVoo = pageWithAction(undefined, {
     ...simulation,
     sim: { ...simulation.sim!, etf: "VOO" },
     rows: [uproRow, vooRow] as any,
   }).render();
-  const textVoo = pageText(renderedVoo);
-  assert.ok(textVoo.includes(copy.EVIDENCE_1X), "VOO 試算須含 EVIDENCE_1X");
+  const vooNodes = nodes(renderedVoo);
+  assert.equal(vooNodes.filter((n) => n.props.className === "notice warn").length, 0, "VOO 試算不得顯示槓桿證據警示");
+  assert.equal(vooNodes.filter((n) => n.type === "p" && n.props.className === "meta" && pageText(n) === copy.EVIDENCE_1X).length, 1, "VOO 試算須以一般樣式顯示完整 1x 證據句");
 });

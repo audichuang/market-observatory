@@ -73,6 +73,8 @@ export interface Enriched {
 
 const STYLE = `用台灣繁體中文與台灣慣用的財經詞彙：財報、營收、晶片、股價、分析師、目標價、調升／調降評等、庫藏股（不是「回購」）、法說會、年增／季增（不是「同比」「環比」）、獲利（不是「利潤」）、軟體（不是「軟件」）、記憶體（不是「內存」）。不可出現簡體字或中國用語（例如「芯片」「回購」「營收同比」）。公司保留英文代號或常用中文名（輝達、蘋果、微軟、特斯拉可用中文）。`
 
+const TIMING_RULES = `逐句分清楚「發生了什麼」與「誰怎麼解讀」。要寫某則消息帶動股價，只能用「收盤前已發布」那組，而且新聞本身要有這樣的說法，寫成「〔具名來源〕認為／指出……」。「無法確認在收盤前發布」那組可以提到發生了什麼，但不能當成這天收盤漲跌的原因。沒有盤中資料，不寫「公布後立即」「盤中逆轉」這類時間先後。`;
+
 export function enrichPrompt(items: EnrichInput[]): Prompt {
   const lines = items.map((it, i) => {
     const extra = [it.primarySymbol ? `來源標的主角：${it.primarySymbol}` : null, it.summary ? `摘要：${it.summary.slice(0, 300)}` : null].filter(Boolean).join("；");
@@ -126,7 +128,8 @@ export interface DigestInput {
   /** 當天報酬（%）與對指數的貢獻點數；當天沒交易或還沒收盤時為 null */
   returnPct: number | null;
   contributionPts: number | null;
-  news: { titleZh: string; title: string; summary: string | null; tone: string; category: string }[];
+  news: { titleZh: string; title: string; summary: string | null; tone: string; category: string; timing?: "before-close" | "after-close" | "unknown" }[];
+  unconfirmed?: { titleZh: string; title: string; summary: string | null; tone: string; category: string; timing: "after-close" | "unknown" }[];
 }
 
 export function digestPrompt(d: DigestInput): Prompt {
@@ -134,15 +137,24 @@ export function digestPrompt(d: DigestInput): Prompt {
     d.returnPct === null
       ? "當天股價：無資料（休市或尚未收盤）"
       : `當天股價：${d.returnPct >= 0 ? "+" : ""}${d.returnPct.toFixed(2)}%${d.contributionPts === null ? "" : `，對 S&P 500 貢獻 ${d.contributionPts >= 0 ? "+" : ""}${d.contributionPts.toFixed(1)} 點`}`;
-  const lines = d.news.map((n, i) => `${i + 1}. ${n.titleZh}（${n.category}／${n.tone}）\n   原文：${n.title}${n.summary ? `\n   摘要：${n.summary.slice(0, 300)}` : ""}`);
+  const beforeClose = d.news.filter((n) => n.timing === "before-close");
+  const unconfirmed = [...d.news.filter((n) => n.timing !== "before-close"), ...(d.unconfirmed ?? [])];
+  const lines = (news: DigestInput["news"], labelTiming = false) => news.map((n, i) =>
+    `${i + 1}. ${labelTiming ? `[${n.timing === "after-close" ? "收盤後" : "時間不明"}] ` : ""}${n.titleZh}（${n.category}／${n.tone}）\n   原文：${n.title}${n.summary ? `\n   摘要：${n.summary.slice(0, 300)}` : ""}`,
+  ).join("\n") || "（沒有）";
   return {
     system: `你是台灣的財經編輯，替看不懂英文的散戶整理個股重點。${STYLE}`,
     user: `${d.company}（${d.key}）${d.date}（美東日期）的新聞如下，${move}。
 用 1～2 句、合計不超過 70 個字，說明這天跟這家公司有關、實際發生了什麼，以及新聞裡有沒有具名人士對股價的說法。
 只根據下面的新聞，不要編造數字或原因，也不要自己推測之後的走勢；如果新聞看不出股價為什麼漲跌，就直接寫「沒有可清楚辨識的單一催化因素」，不要硬解釋漲跌。不要用「根據新聞」「綜合以上」這種開頭。
 tone 是整體對股價偏 positive、negative 或 neutral。
+${TIMING_RULES}
 
-${lines.join("\n")}`,
+收盤前已發布的新聞：
+${lines(beforeClose)}
+
+無法確認在收盤前發布的新聞：
+${lines(unconfirmed, true)}`,
   };
 }
 
@@ -161,6 +173,7 @@ export interface MarketInput {
   restPts: number | null;
   /** 這天大盤、總經的新聞標題（繁中優先） */
   news: string[];
+  unconfirmed?: { id: string; title: string; timing: "after-close" | "unknown" }[];
 }
 
 const signedNum = (n: number | null, digits: number, unit = "") => (n === null ? "無資料" : `${n >= 0 ? "+" : ""}${n.toFixed(digits)}${unit}`);
@@ -170,6 +183,9 @@ const MARKET_MOVERS_LISTED = 6;
 
 /** 總覽最上面那段「今天為什麼漲跌」：只講整體，個股原因另有每家的重點。 */
 export function marketPrompt(m: MarketInput): Prompt {
+  // Only the new Worker separates unconfirmed items; legacy titles have no timing guarantee.
+  const beforeClose = m.unconfirmed === undefined ? [] : m.news;
+  const unconfirmed = m.unconfirmed ?? m.news.map((title) => ({ title, timing: "unknown" as const }));
   const sorted = [...m.movers].sort((a, b) => Math.abs(b.contributionPts ?? 0) - Math.abs(a.contributionPts ?? 0));
   const listed = sorted.slice(0, MARKET_MOVERS_LISTED);
   const unlisted = sorted.slice(MARKET_MOVERS_LISTED);
@@ -187,11 +203,16 @@ VIX ${m.vix === null ? "無資料" : m.vix.toFixed(2)}（${signedNum(m.vixChange
 ${movers.join("\n") || "（無資料）"}
 ${REST_LABEL}合計 ${signedNum(m.restPts, 1, " 點")}。${m.restPts === null ? "" : "\n以上各項加總約等於指數漲跌點數。"}
 這天的大盤與總經新聞：
-${m.news.map((t, i) => `${i + 1}. ${t}`).join("\n") || "（沒有）"}
+收盤前已發布的新聞：
+${beforeClose.map((t, i) => `${i + 1}. ${t}`).join("\n") || "（沒有）"}
+
+無法確認在收盤前發布的新聞：
+${unconfirmed.map((n, i) => `${i + 1}. [${n.timing === "after-close" ? "收盤後" : "時間不明"}] ${n.title}`).join("\n") || "（沒有）"}
 
 用 2～3 句、合計不超過 100 個字，說明這天指數怎麼走：漲跌集中在少數權值股還是普遍漲跌、主要是誰、有沒有總經或消息面的原因。
 只根據上面的數字與新聞，不要編造原因，也不要推測之後的走勢。新聞說明不了這天的漲跌時，直接寫「沒有可清楚辨識的單一催化因素」，再描述漲跌結構；不要因為漲跌幅大就硬找原因。不要用「根據資料」「綜合以上」這種開頭，不要逐檔列數字。
-tone 是這天整體偏 positive、negative 或 neutral。`,
+tone 是這天整體偏 positive、negative 或 neutral。
+${TIMING_RULES}`,
   };
 }
 

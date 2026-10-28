@@ -364,3 +364,7 @@ button.chip:disabled { opacity: .5; }
 .news-others summary { cursor: pointer; color: var(--muted); font-size: .88rem; margin-bottom: .4rem; }
 .digests { margin-bottom: .8rem; }
 .digest { background: color-mix(in srgb, var(--ink) 4%, transparent); border-radius: var(--radius); padding: .5rem .7rem; margin-bottom: .5rem; font-size: .9rem; }
+.digest-sources { margin-top: .4rem; min-width: 0; overflow-wrap: anywhere; }
+.digest-sources summary { cursor: pointer; color: var(--muted); font-size: .88rem; }
+.digest-sources .list { margin-top: .35rem; }
+.digest-sources p { margin: .35rem 0 0; }

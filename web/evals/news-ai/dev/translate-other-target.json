@@ -1,0 +1,34 @@
+{
+  "id": "translate-other-target",
+  "task": "translate",
+  "group": {
+    "company": "LUMA",
+    "event": "translate-other-target-event",
+    "article": "translate-other-target-original"
+  },
+  "tags": [
+    "別家目標價"
+  ],
+  "input": {
+    "id": "t-other",
+    "title": "Vesper Bank assigns $48 target to Oriole bonds; Luma Systems mentioned in passing",
+    "summary": "The target concerns Oriole bonds, not Luma Systems.",
+    "symbols": [
+      "LUMA"
+    ],
+    "primarySymbol": "ORIO"
+  },
+  "gold": {
+    "requiredFacts": [
+      {
+        "id": "other",
+        "description": "目標價屬於別家公司",
+        "pattern": "Oriole.*\\$48"
+      }
+    ],
+    "forbidden": [],
+    "focus": [],
+    "category": "分析師",
+    "tone": "neutral"
+  }
+}

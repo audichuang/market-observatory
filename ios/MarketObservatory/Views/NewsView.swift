@@ -133,13 +133,21 @@ struct NewsView: View {
     @ViewBuilder
     private func digestSection(_ p: NewsPage) -> some View {
         let ds = (p.digests ?? []).sorted { (p.keys.firstIndex(of: $0.symbol) ?? .max) < (p.keys.firstIndex(of: $1.symbol) ?? .max) }
-        if !ds.isEmpty {
-            Section("今日重點") {
-                ForEach(ds.prefix(3)) { d in digestRow(d) }
-                if ds.count > 3 {
-                    DisclosureGroup("其餘 \(ds.count - 3) 家") {
-                        ForEach(ds.dropFirst(3)) { d in digestRow(d) }
+        let sections = DigestSections.split(ds, latest: p.latestTradeDate)
+        if !sections.current.isEmpty {
+            Section(sections.title) {
+                ForEach(sections.current.prefix(3)) { d in digestRow(d) }
+                if sections.current.count > 3 {
+                    DisclosureGroup("其餘 \(sections.current.count - 3) 家") {
+                        ForEach(sections.current.dropFirst(3)) { d in digestRow(d) }
                     }
+                }
+            }
+        }
+        if !sections.earlier.isEmpty {
+            Section {
+                DisclosureGroup("較早的重點") {
+                    ForEach(sections.earlier) { d in digestRow(d) }
                 }
             }
         }
@@ -153,13 +161,22 @@ struct NewsView: View {
                 DigestRow(digest: d, expanded: collapsedSymbolDigest != d.id) {
                     withAnimation { collapsedSymbolDigest = collapsedSymbolDigest == d.id ? nil : d.id }
                 }
+                if collapsedSymbolDigest != d.id {
+                    DigestSourcesList(sources: d.sources, sourcesMissing: d.sourcesMissing)
+                        .accessibilityIdentifier("news-digest-sources-\(d.symbol)")
+                }
             }
         }
     }
 
+    @ViewBuilder
     private func digestRow(_ d: NewsDigest) -> some View {
         DigestRow(digest: d, expanded: expandedDigest == d.symbol) {
             withAnimation { expandedDigest = expandedDigest == d.symbol ? nil : d.symbol }
+        }
+        if expandedDigest == d.symbol {
+            DigestSourcesList(sources: d.sources, sourcesMissing: d.sourcesMissing)
+                .accessibilityIdentifier("news-digest-sources-\(d.symbol)")
         }
     }
 

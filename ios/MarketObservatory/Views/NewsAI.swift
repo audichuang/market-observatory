@@ -160,6 +160,79 @@ struct NewsDetailSheet: View {
     }
 }
 
+struct DigestSections {
+    let latestDate: String?
+    let current: [NewsDigest]
+    let earlier: [NewsDigest]
+    let title: String
+
+    static func split(_ digests: [NewsDigest], latest: String?) -> DigestSections {
+        let date = latest ?? digests.map(\.date).max()
+        // An old backend cannot establish which trading day is current.
+        guard let latest else {
+            return DigestSections(latestDate: date, current: digests, earlier: [], title: "公司重點")
+        }
+        return DigestSections(
+            latestDate: date,
+            current: digests.filter { $0.date == latest },
+            earlier: digests.filter { $0.date != latest },
+            title: "今日重點 · \(Fmt.dateWithWeekday(latest))"
+        )
+    }
+}
+
+struct DigestSourcesList: View {
+    let sources: [DigestSource]?
+    let sourcesMissing: Int?
+    var showsHeading = true
+
+    @Environment(\.openURL) private var openURL
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if showsHeading {
+                Text("參考來源（整篇，非逐句）")
+                    .font(.subheadline.weight(.semibold))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            ForEach(sources ?? []) { source in
+                Button {
+                    if let url = URL(string: source.url) { openURL(url) }
+                } label: {
+                    VStack(alignment: .leading, spacing: 4) {
+                        let title = source.titleZh.flatMap { $0.isEmpty ? nil : $0 } ?? source.title
+                        Text(title)
+                            .font(.subheadline)
+                            .foregroundStyle(.tint)
+                            .fixedSize(horizontal: false, vertical: true)
+                        let metadata = [source.publisher, source.publishedAt.map {
+                            $0.count == 10 ? Fmt.dateWithWeekday($0) : Fmt.taipeiTime($0)
+                        }].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+                        if !metadata.isEmpty {
+                            Text(metadata)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+            if let missing = sourcesMissing, missing > 0 {
+                Text("另有 \(missing) 則來源已不在資料庫，無法列出")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .contain)
+    }
+}
+
 /// 每日公司重點：一家一列，列首 3pt tone 色條；點一下在 3 行與全文之間切換。
 struct DigestRow: View {
     let digest: NewsDigest
@@ -178,6 +251,10 @@ struct DigestRow: View {
                         ToneTag(tone: digest.tone)
                         Spacer(minLength: 4)
                     }
+                    Text(Fmt.dateWithWeekday(digest.date))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                     Text(digest.summary)
                         .font(.body)
                         .foregroundStyle(.primary)

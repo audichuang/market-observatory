@@ -1,0 +1,55 @@
+{
+  "id": "market-format",
+  "task": "market",
+  "group": {
+    "company": "SYNTH-MARKET-B",
+    "event": "market-format-event",
+    "article": "market-format-original"
+  },
+  "tags": [
+    "格式",
+    "收盤後同日消息"
+  ],
+  "input": {
+    "date": "2026-10-23",
+    "close": 6543.21,
+    "changePts": -12.34,
+    "returnPct": -0.19,
+    "vix": 18.25,
+    "vixChange": 0.5,
+    "spreadPct": -0.2,
+    "movers": [
+      {
+        "key": "AURA",
+        "company": "Aura Works",
+        "returnPct": -1.2,
+        "contributionPts": -8.0
+      }
+    ],
+    "restPts": -4.34,
+    "news": [],
+    "unconfirmed": [
+      {
+        "id": "macro-late",
+        "title": "合成統計局於收盤後發布調查",
+        "timing": "after-close"
+      }
+    ]
+  },
+  "gold": {
+    "requiredFacts": [
+      {
+        "id": "move",
+        "description": "描述結構",
+        "pattern": "Aura Works.*負貢獻"
+      },
+      {
+        "id": "no-cause",
+        "description": "沒有可辨識催化",
+        "pattern": "沒有可清楚辨識的單一催化因素"
+      }
+    ],
+    "forbidden": [],
+    "tone": "negative"
+  }
+}

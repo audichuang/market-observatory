@@ -41,8 +41,8 @@ test("API 契約：真正的 view 輸出須與 iOS 解碼 fixture 一致", async
   }
   sql.prepare("INSERT INTO events (id,date,kind,symbol,title,status,source_url,fetched_at) VALUES ('contract-event',?,'earnings','NVDA','NVIDIA 財報','scheduled','https://example.test/event',?)").run(TODAY, STAMP);
   sql.prepare("INSERT INTO news (id,symbols,title,url,publisher,published_at,source,fetched_at,title_zh,tone,category,focus,primary_symbol,points_zh,enriched_at) VALUES ('contract-news','NVDA','NVIDIA earnings','https://example.test/news','合成新聞',?,'contract',?,'NVIDIA 財報更新','positive','earnings','company','NVDA',?,?)").run(STAMP, STAMP, JSON.stringify(["營收成長", "展望更新"]), STAMP);
-  sql.prepare("INSERT INTO news_digests (symbol,date,summary,tone,news_ids,digest,model,created_at) VALUES ('NVDA',?,'合成公司重點','positive','[]','contract','contract',?)").run(TODAY, STAMP);
-  sql.prepare("INSERT INTO news_digests (symbol,date,summary,tone,news_ids,digest,model,created_at) VALUES ('SPX',?,'合成市場重點','negative','[]','contract','contract',?)").run(TODAY, STAMP);
+  sql.prepare("INSERT INTO news_digests (symbol,date,summary,tone,news_ids,digest,model,created_at) VALUES ('NVDA',?,'合成公司重點','positive','contract-news','contract','contract',?)").run(TODAY, STAMP);
+  sql.prepare("INSERT INTO news_digests (symbol,date,summary,tone,news_ids,digest,model,created_at) VALUES ('SPX',?,'合成市場重點','negative','contract-news,contract-gone','contract','contract',?)").run(TODAY, STAMP);
   sql.prepare("INSERT INTO analyst_views (symbol,as_of,price,target_mean,buy,hold,sell,eps_up,eps_down,fetched_at) VALUES ('NVDA',?,100,120,10,2,1,4,1,?)").run(TODAY, STAMP);
   sql.prepare("INSERT INTO forecasts (trade_date,probability,base_rate,basis,call,close,created_at,detail,model_version,history_start) VALUES (?,0.7,0.6,'contract','up',1000,?,?, '2026-10-l01',?)").run(dates[dates.length - 30], STAMP, JSON.stringify({ drawdown: { p: 0.15, base: 0.2, scored: true } }), dates[0]);
   const ctx = (query: Record<string, string> = {}): ViewCtx => ({ env: { DB: db }, req: { query: (key) => query[key], url: "http://contract.test/" } });

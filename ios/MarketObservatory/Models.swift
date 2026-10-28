@@ -157,6 +157,15 @@ struct NewsBrief: Decodable, Sendable, Identifiable {
     let important: Bool?
 }
 
+struct DigestSource: Decodable, Sendable, Hashable, Identifiable {
+    let id: String
+    let title: String
+    let titleZh: String?
+    let url: String
+    let publisher: String?
+    let publishedAt: String?
+}
+
 /// 每日公司重點。tone：positive／negative／neutral。
 struct NewsDigest: Decodable, Sendable, Identifiable, Hashable {
     var id: String { "\(date)-\(symbol)" }
@@ -165,12 +174,16 @@ struct NewsDigest: Decodable, Sendable, Identifiable, Hashable {
     let date: String
     let summary: String
     let tone: String?
+    var sources: [DigestSource]? = nil
+    var sourcesMissing: Int? = nil
 }
 
 struct MarketDigest: Decodable, Sendable, Hashable {
     let date: String
     let summary: String
     let tone: String?
+    var sources: [DigestSource]? = nil
+    var sourcesMissing: Int? = nil
 }
 
 struct EventBrief: Decodable, Sendable, Identifiable {
@@ -326,6 +339,7 @@ struct NewsPage: Decodable, Sendable {
     let symbol: String?
     let keys: [String]
     let today: String
+    let latestTradeDate: String?
     let news: [Item]
     let events: [Event]
     let digests: [NewsDigest]?

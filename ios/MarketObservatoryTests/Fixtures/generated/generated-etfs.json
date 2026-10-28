@@ -1836,5 +1836,145 @@
         }
       ]
     }
-  ]
+  ],
+  "overlap": {
+    "asOf": "2026-10-28",
+    "proxy": "SPY",
+    "applicable": true,
+    "members": [
+      {
+        "key": "NVDA",
+        "company": "NVIDIA",
+        "tickers": [
+          "NVDA"
+        ],
+        "weightPct": 6,
+        "outOfIndex": []
+      },
+      {
+        "key": "AAPL",
+        "company": "Apple",
+        "tickers": [
+          "AAPL"
+        ],
+        "weightPct": 5.5,
+        "outOfIndex": []
+      },
+      {
+        "key": "MSFT",
+        "company": "Microsoft",
+        "tickers": [
+          "MSFT"
+        ],
+        "weightPct": 5,
+        "outOfIndex": []
+      },
+      {
+        "key": "AMZN",
+        "company": "Amazon",
+        "tickers": [
+          "AMZN"
+        ],
+        "weightPct": 4.5,
+        "outOfIndex": []
+      },
+      {
+        "key": "GOOGL",
+        "company": "Alphabet",
+        "tickers": [
+          "GOOGL",
+          "GOOG"
+        ],
+        "weightPct": 7.5,
+        "outOfIndex": []
+      },
+      {
+        "key": "META",
+        "company": "Meta",
+        "tickers": [
+          "META"
+        ],
+        "weightPct": 3,
+        "outOfIndex": []
+      },
+      {
+        "key": "TSLA",
+        "company": "Tesla",
+        "tickers": [
+          "TSLA"
+        ],
+        "weightPct": 2.5,
+        "outOfIndex": []
+      }
+    ],
+    "totalWeight": 34,
+    "top10CompanyWeight": 36,
+    "exposure": {
+      "members": [
+        {
+          "key": "NVDA",
+          "viaEtfTwd": 18000,
+          "directTwd": 50000,
+          "combinedTwd": 68000,
+          "sharePct": 19.428571428571427
+        },
+        {
+          "key": "AAPL",
+          "viaEtfTwd": 16500,
+          "directTwd": 0,
+          "combinedTwd": 16500,
+          "sharePct": 4.714285714285714
+        },
+        {
+          "key": "MSFT",
+          "viaEtfTwd": 15000,
+          "directTwd": 0,
+          "combinedTwd": 15000,
+          "sharePct": 4.285714285714286
+        },
+        {
+          "key": "AMZN",
+          "viaEtfTwd": 13500,
+          "directTwd": 0,
+          "combinedTwd": 13500,
+          "sharePct": 3.8571428571428568
+        },
+        {
+          "key": "GOOGL",
+          "viaEtfTwd": 22500,
+          "directTwd": 0,
+          "combinedTwd": 22500,
+          "sharePct": 6.428571428571428
+        },
+        {
+          "key": "META",
+          "viaEtfTwd": 9000,
+          "directTwd": 0,
+          "combinedTwd": 9000,
+          "sharePct": 2.571428571428571
+        },
+        {
+          "key": "TSLA",
+          "viaEtfTwd": 7500,
+          "directTwd": 0,
+          "combinedTwd": 7500,
+          "sharePct": 2.142857142857143
+        }
+      ],
+      "totalTwd": 350000,
+      "watchlistSharePct": 43.42857142857143,
+      "otherViaEtfTwd": 198000
+    },
+    "inputs": {
+      "ovEtf": 300000,
+      "ov": {
+        "NVDA": 50000
+      }
+    },
+    "issue": null,
+    "notes": [
+      "以 2026-10-28 的 SPY 持股作指數代理推估；VOO 的實際持股可能略有不同",
+      "觀察名單不是持倉；只有你填了金額才算假設曝險，這不是配置建議。"
+    ]
+  }
 }

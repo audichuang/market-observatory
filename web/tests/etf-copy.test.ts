@@ -7,6 +7,7 @@ import type { Props } from "../pages/etfs.server.ts";
 import { costScenario, parseCostQuery } from "../src/lib/costs.ts";
 import { ETFS } from "../src/lib/universe.ts";
 import { TAX_CHECKLISTS } from "../src/lib/tax-facts.ts";
+import { overlapPreview, parseOverlapQuery } from "../src/lib/overlap.ts";
 
 const simulation: Partial<Props> = {
   sim: { etf: "IVV", years: 2, monthlyTwd: 1000, startDate: "2040-01-15" },
@@ -287,4 +288,88 @@ test("成本之後的稅務面板以兩份可展開清單呈現 API 文字、來
     }
   }
   assert.equal(nodes(panel).filter((n) => ["input", "form", "button"].includes(String(n.type))).length, 0);
+});
+
+const overlap = (values: Record<string, string> = {}, ticker = "SPY") => {
+  const list = [
+    { key: "NVDA", company: "Nvidia", tickers: ["NVDA"] },
+    { key: "GOOGL", company: "Alphabet", tickers: ["GOOGL", "GOOG"] },
+  ];
+  return overlapPreview({
+    list, holdings: [
+      { ticker: "NVDA", name: "NVIDIA CORP", weightPct: 7 },
+      { ticker: "GOOGL", name: "ALPHABET INC CL A", weightPct: 2 },
+      { ticker: "GOOG", name: "ALPHABET INC CL C", weightPct: 1.8 },
+      { ticker: "AAPL", name: "APPLE INC", weightPct: 6 },
+    ],
+    asOf: "2026-10-28", etf: ETFS.find((e) => e.ticker === ticker)!,
+    input: parseOverlapQuery((key) => values[key], list),
+  });
+};
+
+test("重疊面板列持股日期、公司股類、合計與前十大，沒金額不列假設曝險", () => {
+  const panel = nodes(pageWithAction(undefined, { overlap: overlap() }).render()).find((n) => n.props.id === "watchlist-overlap");
+  assert.ok(panel);
+  const text = pageText(panel);
+  assert.ok(text.includes("與觀察名單的重疊"));
+  assert.ok(text.includes("以 2026-10-28 的 SPY 持股作指數代理推估"));
+  assert.ok(text.includes("觀察名單不是持倉"));
+  assert.ok(text.includes("Nvidia") && text.includes("GOOGL、GOOG"));
+  assert.match(text, /名單合計覆蓋：10\.800%/);
+  assert.match(text, /指數前十大公司合計：16\.800%/);
+  assert.ok(!text.includes("占你填的總額"));
+  assert.doesNotMatch(text.replace("這不是配置建議。", ""), /建議|過度集中/);
+  const upro = nodes(pageWithAction(undefined, { overlap: overlap({ ovEtf: "100000" }, "UPRO") }).render()).find((n) => n.props.id === "watchlist-overlap");
+  assert.ok(pageText(upro).includes("不適用持股重疊推估"));
+  assert.ok(!pageText(upro).includes("占你填的總額"));
+});
+
+test("重疊表單帶入 ETF 與各公司金額，結果列 ETF、直接持有、合計與占比", () => {
+  const ui = pageWithAction(undefined, { overlap: overlap(), sim: { ...simulation.sim!, etf: "SPY" } });
+  let rendered = ui.render();
+  const panel = nodes(rendered).find((n) => n.props.id === "watchlist-overlap");
+  assert.ok(panel);
+  const etfAmount = nodes(panel).find((n) => n.props.name === "ovEtf");
+  const nvdaAmount = nodes(panel).find((n) => n.props.name === "ov-NVDA");
+  assert.ok(etfAmount && nvdaAmount);
+  assert.ok(pageText(panel).includes("SPY 金額（台幣）"));
+  assert.ok(pageText(panel).includes("另外持有（台幣）"));
+  (etfAmount.props.onChange as Function)({ target: { value: "100000" } });
+  rendered = ui.render();
+  (nodes(rendered).find((n) => n.props.name === "ov-NVDA")!.props.onChange as Function)({ target: { value: "50000" } });
+  const form = nodes(ui.render()).find((n) => n.type === "form" && nodes(n).some((child) => child.props.name === "ovEtf"));
+  assert.ok(form);
+  (form.props.onSubmit as Function)({ preventDefault() {} });
+  const url = new URL(String(ui.visits[0]), "http://localhost");
+  assert.equal(url.searchParams.get("ovEtf"), "100000");
+  assert.equal(url.searchParams.get("ov"), "NVDA:50000");
+  const result = nodes(pageWithAction(undefined, { overlap: overlap({ ovEtf: "100000", ov: "NVDA:50000" }) }).render()).find((n) => n.props.id === "watchlist-overlap");
+  const text = pageText(result);
+  for (const expected of ["經 ETF", "另外持有", "合計", "占你填的總額", "7,000.00", "57,000.00", "38.00%", "150,000.00", "89,200.00"]) assert.ok(text.includes(expected), expected);
+});
+
+test("切換試算與清除成本保留重疊參數，錯誤金額顯示原輸入與中文 issue", () => {
+  for (const values of [{ ovEtf: "100000", ov: "NVDA:50000" }, { ovEtf: "1000000001", ov: "NVDA:50000" }]) {
+    const data = overlap(values);
+    const ui = pageWithAction(undefined, { overlap: data, costScenario: costs() }, values);
+    const rendered = ui.render();
+    const selects = nodes(rendered).filter((n) => n.type === "select");
+    (selects[0].props.onChange as Function)({ target: { value: "UPRO" } });
+    (selects[1].props.onChange as Function)({ target: { value: "5" } });
+    (selects[2].props.onChange as Function)({ target: { value: "lump" } });
+    const clear = nodes(rendered).find((n) => n.type === "button" && pageText(n) === "清除")!;
+    (clear.props.onClick as Function)();
+    for (const visit of ui.visits) {
+      const url = new URL(String(visit), "http://localhost");
+      assert.equal(url.searchParams.get("ovEtf"), values.ovEtf);
+      assert.equal(url.searchParams.get("ov"), values.ov);
+    }
+    const panel = nodes(rendered).find((n) => n.props.id === "watchlist-overlap")!;
+    assert.equal(nodes(panel).find((n) => n.props.name === "ovEtf")?.props.value, values.ovEtf);
+    assert.equal(nodes(panel).find((n) => n.props.name === "ov-NVDA")?.props.value, "50000");
+    if (data.issue) {
+      assert.ok(nodes(panel).some((n) => n.props.role === "alert" && pageText(n) === data.issue));
+      assert.ok(!pageText(panel).includes("占你填的總額"));
+    }
+  }
 });

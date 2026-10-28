@@ -81,3 +81,11 @@ Preconditions:
 - 操作與對帳：先確認兩份都收合，依序點「台灣家庭海外所得（最低稅負）資料檢查」（identifier `tax-checklist-tw-overseas-income`）與「美國遺產稅申報資料檢討」（`tax-checklist-us-estate`），確認可以同時展開。逐項比對同帳號 API 與網頁的 7／5 項、台灣 note、兩份 footer 與三筆來源；點每個來源 Link 確認開啟的網址一致，日期原樣呈現「頁面更新日／查閱日」，706-NA 的 2025-09 不補成某一天。再次點標題可收合。
 - 版面與證據：一般字級、深色模式與最大輔助字級各走過展開並捲到最後一筆來源，逐張檢查標題、長段落、note、footer、來源名稱及日期完整換行。保存 `tax-checklists-app-collapsed.png`、`tax-checklists-app-expanded.png`、`tax-checklists-app-dark.png`、`tax-checklists-app-accessibility.png`、來源開啟畫面、畫面文字與 `tax-checklists-app.api.json`。全程使用工作流程全域模擬器鎖與既有 MO 機，驗完 shutdown；L7-T1 合併前不跑 `ios-up.sh`／`down.sh`。
 - Gotchas：`Etfs.checklists` 為 optional，舊 API 缺欄位時不顯示此 Section，舊 `etfs.json` 仍須解碼；generated fixture 須解出兩份且各有非空 items。清單展開後頁面會很長，保留預設收合；build 與解碼測試不能證明大字未截斷或來源實際可開。本票依派工要求不跑 UI，以上互動、深色及最大字級畫面未驗證，留待整合驗收。
+
+## ETF 與觀察名單的重疊（L5-T9，網頁）
+
+- `watchlist-overlap`（#13，K-04、G-01、R3-4）：導覽列「ETF 與定投」→ `/etfs` 下方「與觀察名單的重疊」。顯示 API `overlap.notes` 的 SPY 代理推估日期與限制、公司與股類代號、指數權重、名單合計覆蓋、指數前十大公司合計；同公司股類合併，名單不當成持倉。沒填金額只列重疊；填金額才列假設曝險，不設門檻或給配置判斷。
+- 操作與對帳：先比同帳號 `/api/v1/watchlist` 的 `asOf`、`members[].weightPct`、`totalWeight` 與 `/api/v1/etfs` 的 `overlap` 及畫面。`#watchlist-overlap input[name=ovEtf]` 填 300000、`input[name=ov-NVDA]` 填 50000，點 `button:text-is("計算假設曝險")`；網址帶 `ovEtf=300000&ov=NVDA:50000`，逐公司對帳 API `overlap.exposure.members` 的經 ETF、另外持有、合計與占你填的總額，並核對 `totalTwd`、`watchlistSharePct`、`otherViaEtfTwd`。切標的、期間、月額、資金類型、儲存預設或清除成本時保留 ovEtf／ov。
+- 不適用與輸入：試算標的選 UPRO、SH，面板顯示「不適用持股重疊推估」，API `applicable` 為 false、`exposure` 為 null；仍可見名單權重與代理日期。兩種金額均只收 0–10 億台幣整數，`ov` 只收名單 key、最多 30 家；直接開 `?ov=ZZZZ:1` 或 ETF 金額 1000000001，顯示中文 issue、不列曝險結果。總額為 0 時金額仍列 0，占比無定義，API 為 null、畫面為「—」。
+- 即時性與版面：到名單頁增刪一家後回 ETF 頁，立即反映；換兩個名單不同的帳號確認各見自己的公司、金額不串用。權重與名單在共用行情快取外讀主庫，讀 ETF 頁不初始化或重算名單。320px、360px、深淺模式檢查公司與長句換行、沒有水平捲動；窄螢幕曝險以每家公司一組欄位呈現。保存 `overlap-before`、`overlap-exposure`、`overlap-upro`、`overlap-changed-list`、`overlap-other-viewer`、`overlap-320` 截圖及相同查詢／帳號的 API JSON。
+- Gotchas：需 L1-T5 的完整持股集合原子替換先整合才能上線，本分支目前尚未包含；latestHoldings／watchlistView 目前沒有「權重未更新」狀態，因此只顯示持股 as-of，不自訂檔齡門檻。尚無持股檔時畫面權重顯示「—」，不把未知當作已調出；填金額時回中文 issue、不計曝險。重疊金額只在 URL、不寫 Plan 或 D1；`generated-etfs.json` 的非空 exposure 依賴契約測試的 NVDA 種子與 ovEtf／ov 參數。App 重疊介面與 optional Codable 由 L5-T10 接續；本票依派工要求不跑 UI，實際名單跨頁／帳號、上一頁同步、窄螢幕及深淺模式畫面未驗證，留待整合驗收。

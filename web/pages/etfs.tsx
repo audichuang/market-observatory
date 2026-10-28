@@ -18,7 +18,7 @@ const errorText = (e: unknown) => {
   return e instanceof Error && e.message ? `操作失敗：${e.message}` : "操作失敗，請檢查網路後再試";
 };
 
-export default function EtfPage({ asOf, catalogAsOf, rows, periods, plan, sim, dca, fxLast, funding, costScenario, checklists }: Props) {
+export default function EtfPage({ asOf, catalogAsOf, rows, periods, plan, sim, dca, fxLast, funding, costScenario, checklists, overlap }: Props) {
   const router = useRouter();
   const form = useForm("/etfs", { ...plan });
   const issue = planIssue(form.data);
@@ -30,6 +30,9 @@ export default function EtfPage({ asOf, catalogAsOf, rows, periods, plan, sim, d
     : Object.fromEntries([...router.query].filter(([key]) => key.startsWith("cost")));
   const [costForm, setCostForm] = useState(costFormOf(costInputs));
   useEffect(() => setCostForm(costFormOf(costInputs)), [costScenario]);
+  const overlapInputs = overlap.inputs ? overlapQueryOf(overlap.inputs) : Object.fromEntries([...router.query].filter(([key]) => key === "ovEtf" || key === "ov"));
+  const [overlapForm, setOverlapForm] = useState(overlapFormOf(overlap, router.query));
+  useEffect(() => setOverlapForm(overlapFormOf(overlap, router.query)), [overlap]);
 
   async function saveDefault() {
     setSavingDefault(true);
@@ -51,12 +54,13 @@ export default function EtfPage({ asOf, catalogAsOf, rows, periods, plan, sim, d
   }
   useEffect(() => setMonthly(String(sim.monthlyTwd)), [sim.monthlyTwd]);
   const isDefault = plan.etf === sim.etf && plan.years === sim.years && plan.monthlyTwd === sim.monthlyTwd;
-  const simUrl = (patch: Partial<typeof sim & { funding: string }>, costs: CostInputs | Partial<typeof costForm> | null = costInputs) => {
+  const simUrl = (patch: Partial<typeof sim & { funding: string }>, costs: CostInputs | Partial<typeof costForm> | null = costInputs, overlapQuery = overlapInputs) => {
     const next = { ...sim, funding, ...patch };
     const query = new URLSearchParams({ etf: next.etf, years: String(next.years), monthly: String(next.monthlyTwd), funding: next.funding });
     for (const [key, value] of Object.entries(costs ?? {})) {
       if (value !== null && value !== "") query.set(key, String(value));
     }
+    for (const [key, value] of Object.entries(overlapQuery)) query.set(key, value);
     return `/etfs?${query}`;
   };
   return (
@@ -374,6 +378,69 @@ export default function EtfPage({ asOf, catalogAsOf, rows, periods, plan, sim, d
           </details>
         ))}
       </div>
+      <div className="panel section" id="watchlist-overlap" style={{ minWidth: 0, overflowWrap: "anywhere" }}>
+        <h2>與觀察名單的重疊</h2>
+        {overlap.notes.map((note) => <p className="meta" key={note}>{note}</p>)}
+        <table style={{ tableLayout: "fixed" }}>
+          <thead><tr><th style={{ whiteSpace: "normal" }}>公司</th><th style={{ whiteSpace: "normal" }}>代號</th><th style={{ whiteSpace: "normal", textAlign: "right" }}>指數權重</th></tr></thead>
+          <tbody>
+            {overlap.members.map((m) => (
+              <tr key={m.key}>
+                <th scope="row" style={{ whiteSpace: "normal" }}>{m.company}</th>
+                <td>{m.tickers.join("、")}{m.outOfIndex.length > 0 && <div className="meta">{m.outOfIndex.join("、")} 已不在持股檔，權重以 0 計</div>}</td>
+                <td className="num">{overlap.asOf === null ? "—" : `${num(m.weightPct, 3)}%`}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {overlap.members.length === 0 && <p className="meta">觀察名單目前沒有公司。</p>}
+        <p>名單合計覆蓋：{overlap.asOf === null ? "—" : `${num(overlap.totalWeight, 3)}%`}；指數前十大公司合計：{overlap.asOf === null ? "—" : `${num(overlap.top10CompanyWeight, 3)}%`}</p>
+        <form className="row" noValidate onSubmit={(e) => {
+          e.preventDefault();
+          const query: Record<string, string> = {};
+          if (overlapForm.ovEtf !== "") query.ovEtf = overlapForm.ovEtf;
+          const direct = overlap.members.filter((m) => overlapForm.ov[m.key] !== "").map((m) => `${m.key}:${overlapForm.ov[m.key]}`).join(",");
+          if (direct) query.ov = direct;
+          router.visit(simUrl({}, costInputs, query));
+        }}>
+          <label className="field" style={{ minWidth: 0 }}>
+            {sim.etf} 金額（台幣）
+            <input name="ovEtf" type="number" inputMode="numeric" min={0} max={1_000_000_000} step={1} value={overlapForm.ovEtf} onChange={(e) => setOverlapForm({ ...overlapForm, ovEtf: e.target.value })} />
+          </label>
+          {overlap.members.map((m) => (
+            <label className="field" key={m.key} style={{ minWidth: 0 }}>
+              <span>{m.company}（{m.key}）</span>另外持有（台幣）
+              <input name={`ov-${m.key}`} type="number" inputMode="numeric" min={0} max={1_000_000_000} step={1} value={overlapForm.ov[m.key]} onChange={(e) => setOverlapForm({ ...overlapForm, ov: { ...overlapForm.ov, [m.key]: e.target.value } })} />
+            </label>
+          ))}
+          <div style={{ flexBasis: "100%" }}><button type="submit">計算假設曝險</button></div>
+        </form>
+        {overlap.issue && <p className="error" role="alert">{overlap.issue}</p>}
+        {overlap.exposure && <>
+          <h3>假設曝險（台幣）</h3>
+          <div className="table-wrap hide-sm">
+            <table>
+              <thead><tr><th>公司</th><th className="num">經 ETF</th><th className="num">另外持有</th><th className="num">合計</th><th className="num">占你填的總額</th></tr></thead>
+              <tbody>{overlap.exposure.members.map((m, i) => <tr key={m.key}>
+                <th scope="row">{overlap.members[i].company}</th><td className="num">{num(m.viaEtfTwd, 2)}</td><td className="num">{num(m.directTwd, 2)}</td><td className="num">{num(m.combinedTwd, 2)}</td><td className="num">{m.sharePct === null ? "—" : `${num(m.sharePct, 2)}%`}</td>
+              </tr>)}</tbody>
+            </table>
+          </div>
+          <div className="show-sm">
+            {overlap.exposure.members.map((m, i) => <div key={m.key}>
+              <h4>{overlap.members[i].company}（{m.key}）</h4>
+              <dl>{([
+                ["經 ETF", num(m.viaEtfTwd, 2)], ["另外持有", num(m.directTwd, 2)], ["合計", num(m.combinedTwd, 2)],
+                ["占你填的總額", m.sharePct === null ? "—" : `${num(m.sharePct, 2)}%`],
+              ] as const).map(([label, value]) => <div key={label} style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: ".5rem" }}>
+                <dt>{label}</dt><dd className="num" style={{ margin: 0, whiteSpace: "normal" }}>{value}</dd>
+              </div>)}</dl>
+            </div>)}
+          </div>
+          <p>你填的總額：{num(overlap.exposure.totalTwd, 2)} 台幣；名單占比：{overlap.exposure.watchlistSharePct === null ? "—" : `${num(overlap.exposure.watchlistSharePct, 2)}%`}</p>
+          <p>ETF 中名單以外的金額：{num(overlap.exposure.otherViaEtfTwd, 2)} 台幣</p>
+        </>}
+      </div>
     </>
   );
 }
@@ -403,4 +470,19 @@ function feeSummary(r: EtfProduct, catalogAsOf: string): string {
     return `淨 ${feeText(r.netFeePct)}% / 總 ${feeText(r.grossFeePct)}%（${catalogAsOf} 查核）`;
   }
   return `淨／總 ${feeText(r.netFeePct)}%（${catalogAsOf} 查核）`;
+}
+
+function overlapQueryOf(inputs: NonNullable<Props["overlap"]["inputs"]>): Record<string, string> {
+  const query: Record<string, string> = { ovEtf: String(inputs.ovEtf) };
+  const direct = Object.entries(inputs.ov).map(([key, amount]) => `${key}:${amount}`).join(",");
+  if (direct) query.ov = direct;
+  return query;
+}
+
+function overlapFormOf(overlap: Props["overlap"], query: URLSearchParams) {
+  const direct = Object.fromEntries((query.get("ov") ?? "").split(",").map((entry) => entry.split(":")));
+  return {
+    ovEtf: overlap.inputs ? String(overlap.inputs.ovEtf) : query.get("ovEtf") ?? "",
+    ov: Object.fromEntries(overlap.members.map((m) => [m.key, overlap.inputs?.ov[m.key] === undefined ? direct[m.key] ?? "" : String(overlap.inputs.ov[m.key])])),
+  };
 }

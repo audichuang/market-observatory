@@ -6,18 +6,19 @@ import { addDays, latestExpectedClose, latestScheduledClose } from "../lib/calen
 import { importanceFor, isImportant } from "../lib/news-ai.ts";
 import { viewForMembers } from "../lib/snapshot.ts";
 import { ETFS, ETF_CATALOG_AS_OF, EQUAL_WEIGHT_SYMBOL, FX_SYMBOL, INDEX_SYMBOL, VIX_SYMBOL, type WatchMember } from "../lib/universe.ts";
-import { MAX_WATCH, displayName, isConstituent } from "../lib/watchlist.ts";
+import { MAX_WATCH, displayName, isConstituent, memberWeights } from "../lib/watchlist.ts";
 import { PLAN_LIMITS } from "../lib/plan.ts";
 import { costScenario, parseCostQuery } from "../lib/costs.ts";
 import { TAX_CHECKLISTS } from "../lib/tax-facts.ts";
+import { overlapPreview, parseOverlapQuery } from "../lib/overlap.ts";
 import { z } from "zod";
-import { type Viewer, getViewerSetting, settingKey, viewerWatchlist } from "./account.ts";
+import { type Viewer, getViewerSetting, settingKey, viewerWatchlist, watchlistKey } from "./account.ts";
 import { rebuildSnapshots, WATCHLIST_REBUILD_SESSIONS } from "./jobs.ts";
 import { MARKET_KEY } from "./ai-batch.ts";
 import { latestDigests } from "./news-ai.ts";
 import { bumpDataVersion, cachedPage, readDb } from "./page-cache.ts";
 import { getSnapshot, listRevisions, listSnapshotDates, loadPrices, putSetting } from "./repo.ts";
-import { latestHoldings, loadTrackedMembers } from "./watchlist.ts";
+import { latestHoldings, loadTrackedMembers, loadWatchlist } from "./watchlist.ts";
 
 export interface ViewCtx {
   env: { DB: D1Database };
@@ -319,7 +320,9 @@ export async function etfsView(c: ViewCtx, v: Viewer) {
     etf: ETFS.find((e) => e.ticker === computed.sim.etf)!,
     today: new Date().toISOString().slice(0, 10),
   });
-  return { ...computed, plan, funding, costScenario: costs, checklists: TAX_CHECKLISTS };
+  const [list, { asOf, holdings }] = await Promise.all([loadWatchlist(c.env.DB, watchlistKey(v)), latestHoldings(c.env.DB)]);
+  const overlap = overlapPreview({ list, holdings, asOf, etf: ETFS.find((e) => e.ticker === computed.sim.etf)!, input: parseOverlapQuery((key) => c.req.query(key), list) });
+  return { ...computed, plan, funding, costScenario: costs, checklists: TAX_CHECKLISTS, overlap };
 }
 
 // ── 新聞與日曆 ───────────────────────────────────────────
@@ -398,14 +401,12 @@ export async function newsView(c: ViewCtx, v: Viewer) {
 export async function watchlistView(c: ViewCtx, v: Viewer) {
   const db = c.env.DB;
   const [list, { asOf, holdings }, tracked] = await Promise.all([membersOf(c, v), latestHoldings(db), loadTrackedMembers(db)]);
-  const weight = new Map(holdings.map((h) => [h.ticker, h.weightPct]));
   const inList = new Set(list.flatMap((m) => m.tickers));
   const trackedTickers = new Set(tracked.flatMap((m) => m.tickers));
-  const members = list.map((m) => ({ ...m, weightPct: m.tickers.reduce((a, t) => a + (weight.get(t) ?? 0), 0), outOfIndex: holdings.length ? m.tickers.filter((t) => !weight.has(t)) : [] }));
+  const { members, totalWeight } = memberWeights(list, holdings);
   // 可加入的成分股：權重由大到小，給搜尋框的建議清單用；tracked 表示全站已經在追蹤（加入不用等抓十年日線）。
   const candidates = holdings
     .filter((h) => isConstituent(h) && !inList.has(h.ticker))
     .map((h) => ({ ticker: h.ticker, name: displayName(h.name), weightPct: Math.round(h.weightPct * 1000) / 1000, tracked: trackedTickers.has(h.ticker) }));
-  const totalWeight = members.reduce((a, m) => a + m.weightPct, 0);
   return { members, candidates, asOf, totalWeight, max: MAX_WATCH };
 }

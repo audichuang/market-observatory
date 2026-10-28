@@ -49,7 +49,7 @@ test("API 契約：真正的 view 輸出須與 iOS 解碼 fixture 一致", async
   const payloads = {
     overview: await overviewView(ctx(), viewer),
     history: await historyView(ctx({ months: "1", symbol: "NVDA" }), viewer),
-    etfs: await etfsView(ctx({ years: "1", costFee: "0.1", costMinUsd: "1", costFx: "0.3", costYield: "1.2" }), viewer),
+    etfs: await etfsView(ctx({ years: "1", costFee: "0.1", costMinUsd: "1", costFx: "0.3", costYield: "1.2", ovEtf: "300000", ov: "NVDA:50000" }), viewer),
     news: await newsView(ctx(), viewer),
     watchlist: await watchlistView(ctx(), viewer),
     outlook: await outlookView(ctx()),

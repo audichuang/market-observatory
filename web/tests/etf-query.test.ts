@@ -107,3 +107,53 @@ test("成本情境在共用快取外計算，不影響歷史試算，也不儲�
     sql.close();
   }
 });
+
+test("重疊讀各自名單且立即反映名單與持股異動，共用快取不保存個人金額", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-10-28T12:00:00Z") });
+  const { db, sql } = await migratedDb();
+  const originalCaches = Object.getOwnPropertyDescriptor(globalThis, "caches");
+  const cached = new Map<string, Response>();
+  let hits = 0;
+  Object.defineProperty(globalThis, "caches", { configurable: true, value: { default: {
+    match: async (key: string) => { const response = cached.get(key); if (response) hits++; return response?.clone(); },
+    put: async (key: string, response: Response) => { cached.set(key, response.clone()); },
+  } } });
+  try {
+    const nvda = { key: "NVDA", company: "Nvidia", tickers: ["NVDA"] };
+    const alphabet = { key: "GOOGL", company: "Alphabet", tickers: ["GOOGL", "GOOG"] };
+    const save = sql.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)");
+    save.run("watchlist:overlap-a", JSON.stringify([nvda]));
+    save.run("watchlist:overlap-b", JSON.stringify([alphabet]));
+    const weight = sql.prepare("INSERT INTO weights (as_of, ticker, name, weight_pct, fetched_at) VALUES ('2026-10-28', ?, ?, ?, 'test')");
+    weight.run("NVDA", "NVIDIA CORP", 7);
+    weight.run("GOOGL", "ALPHABET INC CL A", 2);
+    weight.run("GOOG", "ALPHABET INC CL C", 1.8);
+    const read = async (id: string, inputs: Record<string, string> = {}) => {
+      const query = new URLSearchParams({ etf: "SPY", years: "1", monthly: "3000", ...inputs });
+      return etfsView({ env: { DB: db }, req: { query: (key) => query.get(key) ?? undefined, url: `http://localhost/etfs?${query}` } }, { id, email: "etf@example.test", name: "", isOwner: false });
+    };
+    const a = await read("overlap-a", { ovEtf: "100000", ov: "NVDA:50000" });
+    const b = await read("overlap-b");
+    assert.equal(hits, 1, "不同使用者的第二次請求命中同一份行情快取");
+    assert.deepEqual(a.overlap.members, [{ ...nvda, weightPct: 7, outOfIndex: [] }]);
+    assert.deepEqual(b.overlap.members, [{ ...alphabet, weightPct: 3.8, outOfIndex: [] }]);
+    assert.equal(a.overlap.exposure?.totalTwd, 150000);
+    assert.equal(b.overlap.exposure, null);
+    assert.equal(a.overlap.asOf, "2026-10-28");
+    save.run("watchlist:overlap-a", JSON.stringify([alphabet]));
+    sql.exec("UPDATE weights SET weight_pct = 3 WHERE ticker = 'GOOGL'");
+    const changed = await read("overlap-a");
+    assert.equal(hits, 2);
+    assert.deepEqual(changed.overlap.members, [{ ...alphabet, weightPct: 4.8, outOfIndex: [] }]);
+    const invalid = await read("overlap-b", { ov: "NVDA:50000" });
+    assert.ok(invalid.overlap.issue);
+    assert.equal(invalid.overlap.exposure, null);
+    const fresh = await read("overlap-new");
+    assert.ok(fresh.overlap.members.length);
+    assert.equal(sql.prepare("SELECT COUNT(*) AS n FROM settings WHERE key NOT IN ('watchlist:overlap-a', 'watchlist:overlap-b')").get()!.n, 0, "讀取不初始化名單、規劃或重疊假設");
+  } finally {
+    if (originalCaches) Object.defineProperty(globalThis, "caches", originalCaches);
+    else Reflect.deleteProperty(globalThis, "caches");
+    sql.close();
+  }
+});

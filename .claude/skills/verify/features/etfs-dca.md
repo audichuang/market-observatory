@@ -34,7 +34,7 @@ Preconditions:
 
 ## Gotchas
 
-- App ETF 列將名稱、費用率、規模及備註分行，報酬數值保持突出；用 `test16_Readability` 的 ETF 與規劃截圖檢查一般／最大字級，再用 `test06_EtfsPlan` 操作與 API 讀回確認試算及儲存。
+- App ETF 列將名稱、費用率、規模及備註分行，大字時代號與報酬上下排列，報酬正負號與數值維持同一行；用 `test16_Readability` 的 `etfs`、`etfs-reading` 與規劃截圖檢查一般／最大字級，`test20_LargeTypeEtfAndLogin` 比較同樣 headline 的 VOO 代號／報酬高度，檢查報酬單行且不超出畫面；再用 `test06_EtfsPlan` 操作與 API 讀回確認試算及儲存。
 
 - 「試算」按鈕在金額沒變時停用。
 - 規劃存在 D1 `settings`，每個帳號各一份；改完一定要改回並讀回，下一個功能才從基準開始。

@@ -45,6 +45,7 @@ struct MoreView: View {
 
 struct EtfView: View {
     @Environment(SessionStore.self) private var session
+    @Environment(\.dynamicTypeSize) private var typeSize
     @State private var state: LoadState<Etfs> = .idle
     @State private var period = "1Y"
     @State private var editing = false
@@ -133,12 +134,20 @@ struct EtfView: View {
                 .pickerStyle(.segmented)
                 ForEach(e.rows) { r in
                     VStack(alignment: .leading, spacing: 8) {
-                        HStack(alignment: .firstTextBaseline) {
-                            Text(r.ticker).font(.headline)
-                            if r.multiple != 1 { Text("\(r.multiple > 0 ? "" : "反向 ")\(Int(abs(r.multiple)))×").font(.caption.weight(.semibold)).foregroundStyle(.orange) }
-                            Spacer(minLength: 12)
+                        let headerLayout = typeSize.isAccessibilitySize
+                            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
+                            : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 12))
+                        headerLayout {
+                            HStack(spacing: 8) {
+                                Text(r.ticker).font(.headline)
+                                    .accessibilityIdentifier("etf-ticker-\(r.ticker)")
+                                if r.multiple != 1 { Text("\(r.multiple > 0 ? "" : "反向 ")\(Int(abs(r.multiple)))×").font(.caption.weight(.semibold)).foregroundStyle(.orange) }
+                            }
+                            if !typeSize.isAccessibilitySize { Spacer(minLength: 12) }
                             let v = period == "YTD" ? r.ytd : (r.returns[period] ?? nil)
                             Text(Fmt.pct(v)).font(.headline.monospacedDigit()).foregroundStyle(Color.tone(v))
+                                .fixedSize(horizontal: true, vertical: false)
+                                .accessibilityIdentifier("etf-return-\(r.ticker)")
                         }
                         VStack(alignment: .leading, spacing: 4) {
                             Text(r.name).font(.subheadline)

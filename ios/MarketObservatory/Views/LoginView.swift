@@ -50,6 +50,8 @@ struct LoginView: View {
                 HStack {
                     VStack { Divider() }
                     Text("或使用 Email").font(.footnote).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: true, vertical: false)
+                        .accessibilityIdentifier("login-email-divider")
                     VStack { Divider() }
                 }
 

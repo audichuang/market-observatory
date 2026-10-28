@@ -66,6 +66,7 @@ TEST_RUNNER_MO_SHOTS="$OUT" TEST_RUNNER_MO_PUSH_DATE="$PUSH_DATE" TEST_RUNNER_MO
 xcodebuild -project MarketObservatory.xcodeproj -scheme MarketObservatory -destination "id=$UDID" \
   -derivedDataPath "$RUN/dd" CODE_SIGNING_ALLOWED=NO -resultBundlePath "$OUT/$NAME.xcresult" \
   "${ONLY[@]}" \
+  -parallel-testing-enabled NO \
   test-without-building >"$LOG" 2>&1 &
 XB=$!
 # test08/09 receive immediately; test13 starts only after its sheet-ready handshake.

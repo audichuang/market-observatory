@@ -4,6 +4,8 @@
 
 ## 基準狀態
 
+- 這台 Mac 的機型與生命週期依 repo `AGENTS.md`：只重用既有 `MO iPhone 16 Plus`、`MO iPhone 18 Pro Max`，依序開機驗證，結束只 shutdown 並保留。寫入本輪 `sim.udid` 後直接用 `ios-test.sh`；跳過會新增裝置的 `ios-up.sh` 與會刪裝置的 `down.sh`。
+
 - 照 [SKILL.md](../SKILL.md) 的 Launch：在乾淨 worktree 跑 `web-up.sh <run-id>`，網站在 `http://localhost:5181`，資料是 60 個交易日的快照＋十年日線＋當天的新聞、事件、展望。
 - iOS：`ios-up.sh <run-id>` 建好的「MO Verify <run-id>」模擬器，App 用 `-debugBaseURL` 連本機站。
 - `doctor.sh <run-id>` 全部 ✓ 才開始。

@@ -73,7 +73,38 @@ final class VerifyInteractionTests: XCTestCase {
         let b = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", prefix)).firstMatch
         reveal(app, b)
         XCTAssertTrue(b.waitForExistence(timeout: 8), "找不到「\(prefix)」")
+        keepAboveTabBar(app, b)
         b.tap()
+    }
+
+    /// Create only the disposable account supplied by this local verification run.
+    func test01_RegisterVerificationAccount() throws {
+        let base = try XCTUnwrap(env["MO_BASE_URL"].flatMap(URL.init(string:)))
+        XCTAssertTrue(["localhost", "127.0.0.1"].contains(base.host ?? ""), "只能在本機驗證站建立測試帳號")
+        let app = launch()
+        let email = app.textFields["email"]
+        XCTAssertTrue(email.waitForExistence(timeout: 20))
+        app.buttons["還沒有帳號？建立帳號"].tap()
+        email.tap(); email.typeText(try XCTUnwrap(env["MO_EMAIL"]))
+        let password = app.secureTextFields["password"]
+        password.tap(); password.typeText(try XCTUnwrap(env["MO_PASSWORD"]))
+        app.buttons["submit"].tap()
+        if !app.buttons["總覽"].waitForExistence(timeout: 8), email.exists { app.buttons["submit"].tap() }
+        XCTAssertTrue(app.buttons["總覽"].waitForExistence(timeout: 20))
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        for label in ["允許", "Allow"] {
+            let allow = springboard.buttons[label]
+            if allow.waitForExistence(timeout: 2) { allow.tap(); break }
+        }
+        snap("A1-account-created")
+    }
+
+    private func keepAboveTabBar(_ app: XCUIApplication, _ element: XCUIElement) {
+        let window = app.windows.firstMatch
+        for _ in 0 ..< 4 where element.frame.midY > window.frame.height * 0.65 {
+            window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7))
+                .press(forDuration: 0.05, thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45)))
+        }
     }
 
     /// 只有 /verify 摸索新畫面時用：把無障礙樹寫成 dump-<name>.txt。
@@ -578,6 +609,8 @@ final class VerifyInteractionTests: XCTestCase {
         open(app, "ETF 與定投試算")
         XCTAssertTrue(app.buttons["1Y"].waitForExistence(timeout: 15))
         snap("UI-\(variant)-etfs")
+        app.swipeUp()
+        snap("UI-\(variant)-etfs-reading")
         app.buttons["我的規劃"].tap()
         XCTAssertTrue(app.navigationBars["我的規劃"].waitForExistence(timeout: 5))
         snap("UI-\(variant)-plan")
@@ -591,11 +624,7 @@ final class VerifyInteractionTests: XCTestCase {
         reveal(app, model, scrolls: variant.contains("largest") ? 24 : 6)
         XCTAssertTrue(model.isHittable, "無法捲到模型說明")
         // On SE, a multiline label can be hittable while its tap point sits under the floating tab bar.
-        let window = app.windows.firstMatch
-        for _ in 0 ..< 4 where model.frame.midY > window.frame.height * 0.65 {
-            window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7))
-                .press(forDuration: 0.05, thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45)))
-        }
+        keepAboveTabBar(app, model)
         snap("UI-\(variant)-outlook-conclusion")
         model.tap()
         let interval = app.staticTexts["outlook-interval"]
@@ -604,14 +633,21 @@ final class VerifyInteractionTests: XCTestCase {
         snap("UI-\(variant)-outlook-details")
         back(app)
         open(app, "推播設定")
-        XCTAssertTrue(app.switches["每日收盤摘要"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.navigationBars["推播設定"].waitForExistence(timeout: 5))
+        let daily = app.switches["每日收盤摘要"]
+        reveal(app, daily)
+        XCTAssertTrue(daily.waitForExistence(timeout: 15))
         snap("UI-\(variant)-push")
         back(app)
         open(app, "帳號")
+        XCTAssertTrue(app.navigationBars["帳號"].waitForExistence(timeout: 5))
+        reveal(app, app.buttons["登出"])
         XCTAssertTrue(app.buttons["登出"].waitForExistence(timeout: 5))
         snap("UI-\(variant)-account")
         note("UI-\(variant)-tree", app.debugDescription)
-        reveal(app, app.buttons["登出"]).tap()
+        let signOut = app.buttons["登出"]
+        keepAboveTabBar(app, reveal(app, signOut))
+        signOut.tap()
         XCTAssertTrue(app.textFields["email"].waitForExistence(timeout: 10))
         snap("UI-\(variant)-login")
     }
@@ -655,6 +691,36 @@ final class VerifyInteractionTests: XCTestCase {
         reveal(app, heading)
         XCTAssertTrue(heading.isHittable, "最大字級選取後看不到事件區塊")
         snap("E10-selected-events")
+    }
+
+    func test20_LargeTypeEtfAndLogin() throws {
+        let variant = env["MO_READING_VARIANT"] ?? "compact-largest"
+        let arguments = variant.contains("largest")
+            ? ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"] : []
+        let app = try signedIn(arguments: arguments)
+        tab(app, "更多"); open(app, "ETF 與定投試算")
+        XCTAssertTrue(app.buttons["1Y"].waitForExistence(timeout: 15))
+        let ticker = app.staticTexts["etf-ticker-VOO"], value = app.staticTexts["etf-return-VOO"]
+        reveal(app, value)
+        XCTAssertTrue(value.isHittable)
+        XCTAssertTrue(value.label.contains("%"), "缺少報酬資料")
+        let tickerFrame = ticker.frame, valueFrame = value.frame
+        XCTAssertLessThanOrEqual(valueFrame.height, tickerFrame.height + 1, "報酬正負號與數字被拆行")
+        XCTAssertLessThanOrEqual(valueFrame.maxX, app.windows.firstMatch.frame.maxX - 16, "報酬數字超出畫面")
+        snap("UI-\(variant)-etfs")
+        app.swipeUp(); snap("UI-\(variant)-etfs-reading")
+        back(app); open(app, "帳號")
+        let signOut = app.buttons["登出"]
+        keepAboveTabBar(app, reveal(app, signOut))
+        signOut.tap()
+        let email = app.textFields["email"], divider = app.staticTexts["login-email-divider"]
+        XCTAssertTrue(email.waitForExistence(timeout: 10))
+        reveal(app, divider)
+        XCTAssertTrue(divider.isHittable)
+        XCTAssertLessThanOrEqual(divider.frame.height, email.frame.height, "登入分隔文字被擠成多行")
+        XCTAssertLessThanOrEqual(divider.frame.maxX, app.windows.firstMatch.frame.maxX - 16, "登入分隔文字超出畫面")
+        snap("UI-\(variant)-login")
+        note("UI-\(variant)-type-geometry", "ticker=\(tickerFrame) return=\(valueFrame) divider=\(divider.frame) email=\(email.frame)")
     }
 
     // Z1、A5、A2：登出、錯誤密碼、短密碼，最後用正確密碼登入回來。

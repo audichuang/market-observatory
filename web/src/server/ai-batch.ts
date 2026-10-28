@@ -133,7 +133,7 @@ export async function dailyWork(db: Db, today: string): Promise<{
     .filter((m) => !have.has(m.key))
     .map((m) => {
       const row = s.mag7.find((x) => x.key === m.key);
-      const selected = onDate.filter((n) => isImportant(n, [m.key], m.tickers)).slice(0, 8);
+      const selected = onDate.filter((n) => isImportant(n, [m.key], m.tickers));
       const news: DigestWork["news"] = [];
       const unconfirmed: NonNullable<DigestWork["unconfirmed"]> = [];
       for (const n of selected) {
@@ -147,16 +147,16 @@ export async function dailyWork(db: Db, today: string): Promise<{
         date,
         returnPct: row?.returnPct ?? null,
         contributionPts: row?.contributionPts ?? null,
-        news,
-        unconfirmed,
+        news: news.slice(0, 8),
+        unconfirmed: unconfirmed.slice(0, 8),
       };
     })
     .filter((d) => d.news.length + d.unconfirmed.length > 0);
 
   let market: MarketWork | null = null;
   if (!have.has(MARKET_KEY)) {
-    const macro = onDate.filter((n) => n.focus !== null && n.focus.split(",").includes("SPY") && n.category === "總經與市場").slice(0, 10);
-    const beforeClose = macro.filter((n) => n.timing === "before-close");
+    const macro = onDate.filter((n) => n.focus !== null && n.focus.split(",").includes("SPY") && n.category === "總經與市場");
+    const beforeClose = macro.filter((n) => n.timing === "before-close").slice(0, 10);
     const unconfirmed: NonNullable<MarketWork["unconfirmed"]> = [];
     for (const n of macro) {
       if (n.timing !== "before-close") unconfirmed.push({ id: n.id, title: n.title_zh ?? n.title, timing: n.timing });
@@ -177,7 +177,7 @@ export async function dailyWork(db: Db, today: string): Promise<{
       restPts: s.rest.contributionPts,
       news: beforeClose.map((n) => n.title_zh ?? n.title),
       newsIds: beforeClose.map((n) => n.id),
-      unconfirmed,
+      unconfirmed: unconfirmed.slice(0, 10),
     };
   }
   return { date, revision: snap.revision, points, digests, market };
@@ -218,93 +218,100 @@ export async function importResults(db: Db, body: ImportBody): Promise<ImportRec
   const accepted: string[] = [];
   const rejected: { key: string; reason: string }[] = [];
   const counts = { translated: 0, points: 0, digests: 0 };
+  const run = body.run;
+  const storedManifest = run?.manifest !== undefined && new TextEncoder().encode(JSON.stringify(run.manifest)).byteLength > 16 * 1024 ? { truncated: true } : run?.manifest;
+  const detail = run ? { runId: run.id, expected: run.expected, accepted, missing: run.missing, rejected, unavailable: run.unavailable, manifest: storedManifest } : undefined;
 
-  for (const t of body.translate ?? []) {
-    const ids = [...new Set(t.ids)].slice(0, 20);
-    if (!ids.length) continue;
-    // 用 agent 拿到的同一組順序重建輸入：答案裡的 n 是這組的序號
-    const rows = (await db.prepare(`SELECT ${COLS} FROM news WHERE id IN (${placeholders(ids.length)})`).bind(...ids).all<NewsRow>()).results;
-    const byId = new Map(rows.map((r) => [r.id, r]));
-    if (ids.some((id) => !byId.has(id))) {
-      skipped.push(`翻譯：有 ${ids.filter((id) => !byId.has(id)).length} 則已不在資料庫`);
+  try {
+    for (const t of body.translate ?? []) {
+      const ids = [...new Set(t.ids)].slice(0, 20);
+      if (!ids.length) continue;
+      // 用 agent 拿到的同一組順序重建輸入：答案裡的 n 是這組的序號
+      const rows = (await db.prepare(`SELECT ${COLS} FROM news WHERE id IN (${placeholders(ids.length)})`).bind(...ids).all<NewsRow>()).results;
+      const byId = new Map(rows.map((r) => [r.id, r]));
+      if (ids.some((id) => !byId.has(id))) {
+        skipped.push(`翻譯：有 ${ids.filter((id) => !byId.has(id)).length} 則已不在資料庫`);
+      }
+      // 被刪掉的那則留在原位、標成不存在：答案的 n 對的是 agent 拿到的序號
+      const inputs = ids.map((id) => (byId.has(id) ? toInput(byId.get(id)!) : { id, title: "", summary: null, symbols: [], primarySymbol: null }));
+      let parsed: ReturnType<typeof parseEnrich> = [];
+      try {
+        parsed = parseEnrich(t.answer, inputs).filter((e) => byId.has(e.id));
+      } catch (e) {
+        skipped.push(`翻譯：${e instanceof Error ? e.message : String(e)}`);
+      }
+      parsed = [...new Map(parsed.map((e) => [e.id, e])).values()];
+      const answered = new Set(parsed.map((e) => e.id));
+      for (const id of ids) {
+        if (!byId.has(id)) rejected.push({ key: `translate:${id}`, reason: "新聞已不在資料庫，沒有寫入" });
+        else if (!answered.has(id)) rejected.push({ key: `translate:${id}`, reason: "答案缺這則或格式不對" });
+      }
+      const update = db.prepare("UPDATE news SET title_zh = ?, tone = ?, category = ?, focus = ?, enriched_at = ? WHERE id = ?");
+      for (const e of parsed) writes.push({ stmt: update.bind(e.titleZh, e.tone, e.category, e.focus.join(","), now, e.id), kind: "translated", key: `translate:${e.id}` });
     }
-    // 被刪掉的那則留在原位、標成不存在：答案的 n 對的是 agent 拿到的序號
-    const inputs = ids.map((id) => (byId.has(id) ? toInput(byId.get(id)!) : { id, title: "", summary: null, symbols: [], primarySymbol: null }));
-    let parsed: ReturnType<typeof parseEnrich> = [];
-    try {
-      parsed = parseEnrich(t.answer, inputs).filter((e) => byId.has(e.id));
-    } catch (e) {
-      skipped.push(`翻譯：${e instanceof Error ? e.message : String(e)}`);
-    }
-    parsed = [...new Map(parsed.map((e) => [e.id, e])).values()];
-    const answered = new Set(parsed.map((e) => e.id));
-    for (const id of ids) {
-      if (!byId.has(id)) rejected.push({ key: `translate:${id}`, reason: "新聞已不在資料庫，沒有寫入" });
-      else if (!answered.has(id)) rejected.push({ key: `translate:${id}`, reason: "答案缺這則或格式不對" });
-    }
-    const update = db.prepare("UPDATE news SET title_zh = ?, tone = ?, category = ?, focus = ?, enriched_at = ? WHERE id = ?");
-    for (const e of parsed) writes.push({ stmt: update.bind(e.titleZh, e.tone, e.category, e.focus.join(","), now, e.id), kind: "translated", key: `translate:${e.id}` });
-  }
 
-  for (const p of body.points ?? []) {
-    const out = parsePoints(p.answer);
-    if (!out) {
-      skipped.push(`重點 ${p.id}：格式不對`);
-      rejected.push({ key: `points:${p.id}`, reason: "格式不對" });
-      continue;
+    for (const p of body.points ?? []) {
+      const out = parsePoints(p.answer);
+      if (!out) {
+        skipped.push(`重點 ${p.id}：格式不對`);
+        rejected.push({ key: `points:${p.id}`, reason: "格式不對" });
+        continue;
+      }
+      writes.push({ stmt: db.prepare("UPDATE news SET points_zh = ?, tone = COALESCE(tone, ?) WHERE id = ?").bind(JSON.stringify(out.points), out.tone, p.id), kind: "points", key: `points:${p.id}` });
     }
-    writes.push({ stmt: db.prepare("UPDATE news SET points_zh = ?, tone = COALESCE(tone, ?) WHERE id = ?").bind(JSON.stringify(out.points), out.tone, p.id), kind: "points", key: `points:${p.id}` });
-  }
 
-  const insert = db.prepare(
-    `INSERT INTO news_digests (symbol, date, summary, tone, news_ids, digest, model, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(symbol, date) DO UPDATE SET summary = excluded.summary, tone = excluded.tone, news_ids = excluded.news_ids, digest = excluded.digest, model = excluded.model, created_at = excluded.created_at`,
-  );
-  for (const d of body.digests ?? []) {
-    let out = null;
-    try {
-      out = parseDigest(d.answer);
-    } catch {
-      out = null;
+    const insert = db.prepare(
+      `INSERT INTO news_digests (symbol, date, summary, tone, news_ids, digest, model, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(symbol, date) DO UPDATE SET summary = excluded.summary, tone = excluded.tone, news_ids = excluded.news_ids, digest = excluded.digest, model = excluded.model, created_at = excluded.created_at`,
+    );
+    for (const d of body.digests ?? []) {
+      let out = null;
+      try {
+        out = parseDigest(d.answer);
+      } catch {
+        out = null;
+      }
+      if (!out || !/^\d{4}-\d{2}-\d{2}$/.test(d.date) || !d.key) {
+        skipped.push(`每日重點 ${d.key}：格式不對`);
+        rejected.push({ key: `digest:${d.key}:${d.date}`, reason: "格式不對" });
+        continue;
+      }
+      const snapshot = await db.prepare("SELECT trade_date FROM snapshots WHERE trade_date = ? LIMIT 1").bind(d.date).first();
+      if (!snapshot) {
+        rejected.push({ key: `digest:${d.key}:${d.date}`, reason: "日期不是交易日快照" });
+        continue;
+      }
+      const sources = await db.prepare("SELECT id, published_at FROM news WHERE id IN (SELECT value FROM json_each(?))")
+        .bind(JSON.stringify(d.newsIds)).all<Pick<NewsRow, "id" | "published_at">>();
+      const sourceDates = new Map(sources.results.map((n) => [n.id, n.published_at]));
+      const invalidSources = d.newsIds.filter((id) => sourceDates.get(id) !== d.date);
+      if (invalidSources.length) {
+        rejected.push({ key: `digest:${d.key}:${d.date}`, reason: `來源新聞不存在或日期不符：${invalidSources.join(",")}` });
+        continue;
+      }
+      writes.push({ stmt: insert.bind(d.key, d.date, out.summary, out.tone, d.newsIds.join(","), newsFingerprint(d.newsIds), model, now), kind: "digests", key: `digest:${d.key}:${d.date}` });
     }
-    if (!out || !/^\d{4}-\d{2}-\d{2}$/.test(d.date) || !d.key) {
-      skipped.push(`每日重點 ${d.key}：格式不對`);
-      rejected.push({ key: `digest:${d.key}:${d.date}`, reason: "格式不對" });
-      continue;
-    }
-    const snapshot = await db.prepare("SELECT trade_date FROM snapshots WHERE trade_date = ? LIMIT 1").bind(d.date).first();
-    if (!snapshot) {
-      rejected.push({ key: `digest:${d.key}:${d.date}`, reason: "日期不是交易日快照" });
-      continue;
-    }
-    const sources = await db.prepare("SELECT id, published_at FROM news WHERE id IN (SELECT value FROM json_each(?))")
-      .bind(JSON.stringify(d.newsIds)).all<Pick<NewsRow, "id" | "published_at">>();
-    const sourceDates = new Map(sources.results.map((n) => [n.id, n.published_at]));
-    const invalidSources = d.newsIds.filter((id) => sourceDates.get(id) !== d.date);
-    if (invalidSources.length) {
-      rejected.push({ key: `digest:${d.key}:${d.date}`, reason: `來源新聞不存在或日期不符：${invalidSources.join(",")}` });
-      continue;
-    }
-    writes.push({ stmt: insert.bind(d.key, d.date, out.summary, out.tone, d.newsIds.join(","), newsFingerprint(d.newsIds), model, now), kind: "digests", key: `digest:${d.key}:${d.date}` });
-  }
 
-  if (writes.length) {
-    const results = await db.batch(writes.map((w) => w.stmt));
-    results.forEach((result, i) => {
-      const { kind, key } = writes[i];
-      counts[kind] += result.meta.changes;
-      if (result.meta.changes === 0) rejected.push({ key, reason: "新聞已不在資料庫，沒有寫入" });
-      else accepted.push(key);
-    });
+    if (writes.length) {
+      const results = await db.batch(writes.map((w) => w.stmt));
+      results.forEach((result, i) => {
+        const { kind, key } = writes[i];
+        counts[kind] += result.meta.changes;
+        if (result.meta.changes === 0) rejected.push({ key, reason: "新聞已不在資料庫，沒有寫入" });
+        else accepted.push(key);
+      });
+    }
+    const receipt = { ...counts, skipped, accepted, rejected };
+    if (body.run && runId !== null) {
+      const { expected, missing, unavailable } = body.run;
+      const status = expected.length > 0 && accepted.length === 0 ? "failed" : missing.length || rejected.length ? "partial" : "ok";
+      const summary = `預期 ${expected.length}、寫入 ${accepted.length}、缺答案 ${missing.length}、拒收 ${rejected.length}、正文取不到 ${unavailable.length}`;
+      await finishRun(db, runId, status, summary, detail);
+      return { ...receipt, run: { id: runId, status } };
+    }
+    return receipt;
+  } catch (error) {
+    if (runId !== null) await finishRun(db, runId, "failed", error instanceof Error ? error.message : String(error), detail);
+    throw error;
   }
-  const receipt = { ...counts, skipped, accepted, rejected };
-  if (body.run && runId !== null) {
-    const { id, expected, missing, unavailable, manifest } = body.run;
-    const storedManifest = manifest !== undefined && new TextEncoder().encode(JSON.stringify(manifest)).byteLength > 16 * 1024 ? { truncated: true } : manifest;
-    const status = expected.length > 0 && accepted.length === 0 ? "failed" : missing.length || rejected.length ? "partial" : "ok";
-    const summary = `預期 ${expected.length}、寫入 ${accepted.length}、缺答案 ${missing.length}、拒收 ${rejected.length}、正文取不到 ${unavailable.length}`;
-    await finishRun(db, runId, status, summary, { runId: id, expected, accepted, missing, rejected, unavailable, manifest: storedManifest });
-    return { ...receipt, run: { id: runId, status } };
-  }
-  return receipt;
 }

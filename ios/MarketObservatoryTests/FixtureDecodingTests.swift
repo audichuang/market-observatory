@@ -35,6 +35,17 @@ struct FixtureDecodingTests {
         #expect(facts.sourceUrl == "https://investor.vanguard.com/investment-products/etfs/profile/voo")
         #expect(facts.checkedAt == "2026-10-28")
         #expect(p.rows.first { $0.ticker == "SPY" }?.facts?.isin == "US78462F1030")
+        #expect(p.checklists?.count == 2)
+        let checklists = try #require(p.checklists)
+        #expect(checklists.allSatisfy { !$0.items.isEmpty })
+        #expect(checklists.map(\.id) == ["tw-overseas-income", "us-estate"])
+        #expect(checklists.allSatisfy { !$0.title.isEmpty && !$0.footer.isEmpty && !$0.sources.isEmpty })
+        #expect(checklists.flatMap(\.sources).allSatisfy {
+            !$0.label.isEmpty && $0.url.hasPrefix("https://") && !$0.updatedAt.isEmpty && !$0.checkedAt.isEmpty
+        })
+        #expect(checklists.first?.note != nil)
+        #expect(checklists.last?.note == nil)
+        #expect(checklists.last?.sources.last?.updatedAt == "2025-09")
     }
     @Test func generatedOutlook() throws {
         let p = try decodeFixture("generated-outlook", as: OutlookPage.self)
@@ -124,6 +135,7 @@ struct FixtureDecodingTests {
         #expect(e.funding == nil)
         #expect(e.dca?.firstBuyDate == nil)
         #expect(e.rows.allSatisfy { $0.facts == nil })
+        #expect(e.checklists == nil)
         // 1× ETF 的 drift1y 是 null，槓桿／反向 ETF 是 { actual, naive, drift } 物件。
         let voo = try #require(e.rows.first { $0.ticker == "VOO" })
         #expect(voo.drift1y == nil)

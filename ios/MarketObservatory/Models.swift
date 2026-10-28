@@ -412,6 +412,7 @@ struct Etfs: Decodable, Sendable {
     let fxLast: Fx?
     let funding: String?
     let costScenario: CostScenario?
+    let checklists: [Checklist]?
 
     struct Facts: Decodable, Sendable {
         let domicile: String
@@ -740,4 +741,20 @@ struct CostScenario: Decodable, Sendable {
     let notes: [String]?
     let sources: [Source]?
     let inputs: Inputs?
+}
+
+struct Checklist: Decodable, Sendable, Identifiable {
+    struct Source: Decodable, Sendable {
+        let label: String
+        let url: String
+        let updatedAt: String
+        let checkedAt: String
+    }
+
+    let id: String
+    let title: String
+    let items: [String]
+    let note: String?
+    let footer: String
+    let sources: [Source]
 }

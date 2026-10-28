@@ -72,5 +72,12 @@ Preconditions:
 
 - `tax-checklists`（#12，C-07、R3-3、R1-6）：導覽列「ETF 與定投」→ `/etfs`，成本情境後的「稅務與傳承檢查清單」。兩份 `<details>`：「台灣家庭海外所得（最低稅負）資料檢查」（7 項）與「美國遺產稅申報資料檢討」（5 項）；項目、note、footer 與來源皆由 `/api/v1/etfs` 的頂層 `checklists` 提供，沒有金額輸入或稅額試算。
 - 操作與對帳：依序點 `#tw-overseas-income > summary`、`#us-estate > summary`，確認兩份同時展開；逐項比對 API 的 `items`、台灣 `note` 與兩份 `footer`。點開全部來源，核對連結與每筆「頁面更新日」「查閱日」。在 320px、360px 及深淺模式檢查完整內容可換行、沒有水平捲動；保存 `tax-checklists-expanded.png`、`tax-checklists-320.png`、來源開啟畫面與 `tax-checklists.api.json`。
-- 日期與維護：台灣來源為 2026-04-15，未標適用所得年度的 note 必須可見；IRS 遺產頁為 2026-06-28，706-NA 說明只標到 2025-09，保留月份精度；查閱日均為 2026-10-28。這是人工維護的靜態資料，更新前重新查核官方內容與日期。美國清單沒有 note，API 為 null。App 的 optional 模型與畫面留給 L5-T8。
+- 日期與維護：台灣來源為 2026-04-15，未標適用所得年度的 note 必須可見；IRS 遺產頁為 2026-06-28，706-NA 說明只標到 2025-09，保留月份精度；查閱日均為 2026-10-28。這是人工維護的靜態資料，更新前重新查核官方內容與日期。美國清單沒有 note，API 為 null。
 - 本票驗證狀態：已以資料、view 與頁面渲染測試核對逐字文案和來源欄位；依派工要求未跑 UI，展開互動、來源實際開啟與窄螢幕版面留待整合驗收。
+
+## 稅務與傳承檢查清單（L5-T8，App）
+
+- `tax-checklists-app`（#12，C-07、遺產申報資料檢討）：入口「更多 → ETF 與定投試算」，成本情境後的 Section「稅務與傳承檢查清單」。每份清單是一個預設收合的 DisclosureGroup；標題、依序列出的 items、可空的 note、footer、來源 Link 標籤／網址與日期均由 `/api/v1/etfs` 的 `checklists` 帶入，App 不保存稅務文案或收集個人金額。
+- 操作與對帳：先確認兩份都收合，依序點「台灣家庭海外所得（最低稅負）資料檢查」（identifier `tax-checklist-tw-overseas-income`）與「美國遺產稅申報資料檢討」（`tax-checklist-us-estate`），確認可以同時展開。逐項比對同帳號 API 與網頁的 7／5 項、台灣 note、兩份 footer 與三筆來源；點每個來源 Link 確認開啟的網址一致，日期原樣呈現「頁面更新日／查閱日」，706-NA 的 2025-09 不補成某一天。再次點標題可收合。
+- 版面與證據：一般字級、深色模式與最大輔助字級各走過展開並捲到最後一筆來源，逐張檢查標題、長段落、note、footer、來源名稱及日期完整換行。保存 `tax-checklists-app-collapsed.png`、`tax-checklists-app-expanded.png`、`tax-checklists-app-dark.png`、`tax-checklists-app-accessibility.png`、來源開啟畫面、畫面文字與 `tax-checklists-app.api.json`。全程使用工作流程全域模擬器鎖與既有 MO 機，驗完 shutdown；L7-T1 合併前不跑 `ios-up.sh`／`down.sh`。
+- Gotchas：`Etfs.checklists` 為 optional，舊 API 缺欄位時不顯示此 Section，舊 `etfs.json` 仍須解碼；generated fixture 須解出兩份且各有非空 items。清單展開後頁面會很長，保留預設收合；build 與解碼測試不能證明大字未截斷或來源實際可開。本票依派工要求不跑 UI，以上互動、深色及最大字級畫面未驗證，留待整合驗收。

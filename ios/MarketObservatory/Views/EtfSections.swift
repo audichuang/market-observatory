@@ -296,3 +296,54 @@ struct CostEditor: View {
         }
     }
 }
+
+struct TaxChecklistSection: View {
+    let checklists: [Checklist]
+
+    var body: some View {
+        Section {
+            ForEach(checklists) { checklist in
+                DisclosureGroup {
+                    ForEach(Array(checklist.items.enumerated()), id: \.offset) { index, item in
+                        Text("\(index + 1). \(item)")
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    if let note = checklist.note {
+                        Text(note)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Text(checklist.footer)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    ForEach(Array(checklist.sources.enumerated()), id: \.offset) { _, source in
+                        VStack(alignment: .leading, spacing: 4) {
+                            if let url = URL(string: source.url) {
+                                Link(destination: url) {
+                                    Text(source.label)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                                .foregroundStyle(.tint)
+                                .buttonStyle(.borderless)
+                            }
+                            Text("頁面更新日：\(source.updatedAt)；查閱日：\(source.checkedAt)")
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .font(.caption)
+                    }
+                } label: {
+                    Text(checklist.title)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .lineLimit(nil)
+                .accessibilityIdentifier("tax-checklist-\(checklist.id)")
+            }
+        } header: {
+            Text("稅務與傳承檢查清單")
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}

@@ -288,6 +288,10 @@ struct EtfView: View {
                 Task { await load() }
             }
 
+            if let checklists = e.checklists {
+                TaxChecklistSection(checklists: checklists)
+            }
+
             Section("我的規劃") {
                 LabeledContent("研究預算", value: Fmt.twd(Double(e.plan.researchBudgetTwd)))
                 LabeledContent("每批投入", value: Fmt.twd(Double(e.plan.trancheTwd)))

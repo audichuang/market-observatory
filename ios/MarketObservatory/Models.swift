@@ -385,6 +385,7 @@ struct Etfs: Decodable, Sendable {
             let value: Double
         }
 
+        let firstBuyDate: String?
         let months: Int
         let invested: Double
         let value: Double

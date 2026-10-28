@@ -40,6 +40,16 @@ test("定投：每月第一個交易日買一次，市值與單筆對照正確",
   assert.equal(r.maxDrawdownPct, -25);
 });
 
+test("定投：月中起點從之後第一個交易日買入，保留首月與單筆對照", () => {
+  const x = s([["2040-01-02", 10], ["2040-01-16", 10], ["2040-02-01", 20], ["2040-02-02", 20]]);
+  const r = simulateDca(x, "2040-01-15", 1000)!;
+  assert.equal(r.firstBuyDate, "2040-01-16");
+  assert.equal(r.path[0].date, "2040-01-16");
+  assert.equal(r.months, 2);
+  assert.equal(r.invested, 2000);
+  assert.equal(r.lumpSumValue, 4000);
+});
+
 test("槓桿偏離 = 實際報酬 − 倍數 × 指數報酬", () => {
   const etf = s([["2026-01-02", 100], ["2026-01-05", 115]]);
   const idx = s([["2026-01-02", 100], ["2026-01-05", 106]]);

@@ -23,6 +23,7 @@ struct FixtureDecodingTests {
     @Test func generatedEtfs() throws {
         let p = try decodeFixture("generated-etfs", as: Etfs.self)
         #expect(p.dca != nil)
+        #expect(p.dca?.firstBuyDate != nil)
         #expect(p.rows.first { $0.ticker == "SSO" }?.drift1y != nil)
     }
     @Test func generatedOutlook() throws {
@@ -109,6 +110,7 @@ struct FixtureDecodingTests {
 
     @Test func etfs() throws {
         let e = try decodeFixture("etfs", as: Etfs.self)
+        #expect(e.dca?.firstBuyDate == nil)
         // 1× ETF 的 drift1y 是 null，槓桿／反向 ETF 是 { actual, naive, drift } 物件。
         let voo = try #require(e.rows.first { $0.ticker == "VOO" })
         #expect(voo.drift1y == nil)

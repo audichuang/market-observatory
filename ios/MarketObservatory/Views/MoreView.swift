@@ -212,6 +212,7 @@ struct EtfView: View {
                             Delta(value: d.lumpSumReturnPct, percent: true).font(.caption)
                         }
                     }
+                    Text(Copy.dcaLumpPremise).font(.caption).foregroundStyle(.secondary)
                     LabeledContent("最大帳面虧損") { Delta(value: d.maxDrawdownPct, percent: true) }
                     Chart {
                         ForEach(d.path) { p in
@@ -245,7 +246,7 @@ struct EtfView: View {
             } header: {
                 Text("\(e.sim.etf) 定投 \(e.sim.years) 年（台幣計價）")
             } footer: {
-                Text("每月第一個交易日以收盤價買入，用當天 USD/TWD 換匯；不含配息、手續費與稅。改標的、期間或金額只是試算，按「設為我的預設」才會存起來。\(e.fxLast.map { "最新匯率 \(Fmt.num($0.close, 3))（\(Fmt.fullDate($0.date))）。" } ?? "")")
+                Text("\(e.dca?.firstBuyDate.map { "試算起點 \(Fmt.fullDate(e.sim.startDate))，首筆 \(Fmt.fullDate($0))。" } ?? "")\(Copy.dcaBuyRule)；\(Copy.dcaFxRule)。不含配息、手續費、換匯價差與稅。改標的、期間或金額只是試算，按「設為我的預設」才會存起來。\(e.fxLast.map { "最新匯率 \(Fmt.num($0.close, 3))（\(Fmt.fullDate($0.date))）。" } ?? "")")
             }
 
             Section("我的規劃") {

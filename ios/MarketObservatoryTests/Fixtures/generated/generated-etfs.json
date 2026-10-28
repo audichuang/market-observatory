@@ -310,6 +310,7 @@
     "startDate": "2025-10-28"
   },
   "dca": {
+    "firstBuyDate": "2025-10-28",
     "months": 13,
     "invested": 130000,
     "units": 1.5234637333487497,

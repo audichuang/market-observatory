@@ -4,6 +4,7 @@ import LineChart from "../src/ui/LineChart.tsx";
 import { Delta } from "../src/ui/bits.tsx";
 import { compactUsd, num, pctText } from "../src/ui/format.ts";
 import { planIssue } from "../src/lib/plan.ts";
+import { DCA_BUY_RULE, DCA_FX_RULE, DCA_LUMP_PREMISE } from "../src/lib/etf-copy.ts";
 import type { Props } from "./etfs.server";
 
 const errorText = (e: unknown) => {
@@ -171,7 +172,7 @@ export default function EtfPage({ asOf, catalogAsOf, rows, periods, plan, sim, d
               <div className="grid kpis" style={{ marginTop: "1rem" }}>
                 <div className="kpi"><div className="label">投入 {dca.months} 個月</div><div className="value">{num(dca.invested, 0)}</div></div>
                 <div className="kpi"><div className="label">目前市值</div><div className="value">{num(dca.value, 0)}</div><div className="delta"><Delta value={dca.returnPct} percent /></div></div>
-                <div className="kpi"><div className="label">同金額期初單筆</div><div className="value">{num(dca.lumpSumValue, 0)}</div><div className="delta"><Delta value={dca.lumpSumReturnPct} percent /></div></div>
+                <div className="kpi"><div className="label">同金額期初單筆</div><div className="value">{num(dca.lumpSumValue, 0)}</div><div className="delta"><Delta value={dca.lumpSumReturnPct} percent /></div><div className="meta">{DCA_LUMP_PREMISE}</div></div>
                 <div className="kpi"><div className="label">最大帳面虧損</div><div className="value"><Delta value={dca.maxDrawdownPct} percent /></div></div>
               </div>
               <LineChart
@@ -184,7 +185,7 @@ export default function EtfPage({ asOf, catalogAsOf, rows, periods, plan, sim, d
                 ]}
               />
               <p className="meta">
-                每月第一個交易日以收盤價買入，用當日 USD/TWD 換匯（最新 {num(fxLast?.close ?? null, 3)}，{fxLast?.date}）；不含配息、手續費、換匯價差與稅。歷史試算不代表未來。
+                試算起點 {sim.startDate}，首筆 {dca.firstBuyDate}。{DCA_BUY_RULE}；{DCA_FX_RULE}（最新 {num(fxLast?.close ?? null, 3)}，{fxLast?.date}）。不含配息、手續費、換匯價差與稅。歷史試算不代表未來。
               </p>
             </>
           )}

@@ -291,7 +291,7 @@ export async function etfsView(c: ViewCtx, v: Viewer) {
       return { ...e, close: lastPt?.close ?? null, lastDate: lastPt?.date ?? null, ytd: periodReturn(s, ytdStart, end), returns, drift1y };
     });
 
-    // 定投試算：價格換成台幣計價（每天用當天或之前最近的 USD/TWD），每月第一個交易日投入固定台幣。
+    // 定投試算：價格換成台幣計價（每天用當天或之前最近的 USD/TWD），首筆在起點當天或之後第一個有價格的交易日，之後每月第一個交易日投入固定台幣。
     const fx = loaded.series[FX_SYMBOL];
     const price = loaded.series[etf];
     const twdPoints = price.points

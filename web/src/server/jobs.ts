@@ -19,7 +19,7 @@ import { easternDate } from "../lib/calendar.ts";
 import { EQUAL_WEIGHT_SYMBOL, FX_SYMBOL, INDEX_SYMBOL, VIX_SYMBOL, type WatchMember, nasdaqCheckSymbols, watchTickers, yahooSymbols } from "../lib/universe.ts";
 import { MAX_TRACKED, addToWatchlist, removeFromWatchlist } from "../lib/watchlist.ts";
 import { USER_WATCHLIST_PREFIX, WATCHLIST_KEY, latestHoldings, newTrackedQuotaPrefix, loadTrackedMembers, loadWatchlist, updateWatchlist } from "./watchlist.ts";
-import { type BarBatch, applyCrossChecks, compareCloses, finishRun, insertMissingBars, replaceWeights, loadPrices, getSetting, loadWeightAnchors, nowIso, priceDates, putSetting, saveSnapshots, startRun, upsertBars, weightsNear } from "./repo.ts";
+import { type BarBatch, applyCrossChecks, compareCloses, finishRun, insertMissingBars, replaceWeights, loadPrices, getSetting, loadWeightAnchors, nowIso, priceRanges, putSetting, saveSnapshots, startRun, upsertBars, weightsNear } from "./repo.ts";
 
 export type JobName = "prices" | "crosscheck" | "weights" | "news" | "events" | "analysts" | "factset" | "forecast" | "forecast-phase" | "snapshots" | "notify-close" | "notify-events" | "backfill-prices" | "backfill-checks" | "backfill-index-history";
 export const JOB_NAMES: JobName[] = ["prices", "crosscheck", "weights", "news", "events", "analysts", "factset", "forecast", "forecast-phase", "snapshots", "notify-close", "notify-events", "backfill-prices", "backfill-checks", "backfill-index-history"];
@@ -182,14 +182,14 @@ async function jobPrices(db: D1Database, _opts: JobOptions, budget: Budget): Pro
   // 分割後 Yahoo 改寫了整段歷史：偵測到（或還在待修清單上）就重抓這幾檔的十年日線。
   // 額度只夠重抓一部分時，其餘留在待修清單，下一次排程接著重抓。
   const rebasedSymbols = Object.keys({ ...pending, ...rebased }).filter((s) => s in symbols);
-  const uncovered: Record<string, string> = {};
   if (rebasedSymbols.length) {
     const now = rebasedSymbols.slice(0, budget.remaining);
-    const storedDates = await priceDates(db, now);
+    const ranges = await priceRanges(db, now);
     const full = await fetchYahooBatch(now.map((s) => [s, symbols[s]] as [string, string]), "10y", expected, budget);
     const covered: BarBatch[] = [];
+    const uncovered: Record<string, string> = {};
     for (const batch of full.ok) {
-      const coverage = refetchCoverage(storedDates[batch.symbol], batch.bars, expected);
+      const coverage = refetchCoverage(ranges[batch.symbol] ?? null, batch.bars, expected);
       if (coverage.ok) covered.push(batch);
       else {
         uncovered[batch.symbol] = coverage.reason;
@@ -227,7 +227,7 @@ async function jobPrices(db: D1Database, _opts: JobOptions, budget: Budget): Pro
   const total = entries.length + 1;
   return {
     status: failedNames.length === 0 && stale.length === 0 && !(forecast?.attention && forecast.reason !== "insufficient") ? "ok" : failedNames.length > total / 2 ? "failed" : "partial",
-    summary: `更新 ${total - failedNames.length}/${total} 檔；失敗 ${failedNames.join(",") || "無"}；尚無 ${expected} 收盤 ${stale.join(",") || "無"}${rebasedSymbols.length ? `；偵測到分割 ${rebasedSymbols.map((s) => `${s}×${({ ...pending, ...rebased })[s].toFixed(3)}`).join(",")}` : ""}${Object.keys(uncovered).length ? `；分割保留待修：${Object.entries(uncovered).map(([s, reason]) => `${s} ${reason}`).join("；")}` : ""}；新快照 ${snaps.created.join(",") || "無"}${spxError ? `；SPX 核對失敗 ${spxError}` : ""}${forecast && forecastNeedsAttention(forecast) ? `；預測：${forecast.message}` : ""}`,
+    summary: `更新 ${total - failedNames.length}/${total} 檔；失敗 ${failedNames.join(",") || "無"}；尚無 ${expected} 收盤 ${stale.join(",") || "無"}${rebasedSymbols.length ? `；偵測到分割 ${rebasedSymbols.map((s) => `${s}×${({ ...pending, ...rebased })[s].toFixed(3)}`).join(",")}` : ""}；新快照 ${snaps.created.join(",") || "無"}${spxError ? `；SPX 核對失敗 ${spxError}` : ""}${forecast && forecastNeedsAttention(forecast) ? `；預測：${forecast.message}` : ""}`,
     detail,
   };
 }

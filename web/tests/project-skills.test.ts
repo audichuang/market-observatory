@@ -53,7 +53,7 @@ test("strategist-monthly-check 引用現行資料、測試與展望驗證入口"
   }
 });
 
-test("ai-monthly-audit 引用抽樣、批次更正與離線 dev 案例入口", () => {
+test("ai-monthly-audit 引用抽樣、批次更正與後續評估計畫入口", () => {
   const markdown = readFileSync(join(skillsRoot, "ai-monthly-audit/SKILL.md"), "utf8");
   const references = [...markdown.matchAll(/`([^`\n]+)`/g)].map((match) => match[1]);
   for (const path of [
@@ -61,7 +61,6 @@ test("ai-monthly-audit 引用抽樣、批次更正與離線 dev 案例入口", (
     "web/scripts/ai-batch.ts",
     "web/routes/api/admin/ai.ts",
     "web/docs/news-ai-eval.md",
-    "web/evals/news-ai/dev/",
   ]) {
     assert.ok(references.includes(path), `月抽查 skill 缺少入口：${path}`);
     assert.ok(existsSync(join(repo, path)), `月抽查 skill 引用不存在的入口：${path}`);

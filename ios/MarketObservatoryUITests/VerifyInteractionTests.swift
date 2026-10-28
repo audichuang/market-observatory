@@ -812,4 +812,55 @@ final class VerifyInteractionTests: XCTestCase {
         XCTAssertTrue(app.textFields["email"].waitForExistence(timeout: 20), "刪除後沒有回到登入畫面")
         snap("Z3-deleted")
     }
+
+    // C8: Research is available only for watchlist companies, immediately after the main chart.
+    func test19_HistoryResearch() throws {
+        let app = try signedIn()
+        tab(app, "走勢")
+        XCTAssertTrue(app.buttons["標的：S&P 500"].waitForExistence(timeout: 15))
+        app.buttons["標的：S&P 500"].tap()
+        let nvda = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'NVIDIA'")).firstMatch
+        XCTAssertTrue(nvda.waitForExistence(timeout: 5), "標的選單裡沒有 NVIDIA")
+        nvda.tap()
+        XCTAssertTrue(app.buttons["標的：NVIDIA"].waitForExistence(timeout: 15))
+
+        let section = app.staticTexts["研究表與原始資料"]
+        reveal(app, section)
+        XCTAssertTrue(section.isHittable, "NVIDIA 主圖後沒有研究表")
+        let edgar = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'SEC EDGAR 申報清單'")).firstMatch
+        reveal(app, edgar)
+        XCTAssertTrue(edgar.isHittable, "研究表沒有 EDGAR 連結")
+        let ir = app.descendants(matching: .any).matching(NSPredicate(format: "label == '公司投資人關係（IR）'")).firstMatch
+        XCTAssertTrue(ir.exists, "NVIDIA 沒有 IR 連結")
+        snap("C8-research-links")
+        var evidence = "\(edgar.label)\n\(ir.label)\n"
+
+        let disclosure = app.buttons["研究表範本（7 題）"]
+        reveal(app, disclosure).tap()
+        for (i, label) in ["企業驅動", "盈餘假設", "與共識的差異", "估值敏感度", "下一個核對事件", "反證", "論點失效條件"].enumerated() {
+            let question = app.staticTexts["\(i + 1). \(label)"]
+            reveal(app, question)
+            XCTAssertTrue(question.isHittable, "範本缺少第 \(i + 1) 題")
+            evidence += texts(app) + "\n"
+        }
+        let copy = app.buttons["複製範本"]
+        reveal(app, copy).tap()
+        let copied = app.staticTexts["已複製，可貼到你自己的筆記保存"]
+        reveal(app, copied)
+        XCTAssertTrue(copied.waitForExistence(timeout: 5), "複製後沒有顯示「已複製」")
+        snap("C8-research"); note("C8-research", evidence + texts(app))
+
+        app.buttons["標的：NVIDIA"].tap()
+        let spx = app.buttons["S&P 500（SPX）"]
+        XCTAssertTrue(spx.waitForExistence(timeout: 5)); spx.tap()
+        XCTAssertTrue(app.buttons["標的：S&P 500"].waitForExistence(timeout: 15))
+        reveal(app, app.buttons["1 年"], up: false)
+        // Scan from the main chart through the following sections; offscreen lazy rows alone cannot prove absence.
+        for _ in 0 ..< 6 {
+            XCTAssertFalse(section.exists, "S&P 500 不應顯示研究表")
+            XCTAssertFalse(edgar.exists, "S&P 500 不應顯示 EDGAR 連結")
+            app.swipeUp()
+        }
+        snap("C8-research-spx"); note("C8-research-spx", texts(app))
+    }
 }

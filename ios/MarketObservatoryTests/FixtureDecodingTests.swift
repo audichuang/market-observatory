@@ -38,6 +38,23 @@ struct FixtureDecodingTests {
         #expect(p.strategists?.staleAfterDays == 45)
         #expect(p.strategists?.list.contains { $0.targetLow != nil && $0.verifiedOn != nil } == true)
     }
+    @Test func consensusCoverageAndRange() throws {
+        let p = try decodeFixture("generated-outlook", as: OutlookPage.self)
+        let c = try #require(p.consensus)
+        #expect(c.coverage?.target?.weightPct != nil)
+        #expect(c.coverage?.target?.weightPct == c.coveredWeightPct)
+        #expect(c.noData?.symbols == 1)
+        #expect(c.weightsAsOf == "2026-10-28")
+        #expect(c.top.first?.targetLow == 90)
+        #expect(c.top.first?.fiscalEnd == "Dec 2026")
+        #expect(c.top.first?.estimates == 20)
+        #expect(c.top.first?.priceDate == "2026-10-27")
+
+        let old = try decodeFixture("outlook", as: OutlookPage.self)
+        let oldConsensus = try #require(old.consensus)
+        #expect(oldConsensus.coverage == nil)
+        #expect(oldConsensus.top.first?.targetLow == nil)
+    }
     @Test func me() throws { _ = try decodeFixture("me", as: Me.self) }
     @Test func overview() throws { _ = try decodeFixture("overview", as: Overview.self) }
     @Test func history() throws {

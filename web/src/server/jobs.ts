@@ -629,7 +629,7 @@ export async function recordForecast(db: D1Database): Promise<ForecastRecord> {
 const ANALYST_UNIVERSE = 200;
 const EPS_REVISION_UNIVERSE = 100;
 const ANALYST_PER_RUN = 16;
-const EMPTY_VIEW = { targetMean: null, targetLow: null, targetHigh: null, buy: 0, hold: 0, sell: 0, fiscalEnd: null, epsForecast: null, epsUp: null, epsDown: null, estimates: null };
+const EMPTY_VIEW = { targetMean: null, targetLow: null, targetHigh: null, buy: 0, hold: 0, sell: 0, fiscalEnd: null, epsForecast: null, epsUp: null, epsDown: null, estimates: null, epsError: null };
 
 /** SPY 權重前 200 檔，每次挑最久沒更新的 16 檔抓分析師共識；股價用 Yahoo spark 一次取得。 */
 async function jobAnalysts(db: D1Database, _opts: JobOptions, budget: Budget): Promise<JobResult> {
@@ -651,7 +651,7 @@ async function jobAnalysts(db: D1Database, _opts: JobOptions, budget: Budget): P
   let prices = new Map<string, { date: string; close: number }>();
   let priceError: string | null = null;
   try {
-    prices = await fetchYahooLastCloses(picks, budget);
+    prices = await fetchYahooLastCloses(picks, budget, latestExpectedClose());
   } catch (e) {
     priceError = errText(e);
   }
@@ -674,9 +674,11 @@ async function jobAnalysts(db: D1Database, _opts: JobOptions, budget: Budget): P
   );
   const stmts: D1PreparedStatement[] = [];
   const failed: string[] = [];
+  const epsFailed: string[] = [];
   results.forEach((r, i) => {
     if (r.status === "rejected") return failed.push(`${picks[i]}: ${errText(r.reason)}`);
     const v = r.value;
+    if (v.epsError !== null) epsFailed.push(v.symbol);
     const p = prices.get(picks[i]);
     stmts.push(stmt.bind(v.symbol, asOf, p?.close ?? null, p?.date ?? null, v.targetMean, v.targetLow, v.targetHigh, v.buy, v.hold, v.sell, v.fiscalEnd, v.epsForecast, v.epsUp, v.epsDown, v.estimates, fetchedAt));
   });
@@ -691,9 +693,9 @@ async function jobAnalysts(db: D1Database, _opts: JobOptions, budget: Budget): P
   });
   await putSetting(db, ANALYST_FAILURES_KEY, nextFailures);
   return {
-    status: failed.length === 0 && !priceError ? "ok" : stmts.length === 0 ? "failed" : "partial",
-    summary: `分析師共識 ${stmts.length}/${picks.length} 檔（${picks.join(",")}）；股價 ${prices.size} 檔${priceError ? `（失敗：${priceError}）` : ""}`,
-    detail: { failed, priceError },
+    status: failed.length === 0 && !priceError && epsFailed.length === 0 ? "ok" : stmts.length === 0 ? "failed" : "partial",
+    summary: `分析師共識 ${stmts.length}/${picks.length} 檔（${picks.join(",")}）；股價 ${prices.size} 檔${priceError ? `（失敗：${priceError}）` : ""}${epsFailed.length ? `；EPS 失敗 ${epsFailed.length} 檔` : ""}`,
+    detail: { failed, priceError, epsFailed },
   };
 }
 

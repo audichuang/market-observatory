@@ -190,6 +190,7 @@ export interface AnalystView {
   epsUp: number | null;
   epsDown: number | null;
   estimates: number | null;
+  epsError: string | null;
 }
 
 interface TargetPriceData {
@@ -222,6 +223,7 @@ export function parseAnalystView(symbol: string, target: TargetPriceData, foreca
     epsUp: parseLooseNumber(row?.up),
     epsDown: parseLooseNumber(row?.down),
     estimates: parseLooseNumber(row?.noOfEstimates),
+    epsError: null,
   };
 }
 
@@ -229,9 +231,13 @@ export function parseAnalystView(symbol: string, target: TargetPriceData, foreca
 /** withEpsRevisions=false 時只抓目標價（1 個請求），用來擴大涵蓋範圍又不超過子請求上限。 */
 export async function fetchAnalystView(symbol: string, withEpsRevisions = true, budget?: Budget): Promise<AnalystView> {
   const base = `https://api.nasdaq.com/api/analyst/${encodeURIComponent(nasdaqSymbol(symbol))}`;
+  let epsError: string | null = null;
   const [target, forecast] = await Promise.all([
     getJson<TargetPriceData>(`${base}/targetprice`, budget),
-    withEpsRevisions ? getJson<EarningsForecastData>(`${base}/earnings-forecast`, budget).catch(() => null) : Promise.resolve(null),
+    withEpsRevisions ? getJson<EarningsForecastData>(`${base}/earnings-forecast`, budget).catch((e) => {
+      epsError = e instanceof Error ? e.message : String(e);
+      return null;
+    }) : Promise.resolve(null),
   ]);
-  return parseAnalystView(symbol, target, forecast);
+  return { ...parseAnalystView(symbol, target, forecast), epsError };
 }

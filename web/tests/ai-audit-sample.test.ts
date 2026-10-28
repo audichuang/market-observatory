@@ -70,15 +70,15 @@ function save(root: string, kind: BatchKind, id: string, tasks: Task[], answers:
 
 async function digests(specs: { symbol: string; tone?: string; count?: number; earnings?: boolean; unconfirmed?: number }[]) {
   const news = <T extends "before-close" | "after-close">(symbol: string, n: number, category: string, timing: T) => ({
-    id: `${symbol}-${n}`, titleZh: "合成新聞", title: "Synthetic news", summary: null, tone: "neutral", category, timing,
+    id: `nasdaq:${symbol}-${n}`, titleZh: "合成新聞", title: "Synthetic news", summary: null, tone: "neutral", category, timing,
   });
   const work: DailyWork = { date, points: [], market: null, digests: [] };
   for (const { symbol, count = 2, earnings = false, unconfirmed = 0 } of specs) {
     if (symbol === "SPX") {
       work.market = {
         date, close: 6000, changePts: 1, returnPct: 0.1, vix: 20, vixChange: 0, spreadPct: 0, movers: [], restPts: 1,
-        news: Array.from({ length: count }, () => "合成大盤標題"), newsIds: Array.from({ length: count }, (_, i) => `market-${i}`),
-        unconfirmed: Array.from({ length: unconfirmed }, (_, i) => ({ id: `late-${i}`, title: "盤後標題", timing: "after-close" })),
+        news: Array.from({ length: count }, () => "合成大盤標題"), newsIds: Array.from({ length: count }, (_, i) => `nasdaq:market-${i}`),
+        unconfirmed: Array.from({ length: unconfirmed }, (_, i) => ({ id: `nasdaq:late-${i}`, title: "盤後標題", timing: "after-close" })),
       };
     } else {
       work.digests.push({
@@ -198,6 +198,32 @@ test("覆蓋用 daily snapshot.date 與 translate pulledAt；保留 partial、fa
   assert.ok(!r.population.digest.some((item) => item.key === digestKey("OUTSIDE")));
 });
 
+test("空且無回執的工作批次不把同日已成功的 daily、translate 覆蓋降為 unknown", async (t) => {
+  const root = fixture(t);
+  const b = await digests([{ symbol: "AAPL" }]);
+  save(root, "daily", "daily-ok", b.tasks, b.answers, b.accepted);
+  save(root, "translate", "translate-ok", [], {}, ["translate:nasdaq:1"]);
+  save(root, "daily", "daily-empty", [], {}, [], { working: true, noReceipt: true, pulledAt: "2026-10-01T01:00:00Z" });
+  save(root, "translate", "translate-empty", [], {}, [], { working: true, noReceipt: true, pulledAt: `${date}T23:00:00Z` });
+  const r = await report(root);
+  const day = r.coverage.sessions.find((day) => day.date === date)!;
+  for (const kind of ["daily", "translate"] as const) {
+    assert.deepEqual(day[kind], { status: "ok", batches: [{ runId: `${kind}-ok`, directory: `${kind}/runs/${kind}-ok`, status: "ok" }] });
+  }
+  assert.deepEqual(r.population.digest.map((item) => item.key), b.accepted);
+  assert.deepEqual(r.samples.translate, ["translate:nasdaq:1"]);
+  assert.deepEqual(r.problemCases, []);
+});
+
+test("只有空且無回執的批次時，當日覆蓋列為 missing", async (t) => {
+  const root = fixture(t);
+  for (const kind of ["daily", "translate"] as const) save(root, kind, "empty", [], {}, [], { working: true, noReceipt: true });
+  const r = await report(root);
+  const day = r.coverage.sessions.find((day) => day.date === date)!;
+  assert.deepEqual(day.daily, { status: "missing", batches: [] });
+  assert.deepEqual(day.translate, { status: "missing", batches: [] });
+});
+
 test("HOME 空白、無帳密、禁止網路與子程序仍能執行", async (t) => {
   const root = fixture(t);
   const home = join(root, "home");
@@ -251,7 +277,7 @@ test("新聞不足計入盤後輸入，大盤零標題與公司僅一則以當�
 
 test("translate 與 points 各十則，以 accepted 回執鍵排序且同鍵去重", async (t) => {
   const root = fixture(t);
-  const ids = Array.from({ length: 14 }, (_, i) => `n${i}`);
+  const ids = Array.from({ length: 14 }, (_, i) => `nasdaq:${i}`);
   const tasks = buildTranslateTasks(ids.map((id) => ({ id, title: "Synthetic title", summary: null, symbols: ["AAPL"], primarySymbol: "AAPL" })));
   const translations = ids.map((id) => `translate:${id}`);
   const points = ids.map((id) => `points:${id}`);
@@ -263,6 +289,59 @@ test("translate 與 points 各十則，以 accepted 回執鍵排序且同鍵去�
   assert.deepEqual(r.population.points.map((item) => item.key), byHash(points));
   assert.deepEqual(r.samples.translate, byHash(translations).slice(0, 10));
   assert.deepEqual(r.samples.points, byHash(points).slice(0, 10));
+});
+
+test("--case 接受含冒號與網址的新聞回執鍵，保留 accepted 全集但不抽樣", async (t) => {
+  const root = fixture(t);
+  const keys = ["translate:nasdaq:1", "translate:nasdaq:https://www.nasdaq.com/x", "points:nasdaq:1", "points:nasdaq:https://www.nasdaq.com/x"];
+  save(root, "translate", "translate-cases", [], {}, keys.slice(0, 2));
+  save(root, "daily", "points-cases", [], {}, keys.slice(2));
+  const r = await report(root, ["--case", ...keys]);
+  assert.deepEqual(r.population.translate.map((item) => item.key), byHash(keys.slice(0, 2)));
+  assert.deepEqual(r.population.points.map((item) => item.key), byHash(keys.slice(2)));
+  assert.deepEqual(r.problemCases.map((item) => item.key), [...keys].sort());
+  for (const item of r.problemCases) assert.deepEqual(item.reasons.map((reason) => reason.type), ["case"]);
+  assert.deepEqual(r.samples.translate, []);
+  assert.deepEqual(r.samples.points, []);
+});
+
+test("accepted 回執鍵格式錯誤是資料錯誤：exit 1，不印參數用法", async (t) => {
+  const root = fixture(t);
+  save(root, "translate", "invalid-key", [], {}, ["invalid-accepted-key"]);
+  const r = await run(root);
+  assert.equal(r.code, 1, r.stderr);
+  assert.equal(r.stdout, "");
+  assert.match(r.stderr, /不是 L2 回執鍵：invalid-accepted-key/);
+  assert.doesNotMatch(r.stderr, /用法/);
+});
+
+test("未推送批次不產生 missing，同鍵在另一批 accepted 後仍可抽樣", async (t) => {
+  const news = { id: "nasdaq:1", title: "Synthetic title", url: "https://example.test/article", summary: null, symbols: ["AAPL"], primarySymbol: "AAPL" };
+  const translateTasks = buildTranslateTasks([news]);
+  const digest = await digests([{ symbol: "AAPL" }]);
+  const { tasks: pointTasks } = await buildDailyTasks({ date, points: [news], market: null, digests: [] }, async () => ({ body: "合成正文", url: "https://example.test/article", truncated: false }));
+  const batches = [
+    { kind: "translate" as const, tasks: translateTasks, answers: { [translateTasks[0].id]: { items: [] } }, accepted: ["translate:nasdaq:1"] },
+    { kind: "daily" as const, tasks: [...digest.tasks, ...pointTasks], answers: { ...digest.answers, [pointTasks[0].id]: { points: ["合成重點"], tone: "neutral" } }, accepted: [...digest.accepted, "points:nasdaq:1"] },
+  ];
+  for (const working of [false, true]) {
+    await t.test(working ? "未推送工作目錄" : "未推送歸檔", async (t) => {
+      const root = fixture(t);
+      for (const batch of batches) {
+        save(root, batch.kind, "unpushed", batch.tasks, {}, [], { working, noReceipt: true, pulledAt: `${date}T${working ? "23" : "21"}:00:00Z` });
+        save(root, batch.kind, "accepted", batch.tasks, batch.answers, batch.accepted, { working: !working, pulledAt: `${date}T22:00:00Z` });
+      }
+      const r = await report(root);
+      assert.deepEqual(r.problemCases, []);
+      assert.deepEqual(r.samples.digest, [digestKey("AAPL")]);
+      assert.deepEqual(r.samples.translate, ["translate:nasdaq:1"]);
+      assert.deepEqual(r.samples.points, ["points:nasdaq:1"]);
+      for (const kind of ["digest", "translate", "points"] as const) assert.equal(r.shortages[kind].available, 1);
+      const day = r.coverage.sessions.find((day) => day.date === date)!;
+      assert.equal(day.daily.status, "unknown");
+      assert.equal(day.translate.status, "unknown");
+    });
+  }
 });
 
 test("同鍵拒收後成功：全集保留 accepted 與最新輸入，歷史問題仍另列且不占樣本", async (t) => {
@@ -307,7 +386,7 @@ test("當月交易日只列到今天（美東日期）", async (t) => {
 
 test("錯誤參數 exit 2 且不輸出 JSON", async (t) => {
   const root = fixture(t);
-  for (const args of [["--month", "2026-13"], ["--month", "26-09"], ["--month", "2026-09-01"], ["--month", "2024-01"], ["--out"], ["--batches"], ["--case"], ["--case", "NVDA"], ["--unknown"], ["extra"]]) {
+  for (const args of [["--month", "2026-13"], ["--month", "26-09"], ["--month", "2026-09-01"], ["--month", "2024-01"], ["--out"], ["--batches"], ["--case"], ["--case", "NVDA"], ["--case", "translate:"], ["--case", "points:"], ["--unknown"], ["extra"]]) {
     const r = await run(root, args);
     assert.equal(r.code, 2, `${args}: ${r.stderr}`);
     assert.equal(r.stdout, "");

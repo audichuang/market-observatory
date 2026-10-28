@@ -20,9 +20,9 @@ class UsageError extends Error {}
 
 function category(key: string): Category {
   if (/^digest:[^:]+:\d{4}-\d{2}-\d{2}$/.test(key)) return "digest";
-  if (/^translate:[^:]+$/.test(key)) return "translate";
-  if (/^points:[^:]+$/.test(key)) return "points";
-  throw new UsageError(`不是 L2 回執鍵：${key}`);
+  if (/^translate:.+$/.test(key)) return "translate";
+  if (/^points:.+$/.test(key)) return "points";
+  throw new Error(`不是 L2 回執鍵：${key}`);
 }
 
 function options(args: string[]) {
@@ -44,7 +44,11 @@ function options(args: string[]) {
     }
   }
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw new UsageError("--month 必須是 YYYY-MM");
-  cases.forEach(category);
+  try {
+    cases.forEach(category);
+  } catch (error) {
+    throw new UsageError((error as Error).message);
+  }
   return { month, batches, cases: [...new Set(cases)].sort(), out };
 }
 
@@ -103,6 +107,7 @@ function loadBatches(root: string): Batch[] {
       const answers = readJson<Record<string, unknown>>(join(dir, "answers.json"));
       const receipt = readJson<Receipt>(join(dir, "receipt.json"));
       if (!manifest && !tasks && !answers && !receipt) continue;
+      if (tasks?.length === 0 && !receipt) continue;
       const date = kind === "daily" ? manifest?.snapshot?.date ?? null : manifest?.pulledAt.slice(0, 10) ?? null;
       batches.push({ kind, directory, date, manifest, tasks: tasks ?? [], answers: answers ?? {}, receipt });
     }
@@ -173,7 +178,7 @@ function audit(month: string, batches: Batch[], cases: string[]) {
   for (const batch of selectedBatches) {
     const tasks = new Map(batch.tasks.flatMap((task) => taskKeys(task).map((key) => [key, task] as const)));
     for (const task of batch.tasks) {
-      if (!Object.hasOwn(batch.answers, task.id)) {
+      if (batch.receipt && !Object.hasOwn(batch.answers, task.id)) {
         for (const key of taskKeys(task)) problem(key, { type: "missing", detail: "answers.json 缺少任務答案", source: source(batch, task) });
       }
     }

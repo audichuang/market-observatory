@@ -180,17 +180,17 @@ S="$(git rev-parse --show-toplevel)/.claude/skills/verify/scripts"
 
 #### test15：準備可見的市場與公司語氣
 
-基準名單須包含 NVDA。先備份將覆寫的兩列，再只在這個 worktree 的 D1 寫合成摘要：市場日期必須等於最新 snapshot，NVDA 用 UTC 今天，才會落在新聞頁近三天的篩選內。
+基準名單須包含 NVDA，最新 snapshot 的交易日須落在新聞頁近三天的摘要範圍。先備份將覆寫的兩列，再只在這個 worktree 的 D1 寫合成摘要：SPX 與 NVDA 的日期一律使用最新 snapshot 的交易日，讓市場摘要與公司摘要同日，NVDA 會出現在預設可見的「今日重點」。
 
 ```sh
 cd "$WEB"
-npx void db execute "CREATE TABLE verify_saved_digests AS SELECT * FROM news_digests WHERE (symbol='SPX' AND date=(SELECT MAX(trade_date) FROM snapshots)) OR (symbol='NVDA' AND date=date('now'));
+npx void db execute "CREATE TABLE verify_saved_digests AS SELECT * FROM news_digests WHERE symbol IN ('SPX','NVDA') AND date=(SELECT MAX(trade_date) FROM snapshots);
 INSERT OR REPLACE INTO news_digests (symbol,date,summary,tone,news_ids,digest,model,created_at) SELECT 'SPX',MAX(trade_date),'驗證市場摘要：科技股承壓。','negative','[]','verify-i6','verify-i6',datetime('now') FROM snapshots;
-INSERT OR REPLACE INTO news_digests (symbol,date,summary,tone,news_ids,digest,model,created_at) VALUES ('NVDA',date('now'),'驗證公司摘要：營收成長。','positive','[]','verify-i6','verify-i6',datetime('now'));"
+INSERT OR REPLACE INTO news_digests (symbol,date,summary,tone,news_ids,digest,model,created_at) VALUES ('NVDA',(SELECT MAX(trade_date) FROM snapshots),'驗證公司摘要：營收成長。','positive','[]','verify-i6','verify-i6',datetime('now'));"
 "$S/ios-test.sh" <run-id> <email> "$RUN/user.pw" VerifyInteractionTests/test15_DigestToneLabels
 ```
 
-看 `B12-tone-normal/largest.png`、`E9-tone-normal/largest.png`，最大字級「今天為什麼漲跌」完整換行，語氣標籤仍可見；公司名可截斷。只看完整的 AX label 不能證明未截字，test15 另以 Vision OCR 檢查實際畫面。完成或失敗都還原：
+看 `B12-tone-normal/largest.png`、`E9-tone-normal/largest.png`，最大字級「今天為什麼漲跌」完整換行，語氣標籤仍可見；公司名可截斷。只看完整的 AX label 不能證明未截字，test15 另以 Vision OCR 檢查實際畫面。完成或失敗都刪除合成摘要，再從備份還原最新交易日的 SPX／NVDA 原列；原本沒有的列不保留：
 
 ```sh
 cd "$WEB"

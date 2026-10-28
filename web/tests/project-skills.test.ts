@@ -5,11 +5,11 @@ import { test } from "node:test";
 
 const repo = resolve(import.meta.dirname, "../..");
 const skillsRoot = join(repo, ".claude/skills");
-const REQUIRED = ["verify", "research-round", "strategist-monthly-check"];
+const REQUIRED = ["verify", "research-round", "strategist-monthly-check", "ai-monthly-audit"];
 const skills = readdirSync(skillsRoot, { withFileTypes: true })
   .filter((entry) => !entry.isSymbolicLink() && entry.isDirectory())
   .map((entry) => entry.name);
-const repoPath = /^(?:web\/(?:src|scripts|docs|tests|db|routes|pages)\/|\.claude\/skills\/|ios\/MarketObservatory)/;
+const repoPath = /^(?:web\/(?:src|scripts|docs|tests|db|routes|pages|evals)\/|\.claude\/skills\/|ios\/MarketObservatory)/;
 
 function markdownFiles(directory: string): string[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -50,6 +50,21 @@ test("strategist-monthly-check 引用現行資料、測試與展望驗證入口"
   ]) {
     assert.ok(references.includes(path), `月檢 skill 缺少入口：${path}`);
     assert.ok(existsSync(join(repo, path)), `月檢 skill 引用不存在的入口：${path}`);
+  }
+});
+
+test("ai-monthly-audit 引用抽樣、批次更正與離線 dev 案例入口", () => {
+  const markdown = readFileSync(join(skillsRoot, "ai-monthly-audit/SKILL.md"), "utf8");
+  const references = [...markdown.matchAll(/`([^`\n]+)`/g)].map((match) => match[1]);
+  for (const path of [
+    "web/scripts/ai-audit-sample.ts",
+    "web/scripts/ai-batch.ts",
+    "web/routes/api/admin/ai.ts",
+    "web/docs/news-ai-eval.md",
+    "web/evals/news-ai/dev/",
+  ]) {
+    assert.ok(references.includes(path), `月抽查 skill 缺少入口：${path}`);
+    assert.ok(existsSync(join(repo, path)), `月抽查 skill 引用不存在的入口：${path}`);
   }
 });
 

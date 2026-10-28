@@ -62,28 +62,20 @@ console.table(table.list.map(({ institution, firm, department, target, targetLow
 1. 查核日、範圍、程式版本、全表現況輸出與沿用的 stale 政策。
 2. 逐列表格：機構／部門、舊值與候選點位或區間、原文目標期間、首次調整日、發布／重申日、候選 asOf、結果、一手／二手、候選 verified／verifiedOn、stale／inMedian、證據定位。所有列都列出，未查列明記「未查」。
 3. 各列來源網址、實際讀到的段落短摘錄、來源衝突與未核實缺口；跨年候選另列阻擋原因，不放入可套用 diff。
-4. 針對 `web/src/lib/strategists.ts` 的候選 diff（沒有變更也明說），每個欄位能回連證據。`web/tests/strategists.test.ts` 受影響的資料快照斷言 diff 也列出供使用者同意；依候選資料重算，日期判定沿用測試固定的參考日期，不換成月檢當天。conflict／unverified 列維持原值，列為待處理；未經使用者同意只把 diff 寫進報告，不改這兩個檔案。
-
-逐條分類斷言，同一個 test 可混有資料快照與規則：
-
-資料快照：實際資料的 excluded 名單、中位數、verified 名單、各列 stale／inMedian 預期值，以及 WFII 個別列的存在、target 型別、區間端點、中點標記、中點等式與 note。
-
-家數斷言 `assert.equal(t.medianCount, institutions.size)` 也屬資料快照；候選 diff 應把 institutions 改為先以 `horizonType ?? "year_end"` 篩出年底列，再取 institution 去重，讓 medianCount 等於「有年底列的機構數」，不可寫死家數。只有 rolling_12m 列的機構不計入。
-
-規則斷言：合成資料驗證的一家一票、只算年底與部門優先、45 天邊界與日期解析；實際資料中的 firm 唯一性、verifiedOn 日期格式、staleAfterDays 與 medianRule，以及遍歷所有 targetIsMidpoint 列檢查 targetLow／targetHigh 與中點等式的通用迴圈，都保留。WFII 改為點估計時只更新其個別快照，通用區間中點迴圈仍保留。
+4. 針對 `web/src/lib/strategists.ts` 的候選 diff（沒有變更也明說），每個欄位能回連證據。`web/tests/strategists.test.ts` 中釘住現有資料的斷言是資料快照：verified 名單、中位數、WFII 區間、stale／inMedian 等預期值，須依候選資料重算，把受影響的斷言 diff 一起列出供使用者同意；日期判定沿用測試固定的參考日期，不換成月檢當天。保留規則類斷言。conflict／unverified 列維持原值，列為待處理；未經使用者同意只把 diff 寫進報告，不改這兩個檔案。
 
 報告與候選 diff 交付後，取得使用者對具體變更的同意再進入下一步；沒有同意就停在報告完成。每一列都實際查過（含留下 conflict／unverified 證據的列）才可候選更新 `STRATEGIST_TARGETS_CHECKED` 為查核日；只查部分列或仍有「未查」就保留原日期。全表查核日不代表全表 verified。
 
 ## 5. 同意後套用與驗證
 
-從 `HEAD` 開新 worktree，從主 checkout 複製 `web/.env`；在該 worktree 改檔並跑步驟 1–5，不 commit，完成後交 diff。
+步驟 1–5 在同一個已安裝依賴的 worktree 進行，不在主 checkout（理由與開法見 `.claude/skills/verify/SKILL.md` 的 Launch）。
 
 只套用使用者同意的候選變更到 `web/src/lib/strategists.ts` 與 `web/tests/strategists.test.ts` 的資料快照斷言，保留尚待釐清列與規則類斷言；再按順序驗證：
 
-1. 在 `web/` 跑 `node --test tests/strategists.test.ts`（入口：`web/tests/strategists.test.ts`）。依 §4 逐條分類，只有規則類斷言失敗才停下回報，不繼續更新 fixture。同一個 test 可混有兩類斷言，不可整塊刪改。資料快照仍有差異時，依已同意的 diff 與測試固定參考日期校正斷言，重跑至通過；不倒改已同意的資料或放寬規則來消除差異。
+1. 在 `web/` 跑 `node --test tests/strategists.test.ts`（入口：`web/tests/strategists.test.ts`）。只有規則類測試（一家一票、只算年底、45 天、區間中點等）失敗才停下回報，不繼續更新 fixture。資料快照仍有差異時，依已同意的 diff 與測試固定參考日期校正斷言，重跑至通過；不倒改已同意的資料或放寬規則來消除差異。
 2. 在 `web/` 跑 `node --test tests/api-contract.test.ts`（入口：`web/tests/api-contract.test.ts`）。若失敗，先看 assertion 與 fixture 差異；僅當差異只在本次策略師列及其衍生中位數／家數／全表查核日等策略師資料時，才跑 `MO_UPDATE_API_FIXTURES=1 node --test tests/api-contract.test.ts`。其他差異停下回報，不用更新掩蓋。
 3. 審閱 `ios/MarketObservatoryTests/Fixtures/generated/generated-outlook.json` 的 diff，確認只有核准的策略師資料；檢查整份 git diff，其他 generated fixture 不應變。再重跑不帶更新旗標的 API contract 測試。
-4. 跑 iOS `MarketObservatoryTests` 確認 Codable 解碼相容。模擬器依 `AGENTS.md` 與 `.claude/skills/verify/SKILL.md` 的 Launch：用 `ios-up.sh <run-id> 16-plus|18-pro-max` 重用既有 `MO iPhone 16 Plus` 或 `MO iPhone 18 Pro Max`，一次只開一台、不新增裝置。從本輪 `sim.udid` 取得 UDID，在 `ios/` 依 `ios/README.md` 執行：
+4. 跑 iOS `MarketObservatoryTests` 確認 Codable 解碼相容。先依 `.claude/skills/verify/SKILL.md` 的 Launch 跑 `web-up.sh <run-id>` 取得 run-id，確認網站就緒後，再依 `AGENTS.md` 用 `ios-up.sh <run-id> 16-plus|18-pro-max` 重用既有 `MO iPhone 16 Plus` 或 `MO iPhone 18 Pro Max`，一次只開一台、不新增裝置。從本輪 `sim.udid` 取得 UDID，在 `ios/` 依 `ios/README.md` 執行：
 
    ```sh
    xcodebuild -project MarketObservatory.xcodeproj -scheme MarketObservatory \

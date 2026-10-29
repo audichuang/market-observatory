@@ -102,6 +102,14 @@ struct EtfView: View {
             let e: Etfs = try await API.get("/api/v1/etfs", query: query)
             // 連續切換時只採用最後一次的結果，避免舊的回應蓋掉新的。
             guard seq == loadSeq else { return }
+            if let overlapQuery, let members = e.overlap?.members {
+                let pruned = overlapQuery.pruned(to: Set(members.compactMap(\.key)))
+                if pruned != overlapQuery {
+                    self.overlapQuery = pruned
+                    await load()
+                    return
+                }
+            }
             simEtf = e.sim.etf
             simYears = e.sim.years
             simMonthly = Int(e.sim.monthlyTwd)

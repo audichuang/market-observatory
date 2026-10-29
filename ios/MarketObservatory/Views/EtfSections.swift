@@ -377,6 +377,10 @@ struct OverlapQuery: Equatable, Sendable {
     var ovEtf = ""
     var ov: [String: String] = [:]
 
+    func pruned(to keys: Set<String>) -> OverlapQuery {
+        OverlapQuery(ovEtf: ovEtf, ov: ov.filter { keys.contains($0.key) })
+    }
+
     var dictionary: [String: String] {
         var query: [String: String] = [:]
         let etf = ovEtf.trimmingCharacters(in: .whitespacesAndNewlines)

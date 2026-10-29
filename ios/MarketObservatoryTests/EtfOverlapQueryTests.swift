@@ -25,4 +25,21 @@ struct EtfOverlapQueryTests {
         let input = OverlapQuery(ovEtf: "1000000001", ov: ["NVDA": "1.5"])
         #expect(input.dictionary == ["ovEtf": "1000000001", "ov": "NVDA:1.5"])
     }
+
+    @Test func pruningDropsRemovedCompanyAmounts() {
+        let input = OverlapQuery(ovEtf: "300000", ov: ["NVDA": "50000", "AAPL": "10000"])
+        let pruned = input.pruned(to: ["NVDA"])
+        #expect(pruned.dictionary == ["ovEtf": "300000", "ov": "NVDA:50000"])
+        #expect(input.ov == ["NVDA": "50000", "AAPL": "10000"])
+    }
+
+    @Test func pruningKeepsAllowedAmountsAndETFUnchanged() {
+        let input = OverlapQuery(ovEtf: " 300000 ", ov: ["NVDA": " 50000 ", "GOOGL": "0"])
+        #expect(input.pruned(to: ["NVDA", "GOOGL", "AAPL"]) == input)
+    }
+
+    @Test func pruningToEmptyWatchlistKeepsOnlyETFAmount() {
+        let input = OverlapQuery(ovEtf: "300000", ov: ["NVDA": "50000", "AAPL": "10000"])
+        #expect(input.pruned(to: []) == OverlapQuery(ovEtf: "300000"))
+    }
 }

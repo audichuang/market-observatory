@@ -320,6 +320,69 @@ final class VerifyInteractionTests: XCTestCase {
         app.buttons["今天"].tap(); sleep(1); snap("E5-today")
     }
 
+    func test20_OverlapPrunesRemovedWatchlistCompany() throws {
+        let app = try signedIn()
+        tab(app, "更多"); open(app, "ETF 與定投試算")
+        let edit = app.buttons["填金額"]
+        reveal(app, edit, scrolls: 12).tap()
+        replaceText(app.textFields["ovEtf"], "300000")
+        app.buttons["etfKeyboardDone"].tap()
+        replaceText(reveal(app, app.textFields["ov-NVDA"]), "50000")
+        app.buttons["etfKeyboardDone"].tap()
+        replaceText(reveal(app, app.textFields["ov-AAPL"]), "10000")
+        app.buttons["etfKeyboardDone"].tap()
+        app.buttons["計算"].tap()
+        let exposure = app.staticTexts["假設曝險（台幣）"]
+        XCTAssertTrue(reveal(app, exposure).waitForExistence(timeout: 15))
+        snap("overlap-app-before-removal"); note("overlap-app-before-removal", texts(app))
+
+        // Keep the ETF navigation stack alive while removing a company in the overview tab.
+        tab(app, "總覽"); app.buttons["觀察名單"].tap()
+        let row = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'NVDA' AND NOT (label CONTAINS '收盤')")).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 10))
+        row.swipeLeft()
+        app.buttons["移除"].firstMatch.tap()
+        app.alerts.buttons["移除"].tap()
+        let six = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH '6/30 家'")).firstMatch
+        XCTAssertTrue(six.waitForExistence(timeout: 30))
+        snap("overlap-app-removed-watchlist"); note("overlap-app-removed-watchlist", texts(app))
+        app.navigationBars["觀察名單"].buttons["完成"].tap()
+        tab(app, "更多")
+        XCTAssertTrue(app.navigationBars["ETF 與定投"].exists)
+        let period = app.buttons["YTD"]
+        reveal(app, period, up: false, scrolls: 16)
+        XCTAssertTrue(period.isHittable)
+        snap("overlap-app-refresh-top"); note("overlap-app-refresh-top", app.debugDescription)
+        let window = app.windows.firstMatch
+        window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3))
+            .press(forDuration: 0.2, thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.85)))
+        reveal(app, edit, scrolls: 12)
+        let issue = app.staticTexts["另外持有請用觀察名單內的 KEY:金額，以逗號分隔"]
+        XCTAssertFalse(issue.exists)
+        XCTAssertTrue(reveal(app, exposure).waitForExistence(timeout: 15), "移除公司並刷新後應自動恢復曝險結果")
+        snap("overlap-app-changed-list"); note("overlap-app-changed-list", texts(app))
+        let total = app.staticTexts["你填的總額（台幣）"]
+        reveal(app, total)
+        XCTAssertTrue(app.staticTexts["310,000.00"].exists, "ETF 300000 與 AAPL 10000 應保留，NVDA 50000 應移除")
+        snap("overlap-app-pruned-total"); note("overlap-app-pruned-total", texts(app))
+        reveal(app, edit, up: false).tap()
+        XCTAssertEqual(app.textFields["ovEtf"].value as? String, "300000")
+        XCTAssertFalse(app.textFields["ov-NVDA"].exists)
+        XCTAssertEqual(app.textFields["ov-AAPL"].value as? String, "10000")
+        snap("overlap-app-pruned-editor"); note("overlap-app-pruned-editor", texts(app))
+        app.buttons["取消"].tap()
+
+        tab(app, "總覽"); app.buttons["觀察名單"].tap()
+        app.buttons["加入"].tap()
+        let search = app.searchFields.firstMatch
+        XCTAssertTrue(search.waitForExistence(timeout: 5))
+        search.tap(); search.typeText("NVDA")
+        let nvda = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'NVDA'")).firstMatch
+        XCTAssertTrue(nvda.waitForExistence(timeout: 5)); nvda.tap()
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH '7/30 家'")).firstMatch.waitForExistence(timeout: 60))
+        app.navigationBars["觀察名單"].buttons["完成"].tap()
+    }
+
     // F2、F3、F3b、F4、F5（改規劃，結束時改回 VOO／3 年／10000、每批 50000）
     func test06_EtfsPlan() throws {
         let app = try signedIn()

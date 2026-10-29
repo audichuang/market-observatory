@@ -8,7 +8,7 @@ VERIFY_ROOT="${MO_VERIFY_ROOT:-$HOME/.cache/mo-verify}"
 die() { echo "✗ $*" >&2; exit 1; }
 ok() { echo "✓ $*"; }
 
-# simulator_name <device>: the two reusable devices allowed by AGENTS.md.
+# simulator_name <device>: the two reusable devices allowed by ios/AGENTS.md.
 simulator_name() {
   case "${1:-}" in
     16-plus) echo "MO iPhone 16 Plus" ;;

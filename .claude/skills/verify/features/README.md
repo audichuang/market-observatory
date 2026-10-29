@@ -4,7 +4,7 @@
 
 ## 基準狀態
 
-- iOS 的機型與生命週期依 repo `AGENTS.md`：用 `ios-up.sh <run-id> 16-plus|18-pro-max` 重用既有 `MO iPhone 16 Plus`、`MO iPhone 18 Pro Max`，一次只開一台；換機重跑同一個 run 的 `ios-up.sh`，先關前一台。App 用 `-debugBaseURL` 連本機站，結束用 `down.sh` 關機並保留裝置。
+- iOS 的機型與生命週期依 [`ios/AGENTS.md`](../../../../ios/AGENTS.md)：用 `ios-up.sh <run-id> 16-plus|18-pro-max` 重用既有 `MO iPhone 16 Plus`、`MO iPhone 18 Pro Max`，一次只開一台；換機重跑同一個 run 的 `ios-up.sh`，先關前一台。App 用 `-debugBaseURL` 連本機站，結束用 `down.sh` 關機並保留裝置。
 
 - 照 [SKILL.md](../SKILL.md) 的 Launch：在乾淨 worktree 跑 `web-up.sh <run-id>`，網站在 `http://localhost:5181`，資料是 60 個交易日的快照＋十年日線＋當天的新聞、事件、展望。
 - `doctor.sh <run-id>` 全部 ✓ 才開始。

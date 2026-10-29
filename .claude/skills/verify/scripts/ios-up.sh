@@ -12,7 +12,7 @@ DEVICES=$(xcrun simctl list devices -j)
 MATCHES=$(/usr/bin/jq -c --arg name "$DEVICE_NAME" \
   '[.devices[][] | select(.name == $name and .isAvailable == true)]' <<<"$DEVICES")
 COUNT=$(/usr/bin/jq 'length' <<<"$MATCHES")
-[ "$COUNT" -eq 1 ] || die "${DEVICE_NAME} 可用裝置有 ${COUNT} 台，必須恰好一台；依 AGENTS.md 不新增模擬器，請使用者處理"
+[ "$COUNT" -eq 1 ] || die "${DEVICE_NAME} 可用裝置有 ${COUNT} 台，必須恰好一台；依 ios/AGENTS.md 不新增模擬器，請使用者處理"
 UDID=$(/usr/bin/jq -r '.[0].udid' <<<"$MATCHES")
 CURRENT_UDID=""
 if [ -f "$RUN/sim.udid" ]; then CURRENT_UDID=$(cat "$RUN/sim.udid"); fi

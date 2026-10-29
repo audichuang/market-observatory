@@ -48,7 +48,7 @@ description: 像使用者一樣實際操作市場觀測室（網站 web/ 與 iOS
    "$S/ios-up.sh" <run-id> 18-pro-max
    ```
 
-   機型必填：`16-plus` 重用既有 `MO iPhone 16 Plus`，`18-pro-max` 重用既有 `MO iPhone 18 Pro Max`。腳本以完整名稱找唯一可用裝置，找不到或同名多台就停下請使用者處理，依 AGENTS.md 不新增模擬器。一次只開一台；其他 run 的 MO 機開著就停，同 run 換機重跑 `ios-up.sh <run-id> <機型>`，會先關掉前一台。開機後執行 `xcodegen generate`、`build-for-testing`、安裝 App，並記下 `sim.udid` 與 `sim.device`；證據路徑的 `<機型>` 就是 `sim.device` 的代稱。App 是 Debug 版，啟動參數 `-debugBaseURL http://localhost:<port>` 讓它連這次的本機站（UserDefaults 的參數網域，不會寫進 App 設定）。
+   機型必填：`16-plus` 重用既有 `MO iPhone 16 Plus`，`18-pro-max` 重用既有 `MO iPhone 18 Pro Max`。腳本以完整名稱找唯一可用裝置，找不到或同名多台就停下請使用者處理，依 `ios/AGENTS.md` 不新增模擬器。一次只開一台；其他 run 的 MO 機開著就停，同 run 換機重跑 `ios-up.sh <run-id> <機型>`，會先關掉前一台。開機後執行 `xcodegen generate`、`build-for-testing`、安裝 App，並記下 `sim.udid` 與 `sim.device`；證據路徑的 `<機型>` 就是 `sim.device` 的代稱。App 是 Debug 版，啟動參數 `-debugBaseURL http://localhost:<port>` 讓它連這次的本機站（UserDefaults 的參數網域，不會寫進 App 設定）。
 
 沒有本機站可用時（例如只想看正式站上已部署的 App），才連正式站，而且只用一次性帳號，見下方「正式站」。
 

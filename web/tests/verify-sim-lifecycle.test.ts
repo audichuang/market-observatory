@@ -177,7 +177,7 @@ test("down 只關機保留裝置，清除兩個狀態檔並保留證據及既有
 test("verify 文件一致使用兩台既有機型與保留裝置的生命週期", () => {
   const skill = join(repo, ".claude/skills/verify/SKILL.md");
   const features = join(repo, ".claude/skills/verify/features");
-  const docs = [skill, join(repo, "AGENTS.md"), ...readdirSync(features).filter((f) => f.endsWith(".md")).map((f) => join(features, f))];
+  const docs = [skill, join(repo, "AGENTS.md"), join(repo, "ios/AGENTS.md"), ...readdirSync(features).filter((f) => f.endsWith(".md")).map((f) => join(features, f))];
   for (const doc of docs) {
     assert.doesNotMatch(readFileSync(doc, "utf8"), /MO Verify|simctl create|simctl delete/, doc);
   }

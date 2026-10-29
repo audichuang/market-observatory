@@ -340,6 +340,23 @@ final class VerifyInteractionTests: XCTestCase {
         tab(app, "總覽"); app.buttons["觀察名單"].tap()
         let row = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'NVDA' AND NOT (label CONTAINS '收盤')")).firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 10))
+        addTeardownBlock { @MainActor () async throws in
+            // Relaunch to dismiss any sheet or alert left open by a failed assertion.
+            app.terminate()
+            let app = try self.signedIn()
+            self.tab(app, "總覽"); app.buttons["觀察名單"].tap()
+            let row = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'NVDA' AND NOT (label CONTAINS '收盤')")).firstMatch
+            if !row.waitForExistence(timeout: 10) {
+                app.buttons["加入"].tap()
+                let search = app.searchFields.firstMatch
+                XCTAssertTrue(search.waitForExistence(timeout: 5))
+                search.tap(); search.typeText("NVDA")
+                let nvda = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'NVDA'")).firstMatch
+                XCTAssertTrue(nvda.waitForExistence(timeout: 5)); nvda.tap()
+            }
+            XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH '7/30 家'")).firstMatch.waitForExistence(timeout: 60))
+            app.navigationBars["觀察名單"].buttons["完成"].tap()
+        }
         row.swipeLeft()
         app.buttons["移除"].firstMatch.tap()
         app.alerts.buttons["移除"].tap()
@@ -357,6 +374,9 @@ final class VerifyInteractionTests: XCTestCase {
         window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3))
             .press(forDuration: 0.2, thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.85)))
         reveal(app, edit, scrolls: 12)
+        // The previous exposure stays visible while refresh prunes and reloads the query.
+        XCTAssertTrue(reveal(app, app.staticTexts["310,000.00"]).waitForExistence(timeout: 15), "移除公司並刷新後應顯示新總額")
+        reveal(app, edit, up: false)
         let issue = app.staticTexts["另外持有請用觀察名單內的 KEY:金額，以逗號分隔"]
         XCTAssertFalse(issue.exists)
         XCTAssertTrue(reveal(app, exposure).waitForExistence(timeout: 15), "移除公司並刷新後應自動恢復曝險結果")
@@ -371,16 +391,6 @@ final class VerifyInteractionTests: XCTestCase {
         XCTAssertEqual(app.textFields["ov-AAPL"].value as? String, "10000")
         snap("overlap-app-pruned-editor"); note("overlap-app-pruned-editor", texts(app))
         app.buttons["取消"].tap()
-
-        tab(app, "總覽"); app.buttons["觀察名單"].tap()
-        app.buttons["加入"].tap()
-        let search = app.searchFields.firstMatch
-        XCTAssertTrue(search.waitForExistence(timeout: 5))
-        search.tap(); search.typeText("NVDA")
-        let nvda = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'NVDA'")).firstMatch
-        XCTAssertTrue(nvda.waitForExistence(timeout: 5)); nvda.tap()
-        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH '7/30 家'")).firstMatch.waitForExistence(timeout: 60))
-        app.navigationBars["觀察名單"].buttons["完成"].tap()
     }
 
     // F2、F3、F3b、F4、F5（改規劃，結束時改回 VOO／3 年／10000、每批 50000）

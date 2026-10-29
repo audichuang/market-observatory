@@ -360,10 +360,18 @@ final class VerifyInteractionTests: XCTestCase {
         reveal(app, app.buttons["我的規劃"], up: false).tap()
         let exit = app.textFields["檢討門檻 ±%"]
         XCTAssertTrue(exit.waitForExistence(timeout: 5))
-        replaceText(exit, "150"); sleep(1)
+        // A right-edge tap can still leave the caret before "20" in this labeled field.
+        // Open the selection menu and select all instead of relying on the caret position.
+        exit.tap()
+        exit.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.5)).tap()
+        let selectAll = app.menuItems["全選"]
+        XCTAssertTrue(selectAll.waitForExistence(timeout: 3), "檢討門檻沒有出現全選選單")
+        selectAll.tap()
+        exit.typeText(XCUIKeyboardKey.delete.rawValue + "150"); sleep(1)
+        snap("F4-exit150"); note("F4-exit150", "檢討門檻預期=150，實際=\(exit.value ?? "nil")\n儲存 enabled=\(app.buttons["儲存"].isEnabled)\n" + texts(app))
+        XCTAssertEqual(exit.value as? String, "150", "檢討門檻必須確實輸入 150，不能殘留原值")
         XCTAssertFalse(app.buttons["儲存"].isEnabled, "檢討門檻 150 不應允許儲存")
         XCTAssertTrue(app.staticTexts["金額要是 0 到 10 億的整數，檢討門檻 0–100%，備註最多 2000 字。"].exists)
-        snap("F4-exit150"); note("F4-exit150", "儲存 enabled=\(app.buttons["儲存"].isEnabled)\n" + texts(app))
         app.buttons["取消"].tap(); sleep(1)
         app.buttons["我的規劃"].tap()
         let tranche = app.textFields["每批投入"]

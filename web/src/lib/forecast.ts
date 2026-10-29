@@ -4,6 +4,7 @@
 // 只有「是否在 200 日線之上」與「VIX ≥ 30」有微弱、樣本少的差異。所以這裡刻意保守：
 // - 預設輸出歷史基準率；條件機率只在有效樣本夠、且信賴區間不含基準率時才採用；
 // - 用滾動（walk-forward）驗證算 Brier skill score；方向要過 G03 的 cell 閘門，否則標「偵測不到預測力」。
+// - R2-5: dd5 is scored only when global G09 and today's offset 0 cell gate both pass; p is unchanged.
 // 所有計算只用「當下已知」的資料：第 t 天的標籤要等到 t+21 天收盤後才算已知。
 
 import { Series, smaSeries } from "./analytics.ts";
@@ -78,7 +79,7 @@ export interface ModelConfig {
 }
 
 export const DEFAULT_MODEL: ModelConfig = {
-  version: "2026-10-l01",
+  version: "2026-10-g09r1",
   flags: [
     { id: "aboveSma200", basisId: "trend", compute: (c) => (c.sma200 === null ? null : c.close > c.sma200) },
     // VIX 一般狀態（<30）幾乎就是全部樣本，沒有資訊量，單獨成候選時跳過。
@@ -543,8 +544,8 @@ export interface Outlook {
   evaluation: Evaluation;
   /** G03：今天所選 cell 的閘門（列數 ≥ 30、段數 ≥ 8、bssLow > 0）；call 另外還要 pick.distinct */
   cellGate: CellGate;
-  /** G09／D4：21 日內出現 ≥5% 回撤的機率；同一套 regime、候選、G04、G01、G08、G03 機制。scored = 全域 bssLow > 0 且所用 cell nEff ≥ 30、段數 ≥ 8，否則只供參考 */
-  drawdown: { pick: Pick; evaluation: Evaluation; cellGate: CellGate; scored: boolean };
+  /** G09/D4, R2-5: scored requires global G09 and today's offset 0 cell gate (rows ≥ 30, runs ≥ 8, BSS low > 0); p is unchanged. */
+  drawdown: { pick: Pick; evaluation: Evaluation; cellGate: CellGate; gate: DrawdownGate; scored: boolean };
   /** L04：過去 21 日報酬的 10／50／90 百分位（只顯示、不計分）；cell = 今天所選條件，all = 不分條件 */
   returnQuantiles: { cell: ReturnQuantiles | null; all: ReturnQuantiles | null };
   /** "up"／"down"／"inconclusive"：只有條件機率顯著不同於基準、且滾動驗證勝過基準時才給方向 */
@@ -621,6 +622,27 @@ export interface CellGate {
   passed: boolean;
 }
 
+/** R2-5: (a) global G09 inputs and the failed (a)–(d) checks; cell inputs remain in CellGate. */
+export interface DrawdownGate {
+  globalBssLow: number | null;
+  nEff: number;
+  episodes: number;
+  failed: ("a-global-bss" | "a-n-eff" | "a-episodes" | "b-cell-rows" | "c-cell-runs" | "d-cell-bss")[];
+}
+
+/** R2-5: dd5 is scored only when global G09 and today's offset 0 cell checks all pass. */
+export function drawdownGateOf(pick: Pick, evaluation: Evaluation, cellGate: CellGate, cfg: ModelConfig = DEFAULT_MODEL): DrawdownGate {
+  const used = pick.conditional ?? pick.base;
+  const failed: DrawdownGate["failed"] = [];
+  if (evaluation.bssLow === null || evaluation.bssLow <= 0) failed.push("a-global-bss");
+  if (used.nEff < cfg.minEffectiveN) failed.push("a-n-eff");
+  if (used.episodes < cfg.minEpisodes) failed.push("a-episodes");
+  if (cellGate.rows < MIN_CELL_ROWS) failed.push("b-cell-rows");
+  if (cellGate.runs < MIN_CELL_RUNS) failed.push("c-cell-runs");
+  if (cellGate.bssLow === null || cellGate.bssLow <= 0) failed.push("d-cell-bss");
+  return { globalBssLow: evaluation.bssLow, nEff: used.nEff, episodes: used.episodes, failed };
+}
+
 /** G03 (b)(c)(d)：由 cellEvaluations 的結果取出指定 cell 的閘門；cell 在列中不存在則全部不過。 */
 export function cellGateOf(evals: CellEval[], cell: string): CellGate {
   const e = evals.find((x) => x.cell === cell);
@@ -688,25 +710,28 @@ export function assessmentsOf(args: { pick: Pick; evaluation: Evaluation; gate: 
 /**
  * Single-target view of the outlook for the backtest: evaluates only `label` on prebuilt observations,
  * so a dd5-only trial never computes P(up) for the candidate. For label "dd5" the fields match
- * buildOutlook's `drawdown` and `returnQuantiles`; `scored` follows drawdownScored and is only meaningful for dd5.
+ * buildOutlook's `drawdown` and `returnQuantiles`; `scored` follows R2-5 and is only meaningful for dd5.
  */
 export function targetOutlookOf(
   obs: Observation[],
   cfg: ModelConfig,
   label: Label,
-): { asOf: string; pick: Pick; evaluation: Evaluation; cellGate: CellGate; scored: boolean; returnQuantiles: { cell: ReturnQuantiles | null; all: ReturnQuantiles | null } } | null {
+): { asOf: string; pick: Pick; evaluation: Evaluation; cellGate: CellGate; gate: DrawdownGate; scored: boolean; returnQuantiles: { cell: ReturnQuantiles | null; all: ReturnQuantiles | null } } | null {
   const last = obs.at(-1);
   if (!last?.regime) return null;
   const pick = pickProbability(obs, last.date, last.regime, cfg, label);
   if (!pick) return null;
   const evaluation = walkForward(obs, 504, undefined, undefined, cfg, label);
+  const cellGate = cellGateOf(evaluation.byCell, pick.cell);
+  const gate = drawdownGateOf(pick, evaluation, cellGate, cfg);
   const cond = condOfPick(pick, last.regime, cfg);
   return {
     asOf: last.date,
     pick,
     evaluation,
-    cellGate: cellGateOf(evaluation.byCell, pick.cell),
-    scored: drawdownScored(pick, evaluation, cfg),
+    cellGate,
+    gate,
+    scored: gate.failed.length === 0,
     returnQuantiles: { cell: returnQuantiles(obs, last.date, cond), all: returnQuantiles(obs, last.date) },
   };
 }
@@ -723,6 +748,8 @@ export function buildOutlook(spx: Series, vix: Series, cfg: ModelConfig = DEFAUL
   const ddPick = pickProbability(obs, last.date, last.regime, cfg, "dd5");
   if (!ddPick) return null;
   const ddEval = walkForward(obs, 504, undefined, undefined, cfg, "dd5");
+  const ddCellGate = cellGateOf(ddEval.byCell, ddPick.cell);
+  const ddGate = drawdownGateOf(ddPick, ddEval, ddCellGate, cfg);
   const cond = condOfPick(ddPick, last.regime, cfg);
   const vixSeen = vix.onOrBefore(last.date);
   let vixIdx = -1;
@@ -745,7 +772,7 @@ export function buildOutlook(spx: Series, vix: Series, cfg: ModelConfig = DEFAUL
     pick,
     evaluation,
     cellGate,
-    drawdown: { pick: ddPick, evaluation: ddEval, cellGate: cellGateOf(ddEval.byCell, ddPick.cell), scored: drawdownScored(ddPick, ddEval, cfg) },
+    drawdown: { pick: ddPick, evaluation: ddEval, cellGate: ddCellGate, gate: ddGate, scored: ddGate.failed.length === 0 },
     returnQuantiles: { cell: returnQuantiles(obs, last.date, cond), all: returnQuantiles(obs, last.date) },
     call,
     assessments,

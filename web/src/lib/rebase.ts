@@ -1,8 +1,30 @@
+import { addDays } from "./calendar.ts";
 import type { DailyBar } from "./sources/http.ts";
 
 const SAMPLE = 3;
 const MIN_SHIFT = 0.02;
 const AGREEMENT = 0.005;
+
+// Deepest product read: 60 months of trends + 320 warm-up days ≈ 2146 days; ETF 1900, snapshots 430.
+// 窗口外的舊列沒有換基準；日後新增比 REBASE_COVER_DAYS 更深的讀取（例如 10 年定投）要先處理這些列。
+export const REBASE_COVER_DAYS = 2200;
+
+/** Check the span of ascending daily bars before allowing a split rebase. */
+export function refetchCoverage(
+  stored: { min: string; max: string } | null,
+  fresh: DailyBar[],
+  upTo: string,
+): { ok: true } | { ok: false; reason: string } {
+  if (!fresh.length) return { ok: false, reason: "重抓沒有日線" };
+  if (stored === null) return { ok: true };
+  const first = fresh[0].date;
+  const last = fresh[fresh.length - 1].date;
+  if (last < stored.max) return { ok: false, reason: `重抓只到 ${last}，早於已存的 ${stored.max}` };
+  if (first <= stored.min) return { ok: true };
+  // 窗口外的舊列沒有換基準；日後新增比 REBASE_COVER_DAYS 更深的讀取（例如 10 年定投）要先處理這些列。
+  if (first <= addDays(upTo, -REBASE_COVER_DAYS)) return { ok: true };
+  return { ok: false, reason: `重抓從 ${first} 開始，未涵蓋已存的 ${stored.min} 起` };
+}
 
 /**
  * Yahoo 的收盤是拆股調整後的價格：一旦分割（或反向分割），整段歷史都會被改寫成新股數基準。

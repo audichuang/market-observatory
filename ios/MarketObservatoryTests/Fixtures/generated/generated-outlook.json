@@ -1,6 +1,6 @@
 {
   "outlook": {
-    "modelVersion": "2026-10-l01",
+    "modelVersion": "2026-10-g09r1",
     "asOf": "2026-10-28",
     "horizonDays": 21,
     "regime": {
@@ -86,6 +86,18 @@
         "validReplicates": 0,
         "passed": false
       },
+      "gate": {
+        "globalBssLow": null,
+        "nEff": 32.38095238095238,
+        "episodes": 1,
+        "failed": [
+          "a-global-bss",
+          "a-episodes",
+          "b-cell-rows",
+          "c-cell-runs",
+          "d-cell-bss"
+        ]
+      },
       "scored": false
     },
     "returnQuantiles": {
@@ -136,6 +148,37 @@
     "reasons": [
       "目前條件下的上漲比例，信賴區間包含歷史基準率（或樣本不足），看不出差別"
     ]
+  },
+  "outlookUnavailable": null,
+  "phaseSummary": {
+    "asOf": "2026-10-28",
+    "modelVersion": "2026-10-l01",
+    "computedAt": "2026-10-28T23:00:00.000Z",
+    "phases": 21,
+    "up": {
+      "mean": -0.012,
+      "low": -0.03,
+      "high": 0.01,
+      "min": -0.04,
+      "max": 0.02,
+      "cycles": {
+        "total": 9,
+        "used": 7,
+        "dropped": 2
+      }
+    },
+    "dd5": {
+      "mean": 0.025,
+      "low": 0.005,
+      "high": 0.045,
+      "min": -0.01,
+      "max": 0.06,
+      "cycles": {
+        "total": 9,
+        "used": 7,
+        "dropped": 2
+      }
+    }
   },
   "cells": [
     {
@@ -239,7 +282,28 @@
     "bss": null,
     "brier": 0.09000000000000002,
     "brierBase": 0.16000000000000003,
-    "upShare": 1
+    "upShare": 1,
+    "realtime": 1,
+    "delayed": 0,
+    "unknown": 0,
+    "note": "只計即時發布的列（寫入時是最新交易日，且在下一個交易日美東 16:30 前寫入）；延遲補記 0 列、資格不明 0 列另列、不計分。合併所有已發布的模型版本。"
+  },
+  "liveTrackDd5": {
+    "realtime": 1,
+    "delayed": 0,
+    "unknown": 0,
+    "groups": [
+      {
+        "modelVersion": "2026-10-g09r1",
+        "n": 1,
+        "tooFew": true,
+        "brier": 0.0225,
+        "brierBase": 0.04000000000000001,
+        "bss": null,
+        "eventShare": 0
+      }
+    ],
+    "note": "只計即時發布的列（寫入時是最新交易日，且在下一個交易日美東 16:30 前寫入）；延遲補記 0 列、資格不明 0 列另列、不計分。依模型版本分開計分。"
   },
   "frequency": {
     "up": "尚未偵測到增額預測力；平常是每 100 次有 65 次 21 個交易日後收高",
@@ -261,26 +325,71 @@
   "consensus": {
     "symbols": 1,
     "coveredWeightPct": 6,
+    "coverage": {
+      "target": {
+        "symbols": 1,
+        "weightPct": 6
+      },
+      "ratings": {
+        "symbols": 1,
+        "weightPct": 6
+      },
+      "revisions": {
+        "symbols": 1,
+        "weightPct": 6
+      }
+    },
+    "noData": {
+      "symbols": 1,
+      "weightPct": 2
+    },
     "impliedUpsidePct": 19.999999999999996,
     "buyPct": 76.92307692307692,
     "revisionBreadth": 0.6,
     "oldest": "2026-10-28",
     "newest": "2026-10-28",
+    "priceOldest": "2026-10-27",
+    "priceNewest": "2026-10-27",
     "top": [
       {
         "symbol": "NVDA",
         "asOf": "2026-10-28",
         "price": 100,
+        "priceDate": "2026-10-27",
         "targetMean": 120,
+        "targetLow": 90,
+        "targetHigh": 150,
         "buy": 10,
         "hold": 2,
         "sell": 1,
         "epsUp": 4,
         "epsDown": 1,
+        "fiscalEnd": "Dec 2026",
+        "estimates": 20,
         "weightPct": 6,
         "upsidePct": 19.999999999999996
+      },
+      {
+        "symbol": "AVGO",
+        "asOf": "2026-10-28",
+        "price": null,
+        "priceDate": null,
+        "targetMean": null,
+        "targetLow": null,
+        "targetHigh": null,
+        "buy": 0,
+        "hold": 0,
+        "sell": 0,
+        "epsUp": null,
+        "epsDown": null,
+        "fiscalEnd": null,
+        "estimates": null,
+        "weightPct": 2,
+        "upsidePct": null
       }
     ],
+    "weightsAsOf": "2026-10-28",
+    "indexCloseDate": "2026-10-28",
     "impliedIndexTarget": 3411.7050378032363
   },
   "factset": [],

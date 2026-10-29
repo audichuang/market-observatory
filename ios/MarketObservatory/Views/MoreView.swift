@@ -46,6 +46,7 @@ struct MoreView: View {
 struct EtfView: View {
     @Environment(SessionStore.self) private var session
     @Environment(\.dynamicTypeSize) private var typeSize
+    @ScaledMetric(relativeTo: .caption) private var accessibleChartHeight = 180
     @State private var state: LoadState<Etfs> = .idle
     @State private var period = "1Y"
     @State private var editing = false
@@ -53,6 +54,9 @@ struct EtfView: View {
     @State private var simEtf: String?
     @State private var simYears: Int?
     @State private var simMonthly: Int?
+    @State private var simFunding = "monthly"
+    @State private var costQuery: CostQuery?
+    @State private var overlapQuery: OverlapQuery?
     @State private var monthlyText = ""
     @State private var loadSeq = 0
     @State private var savingDefault = false
@@ -83,16 +87,33 @@ struct EtfView: View {
         let seq = loadSeq
         state = .loading(state.value)
         do {
-            let e: Etfs = try await API.get("/api/v1/etfs", query: [
+            var query: [String: String?] = [
                 "etf": simEtf,
                 "years": simYears.map(String.init),
                 "monthly": simMonthly.map(String.init),
-            ])
+                "funding": simFunding,
+            ]
+            if let costQuery {
+                query.merge(costQuery.dictionary.mapValues { Optional($0) }) { _, new in new }
+            }
+            if let overlapQuery {
+                query.merge(overlapQuery.dictionary.mapValues { Optional($0) }) { _, new in new }
+            }
+            let e: Etfs = try await API.get("/api/v1/etfs", query: query)
             // 連續切換時只採用最後一次的結果，避免舊的回應蓋掉新的。
             guard seq == loadSeq else { return }
+            if let overlapQuery, let members = e.overlap?.members {
+                let pruned = overlapQuery.pruned(to: Set(members.compactMap(\.key)))
+                if pruned != overlapQuery {
+                    self.overlapQuery = pruned
+                    await load()
+                    return
+                }
+            }
             simEtf = e.sim.etf
             simYears = e.sim.years
             simMonthly = Int(e.sim.monthlyTwd)
+            simFunding = e.funding ?? "monthly"
             monthlyText = String(Int(e.sim.monthlyTwd))
             state = .loaded(e)
         } catch {
@@ -126,6 +147,7 @@ struct EtfView: View {
     private func content(_ e: Etfs) -> some View {
         let typedMonthly = Int(monthlyText.trimmingCharacters(in: .whitespaces))
         let canSimulate = typedMonthly.map { $0 > 0 && $0 <= 10_000_000 && $0 != Int(e.sim.monthlyTwd) } ?? false
+        let isLump = e.funding == "lump"
         return List {
             Section {
                 Picker("期間", selection: $period) {
@@ -155,6 +177,7 @@ struct EtfView: View {
                             Text("費用 \(Fmt.fee(r.netFeePct)) · 規模 \(Fmt.compactUsd(r.aumUsd))").font(.caption).foregroundStyle(.secondary)
                             if let n = r.note, !n.isEmpty { Text(n).font(.caption2).foregroundStyle(.secondary) }
                         }
+                        EtfFactsDisclosure(row: r, catalogAsOf: e.catalogAsOf)
                         VStack(alignment: .leading, spacing: 4) {
                             Text("收盤 \(Fmt.num(r.close))").font(.caption).foregroundStyle(.secondary).monospacedDigit()
                             if let drift = r.drift1y {
@@ -174,6 +197,13 @@ struct EtfView: View {
                 Text("價格報酬，不含配息。近一年偏離 ＝ 槓桿／反向 ETF 實際報酬減「倍數 × 指數報酬」。")
             }
 
+            if let overlap = e.overlap {
+                OverlapSection(overlap: overlap, etf: simEtf ?? e.sim.etf, query: overlapQuery) { input in
+                    overlapQuery = input
+                    Task { await load() }
+                }
+            }
+
             Section {
                 Picker("標的", selection: Binding(get: { simEtf ?? e.sim.etf }, set: { v in
                     simEtf = v
@@ -187,7 +217,14 @@ struct EtfView: View {
                 })) {
                     ForEach([1, 2, 3, 5], id: \.self) { Text("\($0) 年").tag($0) }
                 }
-                LabeledContent("每月投入") {
+                Picker("資金類型", selection: Binding(get: { simFunding }, set: { v in
+                    simFunding = v
+                    Task { await load() }
+                })) {
+                    Text(Copy.fundingMonthlyLabel).tag("monthly")
+                    Text(Copy.fundingLumpLabel).tag("lump")
+                }
+                LabeledContent(isLump ? "每月分批金額（台幣）" : "每月投入") {
                     HStack {
                         TextField("台幣", text: $monthlyText)
                             .keyboardType(.numberPad)
@@ -203,16 +240,28 @@ struct EtfView: View {
                     }
                 }
                 if let d = e.dca {
-                    LabeledContent("投入 \(d.months) 個月", value: Fmt.twd(d.invested))
-                    LabeledContent("目前市值") { Text(Fmt.twd(d.value)).bold() }
-                    LabeledContent("報酬率") { Delta(value: d.returnPct, percent: true) }
-                    LabeledContent("同金額期初單筆") {
-                        VStack(alignment: .trailing, spacing: 2) {
-                            Text(Fmt.twd(d.lumpSumValue)).bold().monospacedDigit()
-                            Delta(value: d.lumpSumReturnPct, percent: true).font(.caption)
+                    LabeledContent(isLump ? "期初資金" : "投入 \(d.months) 個月", value: Fmt.twd(d.invested))
+                    if isLump {
+                        LabeledContent("一次投入（\(d.firstBuyDate ?? "—") 全部買入）") {
+                            VStack(alignment: .trailing, spacing: 2) {
+                                Text(Fmt.twd(d.lumpSumValue)).bold().monospacedDigit()
+                                Delta(value: d.lumpSumReturnPct, percent: true).font(.caption)
+                            }
                         }
                     }
-                    LabeledContent("最大帳面虧損") { Delta(value: d.maxDrawdownPct, percent: true) }
+                    LabeledContent(isLump ? "分 \(d.months) 個月投入" : "目前市值") {
+                        VStack(alignment: .trailing, spacing: 2) {
+                            Text(Fmt.twd(d.value)).bold().monospacedDigit()
+                            Delta(value: d.returnPct, percent: true).font(.caption)
+                        }
+                    }
+                    LabeledContent(isLump ? "分批的最大帳面虧損" : "最大帳面虧損") { Delta(value: d.maxDrawdownPct, percent: true) }
+                    if isLump {
+                        Text(Copy.dcaLumpPremise).font(.caption).foregroundStyle(.secondary)
+                        Text(Copy.dcaIdleCash).font(.caption).foregroundStyle(.secondary)
+                    } else {
+                        Text(Copy.dcaMonthlyNoLump).font(.caption).foregroundStyle(.secondary)
+                    }
                     Chart {
                         ForEach(d.path) { p in
                             if let day = Fmt.day(p.date) {
@@ -227,10 +276,51 @@ struct EtfView: View {
                     }
                     .chartForegroundStyleScale(["市值": Color.up, "累計投入": Color(red: 0x5C / 255, green: 0x6B / 255, blue: 0x7A / 255)])
                     .chartLegend(position: .top, alignment: .leading)
-                    .chartYAxis { AxisMarks { AxisGridLine(); AxisTick(); AxisValueLabel(format: FloatingPointFormatStyle<Double>.number.notation(.compactName)) } }
-                    .frame(height: 180)
+                    .chartXAxis {
+                        if typeSize.isAccessibilitySize {
+                            AxisMarks(values: [d.path.first, d.path.last].compactMap { step in
+                                step.flatMap { Fmt.day($0.date) }
+                            }) { value in
+                                AxisGridLine()
+                                AxisTick()
+                                AxisValueLabel(anchor: value.index == 0 ? .topLeading : .topTrailing) {
+                                    if let day = value.as(Date.self) {
+                                        VStack(spacing: 0) {
+                                            Text(day, format: .dateTime.year(.twoDigits))
+                                            Text(day, format: .dateTime.month(.twoDigits))
+                                        }
+                                        .font(.caption)
+                                        .fixedSize()
+                                    }
+                                }
+                            }
+                        } else {
+                            AxisMarks()
+                        }
+                    }
+                    .chartYAxis {
+                        if typeSize.isAccessibilitySize {
+                            AxisMarks(values: .automatic(desiredCount: 3)) { value in
+                                AxisGridLine()
+                                AxisTick()
+                                AxisValueLabel {
+                                    if let amount = value.as(Double.self) {
+                                        Text(amount, format: .number.notation(.compactName))
+                                            .font(.caption)
+                                            .fixedSize()
+                                    }
+                                }
+                            }
+                        } else {
+                            AxisMarks { AxisGridLine(); AxisTick(); AxisValueLabel(format: FloatingPointFormatStyle<Double>.number.notation(.compactName)) }
+                        }
+                    }
+                    .frame(height: typeSize.isAccessibilitySize ? accessibleChartHeight : 180)
                 } else {
                     Text("資料不足，無法試算。").foregroundStyle(.secondary)
+                }
+                if let row = e.rows.first(where: { $0.ticker == (simEtf ?? e.sim.etf) }) {
+                    EtfEvidence(multiple: row.multiple)
                 }
                 Button {
                     Task { await saveDefault(e) }
@@ -245,23 +335,38 @@ struct EtfView: View {
             } header: {
                 Text("\(e.sim.etf) 定投 \(e.sim.years) 年（台幣計價）")
             } footer: {
-                Text("每月第一個交易日以收盤價買入，用當天 USD/TWD 換匯；不含配息、手續費與稅。改標的、期間或金額只是試算，按「設為我的預設」才會存起來。\(e.fxLast.map { "最新匯率 \(Fmt.num($0.close, 3))（\(Fmt.fullDate($0.date))）。" } ?? "")")
+                Text("\(e.dca?.firstBuyDate.map { "試算起點 \(Fmt.fullDate(e.sim.startDate))，首筆 \(Fmt.fullDate($0))。" } ?? "")\(Copy.dcaBuyRule)；\(Copy.dcaFxRule)。不含配息、手續費、換匯價差與稅。改標的、期間或金額只是試算，按「設為我的預設」才會存起來。\(e.fxLast.map { "最新匯率 \(Fmt.num($0.close, 3))（\(Fmt.fullDate($0.date))）。" } ?? "")")
             }
 
-            Section("我的規劃") {
+            CostScenarioSection(etf: e.sim.etf, scenario: e.costScenario, query: costQuery) { input in
+                costQuery = input
+                Task { await load() }
+            } clear: {
+                costQuery = nil
+                Task { await load() }
+            }
+
+            if let checklists = e.checklists {
+                TaxChecklistSection(checklists: checklists)
+            }
+
+            Section {
                 LabeledContent("研究預算", value: Fmt.twd(Double(e.plan.researchBudgetTwd)))
                 LabeledContent("每批投入", value: Fmt.twd(Double(e.plan.trancheTwd)))
-                LabeledContent("考慮出場的漲幅", value: Fmt.plainPct(e.plan.exitConsiderationPct, 0))
+                LabeledContent(PlanCopy.reviewLabel, value: PlanCopy.reviewValue(e.plan.exitConsiderationPct))
                 if !e.plan.notes.isEmpty { Text(e.plan.notes).font(.footnote).foregroundStyle(.secondary) }
+            } header: {
+                Text("我的規劃")
+            } footer: {
+                Text(PlanCopy.note)
             }
         }
         .listStyle(.insetGrouped)
         .lineSpacing(3)
         .refreshable { await load() }
-        .toolbar {
-            ToolbarItemGroup(placement: .keyboard) {
-                Spacer()
-                Button("完成") { monthlyFocused = false }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if monthlyFocused {
+                EtfKeyboardBar { monthlyFocused = false }
             }
         }
     }
@@ -309,11 +414,11 @@ private struct PlanEditor: View {
                 Section {
                     LabeledContent("研究預算") { TextField("金額", text: $budgetText).keyboardType(.numberPad).multilineTextAlignment(.trailing).focused($focused) }
                     LabeledContent("每批投入") { TextField("金額", text: $trancheText).keyboardType(.numberPad).multilineTextAlignment(.trailing).focused($focused) }
-                    LabeledContent("考慮出場漲幅 %") { TextField("%", text: $exitText).keyboardType(.decimalPad).multilineTextAlignment(.trailing).focused($focused) }
+                    LabeledContent(PlanCopy.reviewLabel) { TextField("%", text: $exitText).keyboardType(.decimalPad).multilineTextAlignment(.trailing).focused($focused) }
                 } header: {
                     Text("資金規劃")
                 } footer: {
-                    if parsed == nil { Text("金額要是 0 到 10 億的整數，出場漲幅 0–100%，備註最多 2000 字。").foregroundStyle(Color.up) }
+                    if parsed == nil { Text(PlanCopy.rulesText).foregroundStyle(Color.up) }
                 }
                 Section("備註") { TextEditor(text: $notes).frame(minHeight: 100).focused($focused) }
                 if let error { Section { Notice(kind: .bad, text: error).noticeRow() } }
@@ -456,16 +561,24 @@ struct OutlookView: View {
                 // Two targets, two labelled blocks: o.evaluation is the up model, drawdown.evaluation is dd5.
                 if let ev = o.drawdown?.evaluation {
                     evaluationSection(ev, horizon: p.horizon, title: "滾動驗證：跌幅機率（dd5）",
-                                      target: "目標：\(Copy.dd5Definition(horizon: p.horizon))。", showHitRate: false)
+                                      target: "目標：\(Copy.dd5Definition(horizon: p.horizon))。", id: "dd5", phase: p.phaseSummary?.dd5)
                 }
                 if let ev = o.evaluation {
                     evaluationSection(ev, horizon: p.horizon, title: "滾動驗證：上漲機率",
-                                      target: "目標：\(Copy.upTargetLabel(horizon: p.horizon))。", showHitRate: true)
+                                      target: "目標：\(Copy.upTargetLabel(horizon: p.horizon))。", id: "up", phase: p.phaseSummary?.up)
                 }
-                forecastSection(p)
             } else {
-                Text("資料不足，還無法產生展望。").foregroundStyle(.secondary)
+                Notice(kind: .warn, text: Copy.outlookUnavailable(
+                    reason: p.outlookUnavailable?.reason,
+                    spxDate: p.outlookUnavailable?.spxDate,
+                    vixDate: p.outlookUnavailable?.vixDate,
+                    staleSessions: p.outlookUnavailable?.staleSessions,
+                    maxStaleSessions: p.outlookUnavailable?.maxStaleSessions
+                )).noticeRow()
             }
+            forecastSection(p)
+
+            dd5TrackSection(p)
 
             Section("機構觀點（背景資訊，不放進上面的機率）") {
                 DisclosureGroup("如何看待機構目標") {
@@ -580,19 +693,22 @@ struct OutlookView: View {
         .accessibilityElement(children: .combine)
     }
 
-    /// One walk-forward block per target. Hit-rate rows only make sense for the up model ("always guess up").
-    private func evaluationSection(_ ev: OutlookPage.Outlook.Evaluation, horizon: Int, title: String, target: String, showHitRate: Bool) -> some View {
+    /// One walk-forward block per target, with a stable accessibility identifier.
+    private func evaluationSection(_ ev: OutlookPage.Outlook.Evaluation, horizon: Int, title: String, target: String, id: String, phase: OutlookPage.PhaseSummary.Target?) -> some View {
         Section {
             DisclosureGroup(title) {
+            if let phase, let summary = state.value?.phaseSummary {
+                LabeledContent("相位平均（\(summary.phases.map { String($0) } ?? "—") 個起始相位）", value: Fmt.num(phase.mean, 3))
+                Text("\(Self.skillInterval) \(Fmt.num(phase.low, 3))～\(Fmt.num(phase.high, 3)) · 資料截至 \(summary.asOf ?? "—") · 模型 \(summary.modelVersion ?? "—")")
+                    .font(.footnote).foregroundStyle(.secondary)
+            } else {
+                Text("相位平均尚未計算").font(.footnote).foregroundStyle(.secondary)
+            }
             Text("\(target)\(ev.firstDate.map(Fmt.fullDate) ?? "—")～\(ev.lastDate.map(Fmt.fullDate) ?? "—")，每 \(horizon) 個交易日預測一次（共 \(ev.points) 次）")
                 .font(.footnote).foregroundStyle(.secondary)
-            if showHitRate {
-                LabeledContent("預測方向命中率", value: Fmt.plainPct(ev.hitRate.map { $0 * 100 }))
-                LabeledContent("永遠猜上漲的命中率", value: Fmt.plainPct(ev.baseHitRate.map { $0 * 100 }))
-            }
             LabeledContent("Brier（越低越好）", value: Fmt.num(ev.brier, 4))
             LabeledContent("只用基準率的 Brier", value: Fmt.num(ev.brierBase, 4))
-            LabeledContent("BSS") {
+            LabeledContent("BSS（單一相位 offset 0）") {
                 VStack(alignment: .trailing, spacing: 1) {
                     Text(Fmt.num(ev.bss, 3)).monospacedDigit()
                 Text("\(Self.skillInterval) \(Fmt.num(ev.bssLow, 3))～\(Fmt.num(ev.bssHigh, 3))").font(.footnote).foregroundStyle(.secondary)
@@ -602,7 +718,7 @@ struct OutlookView: View {
             if let mde = ev.mde { LabeledContent("最小可偵測 BSS", value: Fmt.num(mde, 2)) }
             Text("BSS = 1 − Brier ÷ 基準 Brier；區間下限 > 0 才代表穩定勝過基準率")
                 .font(.footnote).foregroundStyle(.secondary)
-                .accessibilityIdentifier(showHitRate ? "outlook-validation-up-details" : "outlook-validation-dd5-details")
+                .accessibilityIdentifier("outlook-validation-\(id)-details")
             }
         }
     }
@@ -620,7 +736,7 @@ struct OutlookView: View {
                             .padding(.horizontal, 8).padding(.vertical, 2)
                             .background(Color.orange.opacity(0.12), in: Capsule())
                             .foregroundStyle(Color.orange)
-                        Text("只有 \(lt.n) 個獨立月份（少於 12），不報分數。只取不重疊的列：從第一筆紀錄起每 \(p.horizon) 個交易日一列。")
+                        Text(Copy.outlookLiveTooFew(n: lt.n, horizon: p.horizon))
                             .font(.footnote).foregroundStyle(.secondary)
                     }
                 } else {
@@ -636,26 +752,72 @@ struct OutlookView: View {
                     .font(.footnote).foregroundStyle(.secondary)
             }
             ForEach((p.recent ?? []).prefix(8)) { f in
-                HStack(spacing: 8) {
-                    Text(f.date).monospacedDigit()
-                    Text(Fmt.plainPct(f.p * 100)).monospacedDigit()
-                    Text(callText(f.call)).foregroundStyle(.secondary)
-                    if p.liveTrack != nil {
-                        Text(f.modelVersion ?? "舊版紀錄").font(.caption).foregroundStyle(.secondary)
-                    }
-                    Spacer()
+                let result = Group {
                     if let up = f.up {
                         Text(up ? "後來上漲" : "後來下跌").foregroundStyle(up ? Color.up : Color.down)
                     } else {
                         Text("待到期").foregroundStyle(.secondary)
                     }
                 }
-                .font(.subheadline)
+                if dts.isAccessibilitySize {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(f.date).monospacedDigit()
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("上漲機率").font(.caption).foregroundStyle(.secondary)
+                            Text(Fmt.plainPct(f.p * 100)).monospacedDigit()
+                        }
+                        Text(callText(f.call)).foregroundStyle(.secondary)
+                        if p.liveTrack != nil {
+                            Text("模型 \(f.modelVersion ?? "舊版紀錄")")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        result
+                    }
+                    .font(.subheadline)
+                    .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    HStack(spacing: 8) {
+                        Text(f.date).monospacedDigit()
+                        Text(Fmt.plainPct(f.p * 100)).monospacedDigit()
+                        Text(callText(f.call)).foregroundStyle(.secondary)
+                        if p.liveTrack != nil {
+                            Text(f.modelVersion ?? "舊版紀錄").font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        result
+                    }
+                    .font(.subheadline)
+                }
             }
         } header: {
             Text(p.liveTrack == nil ? "實際發出的預測" : "上線後實際紀錄：上漲機率")
         } footer: {
-            if p.liveTrack != nil { Text("合併所有已發布的模型版本；每列以紀錄日收盤為起點。這是和樣本內、滾動驗證分開的第三種分數。") }
+            if let footer = OutlookRecordCopy.upFooter(p.liveTrack) { Text(footer) }
+        }
+    }
+
+    @ViewBuilder
+    private func dd5TrackSection(_ p: OutlookPage) -> some View {
+        if let lt = p.liveTrackDd5 {
+            Section {
+                if let groups = lt.groups, !groups.isEmpty {
+                    ForEach(Array(groups.enumerated()), id: \.offset) { _, g in
+                        if g.tooFew == true {
+                            Text("模型 \(g.modelVersion ?? "—")：樣本太少，只有 \(g.n.map { String($0) } ?? "—") 個獨立月份")
+                        } else {
+                            Text("模型 \(g.modelVersion ?? "—")：BSS \(Fmt.num(g.bss, 3))（對照紀錄當時存下的基準率）· n = \(g.n.map { String($0) } ?? "—") 個獨立月份 · 實際發生 \(ratio(g.eventShare))")
+                        }
+                    }
+                } else {
+                    Text("每天收盤後記錄一次，21 個交易日後才能對帳；目前還沒有到期的紀錄")
+                }
+                Text("延遲補記 \(lt.delayed.map { String($0) } ?? "—") 列、資格不明 \(lt.unknown.map { String($0) } ?? "—") 列，保留、不計分")
+            } header: {
+                Text("上線後實際紀錄：跌幅機率（dd5）")
+            } footer: {
+                if let note = lt.note { Text(note) }
+            }
+            .font(.footnote)
         }
     }
 
@@ -684,37 +846,104 @@ struct OutlookView: View {
 
     private func consensusSection(_ c: OutlookPage.Consensus) -> some View {
         Section {
-            LabeledContent("隱含漲幅") { Delta(value: c.impliedUpsidePct, digits: 1, percent: true) }
+            LabeledContent {
+                Delta(value: c.impliedUpsidePct, digits: 1, percent: true)
+                    .fixedSize(horizontal: false, vertical: true)
+            } label: {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("隱含漲幅")
+                    if let coverage = c.coverage?.target {
+                        Text("\(coverage.symbols) 檔 · \(Fmt.plainPct(coverage.weightPct)) 權重\(coverage.weightPct < 50 ? "（不到一半）" : "")")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                .fixedSize(horizontal: false, vertical: true)
+            }
             LabeledContent("隱含指數目標", value: Fmt.num(c.impliedIndexTarget, 0))
-            LabeledContent("買進評等占比", value: Fmt.plainPct(c.buyPct))
+                .fixedSize(horizontal: false, vertical: true)
+            LabeledContent {
+                Text(Fmt.plainPct(c.buyPct)).monospacedDigit()
+                    .fixedSize(horizontal: false, vertical: true)
+            } label: {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("買進評等占比")
+                    if let coverage = c.coverage?.ratings {
+                        Text("\(coverage.symbols) 檔 · \(Fmt.plainPct(coverage.weightPct)) 權重\(coverage.weightPct < 50 ? "（不到一半）" : "")")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                .fixedSize(horizontal: false, vertical: true)
+            }
             LabeledContent {
                 Delta(value: c.revisionBreadth.map { $0 * 100 }, digits: 0)
+                    .fixedSize(horizontal: false, vertical: true)
             } label: {
-                Text("EPS 修正廣度")
-                Text("範圍 −100～+100")
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("EPS 修正廣度")
+                    if let coverage = c.coverage?.revisions {
+                        Text("\(coverage.symbols) 檔 · \(Fmt.plainPct(coverage.weightPct)) 權重\(coverage.weightPct < 50 ? "（不到一半）" : "")")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    Text("近四週各檔（上修−下修）÷（上修＋下修），依權重平均後 ×100，−100～+100")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                .fixedSize(horizontal: false, vertical: true)
             }
-            LabeledContent("涵蓋權重", value: "\(c.symbols) 檔 · \(Fmt.plainPct(c.coveredWeightPct))")
+            VStack(alignment: .leading, spacing: 4) {
+                Text("資料狀態")
+                let noData = c.noData.flatMap { $0.symbols > 0 ? "；\($0.symbols) 檔沒有可用數字" : nil }
+                Text("有可用數字 \(c.symbols) 檔 · \(Fmt.plainPct(c.coveredWeightPct))\(noData ?? "")")
+                    .foregroundStyle(.secondary)
+            }
+            .fixedSize(horizontal: false, vertical: true)
             if !c.top.isEmpty {
                 DisclosureGroup("權重前 \(c.top.count) 檔") {
                     ForEach(c.top) { t in
-                        HStack {
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(t.symbol).fontWeight(.semibold)
-                                Text("權重 \(Fmt.plainPct(t.weightPct))").font(.caption2).foregroundStyle(.secondary)
+                        VStack(alignment: .leading, spacing: 6) {
+                            let layout = dts.isAccessibilitySize
+                                ? AnyLayout(VStackLayout(alignment: .leading, spacing: 6))
+                                : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 12))
+                            layout {
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(t.symbol).fontWeight(.semibold)
+                                    Text("權重 \(Fmt.plainPct(t.weightPct))").font(.caption2).foregroundStyle(.secondary)
+                                }
+                                if !dts.isAccessibilitySize { Spacer(minLength: 12) }
+                                VStack(alignment: dts.isAccessibilitySize ? .leading : .trailing, spacing: 4) {
+                                    Text(t.targetMean.map { "目標 \(Fmt.num($0))" } ?? "—").monospacedDigit()
+                                    if let low = t.targetLow, let high = t.targetHigh {
+                                        Text("區間 \(Fmt.num(low))–\(Fmt.num(high))")
+                                            .font(.caption).foregroundStyle(.secondary)
+                                    }
+                                    Delta(value: t.upsidePct, digits: 1, percent: true).font(.caption)
+                                }
                             }
-                            Spacer()
-                            VStack(alignment: .trailing, spacing: 1) {
-                                Text(t.targetMean.map { "目標 \(Fmt.num($0))" } ?? "—").monospacedDigit()
-                                Delta(value: t.upsidePct, digits: 1, percent: true).font(.caption)
+                            let eps = switch (t.epsUp, t.epsDown) {
+                            case let (.some(up), .some(down)):
+                                up == 0 && down == 0 ? "EPS 近四週沒有修正" : "EPS 上修 \(up)／下修 \(down)"
+                            default:
+                                "EPS 缺資料"
                             }
+                            let details = [eps, t.fiscalEnd.map { "會計年度 \($0)" }, t.estimates.map { "估計數 \($0)" }]
+                                .compactMap { $0 }.joined(separator: " · ")
+                            Text(details).font(.caption).foregroundStyle(.secondary)
                         }
+                        .fixedSize(horizontal: false, vertical: true)
                     }
                 }
+                .fixedSize(horizontal: false, vertical: true)
             }
         } header: {
             Text("成分股分析師共識")
         } footer: {
-            Text("依 SPY 權重加權，目標價為 12 個月共識\(c.oldest.flatMap { o in c.newest.map { "（\(o)～\($0) 更新）" } } ?? "")。")
+            let dates = [
+                c.weightsAsOf.map { "依 SPY \($0) 持股權重加權。" },
+                c.oldest.flatMap { oldest in c.newest.map { "分析師資料 \(oldest)～\($0) 抓取。" } },
+                c.priceOldest.flatMap { oldest in c.priceNewest.map { "股價日 \(oldest)～\($0)（各檔不同日）。" } },
+                c.indexCloseDate.map { "隱含指數目標是涵蓋子集的加權隱含漲幅套用 SPX \($0) 收盤推算，不是全部成分股同日加總。" },
+            ].compactMap { $0 }.joined()
+            Text("\(dates)目標價為 12 個月共識；目標價區間不是機率區間，EPS 是近四週修正次數不是幅度；這些欄位成效未證實，不是買賣訊號。")
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 

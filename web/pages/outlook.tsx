@@ -2,11 +2,12 @@ import { Link } from "@void/react";
 import type { ReactNode } from "react";
 import { Delta } from "../src/ui/bits.tsx";
 import { dateWithWeekday, num, pctText } from "../src/ui/format.ts";
-import { FORECAST_CALL, LIVE_MIN_N, NO_INCREMENTAL_SKILL, PROPORTION_INTERVAL, SKILL_INTERVAL, dd5Definition, dd5ShortLabel, upTargetLabel } from "../src/lib/communication.ts";
+import { FORECAST_CALL, LIVE_MIN_N, NO_INCREMENTAL_SKILL, PROPORTION_INTERVAL, SKILL_INTERVAL, dd5Definition, dd5ShortLabel, outlookUnavailableText, upTargetLabel } from "../src/lib/communication.ts";
 import type { Assessments, Evaluation } from "../src/lib/forecast.ts";
 import type { Props } from "./outlook.server";
 
 const pct = (v: number | null | undefined, d = 0) => (v === null || v === undefined || !Number.isFinite(v) ? "—" : `${(v * 100).toFixed(d)}%`);
+const coverageText = ({ symbols, weightPct }: { symbols: number; weightPct: number }) => `${symbols} 檔 · ${num(weightPct, 0)}% 權重${weightPct < 50 ? "（不到一半，數字不完整）" : ""}`;
 
 const BASIS: Record<string, string> = {
   base: "歷史基準率",
@@ -48,12 +49,16 @@ type OutlookData = NonNullable<Props["outlook"]>;
 const bssRange = (ev: Evaluation) => (ev.bssLow === null ? "—" : `${f3(ev.bssLow)}～${f3(ev.bssHigh)}`);
 
 /** 一個目標的整體滾動驗證 BSS（標明目標，避免把上漲模型的數字當成 dd5 的）。 */
-function BssKpi({ label, ev }: { label: string; ev: Evaluation }) {
+function BssKpi({ label, ev, summary, target, purpose }: { label: string; ev: Evaluation; summary: Props["phaseSummary"]; target: "up" | "dd5"; purpose: string }) {
+  const phase = summary?.[target];
   return (
     <div className="panel kpi">
       <div className="label">{label}</div>
-      <div className="value" style={{ fontSize: "1.15rem" }}>{f3(ev.bss)}</div>
-      <div className="delta sub">{SKILL_INTERVAL} {bssRange(ev)}</div>
+      <div className="value" style={{ fontSize: "1.15rem" }}>{f3(phase ? phase.mean : ev.bss)}</div>
+      {phase && summary ? (
+        <div className="delta sub">相位平均（{summary.phases} 個起始相位）{SKILL_INTERVAL} {f3(phase.low)}～{f3(phase.high)} · 資料截至 {summary.asOf} · 模型 {summary.modelVersion}</div>
+      ) : <div className="delta sub">相位平均尚未計算</div>}
+      <div className="meta">單一相位（offset 0）{f3(ev.bss)}（{SKILL_INTERVAL} {bssRange(ev)}）· {purpose}</div>
     </div>
   );
 }
@@ -63,6 +68,7 @@ function WalkForwardPanel({ title, target, ev, horizon }: { title: string; targe
   return (
     <div className="panel">
       <h2>{title}</h2>
+      <p className="sub">單一相位（offset 0）</p>
       <p className="sub">
         {target}從 {ev.firstDate ?? "—"} 到 {ev.lastDate ?? "—"}，每 {horizon} 個交易日預測一次（共 {ev.points} 次），每次只用當下已知的資料。
       </p>
@@ -80,7 +86,7 @@ function WalkForwardPanel({ title, target, ev, horizon }: { title: string; targe
   );
 }
 
-function ForecastBlock({ outlook, cells, horizon, minN, minEpisodes, trackPanel, frequency }: { outlook: OutlookData; cells: Props["cells"]; horizon: number; minN: number; minEpisodes: number; trackPanel: ReactNode; frequency: Props["frequency"] }) {
+function ForecastBlock({ outlook, cells, horizon, minN, minEpisodes, trackPanel, frequency, phaseSummary }: { outlook: OutlookData; cells: Props["cells"]; horizon: number; minN: number; minEpisodes: number; trackPanel: ReactNode; frequency: Props["frequency"]; phaseSummary: Props["phaseSummary"] }) {
   const { pick, evaluation: ev } = outlook;
   const [cls, baseLabel, why] = FORECAST_CALL[outlook.call];
   // G08：沒有方向時註明最小可偵測 BSS（標準差為 0 則不寫數字）。
@@ -165,8 +171,8 @@ function ForecastBlock({ outlook, cells, horizon, minN, minEpisodes, trackPanel,
       <div className="value" style={{ fontSize: "1.15rem" }}>{num(outlook.vix)}</div>
       <div className="delta sub">{outlook.regime.vixStress ? "≥ 30（恐慌區）" : "< 30"}</div>
     </div>
-    <BssKpi label="跌幅機率（dd5）滾動驗證 BSS" ev={outlook.drawdown.evaluation} />
-    <BssKpi label="上漲機率滾動驗證 BSS" ev={ev} />
+    <BssKpi label="跌幅機率（dd5）滾動驗證 BSS" ev={outlook.drawdown.evaluation} summary={phaseSummary} target="dd5" purpose="『已計分』判定用這個" />
+    <BssKpi label="上漲機率滾動驗證 BSS" ev={ev} summary={phaseSummary} target="up" purpose="方向判定用這個" />
   </div>
 
   <div className="panel section">
@@ -204,15 +210,16 @@ function ForecastBlock({ outlook, cells, horizon, minN, minEpisodes, trackPanel,
   );
 }
 
-export default function OutlookPage({ outlook, cells, liveTrack, frequency, recent, consensus, strategists, factset, horizon, minN, minEpisodes }: Props) {
+export default function OutlookPage({ outlook, outlookUnavailable, cells, liveTrack, liveTrackDd5, frequency, recent, consensus, strategists, factset, horizon, minN, minEpisodes, phaseSummary }: Props) {
   const trackPanel = (
     <div className="panel">
       <h2>上線後實際紀錄：上漲機率 <span className="meta">（合併所有已發布的模型版本；每列以紀錄日收盤為起點）</span></h2>
+      <p className="sub">{liveTrack.note}</p>
       {liveTrack.n === 0 ? (
         <p className="sub">每天收盤後記錄一次，{horizon} 個交易日後才能對帳；目前還沒有到期的預測。</p>
       ) : liveTrack.tooFew ? (
         <p className="sub">
-          <span className="badge warn">樣本太少</span> 只有 {liveTrack.n} 個獨立月份（少於 {LIVE_MIN_N}），不報分數。只取不重疊的列：從第一筆紀錄起每 {horizon} 個交易日一列。
+          <span className="badge warn">樣本太少</span> 只有 {liveTrack.n} 個獨立月份（少於 {LIVE_MIN_N}），不報分數。只取不重疊的列：從第一筆即時發布的紀錄起每 {horizon} 個交易日一列。
         </p>
       ) : (
         <p className="sub">
@@ -232,6 +239,22 @@ export default function OutlookPage({ outlook, cells, liveTrack, frequency, rece
       </ul>
     </div>
   );
+  const dd5TrackPanel = (
+    <div className="panel section">
+      <h2>上線後實際紀錄：跌幅機率（dd5）</h2>
+      {liveTrackDd5.groups.length === 0 ? (
+        <p className="sub">每天收盤後記錄一次，21 個交易日後才能對帳；目前還沒有到期的紀錄</p>
+      ) : liveTrackDd5.groups.map((g) => (
+        <p className="sub" key={g.modelVersion}>
+          模型 {g.modelVersion}：{g.tooFew
+            ? `樣本太少，只有 ${g.n} 個獨立月份`
+            : `BSS ${f3(g.bss)}（對照紀錄當時存下的基準率）· n = ${g.n} 個獨立月份 · 實際發生 ${pct(g.eventShare)}`}
+        </p>
+      ))}
+      <p className="sub">延遲補記 {liveTrackDd5.delayed} 列、資格不明 {liveTrackDd5.unknown} 列，保留、不計分</p>
+      <p className="sub">{liveTrackDd5.note}</p>
+    </div>
+  );
   const close = outlook?.close ?? strategists?.close ?? null;
   return (
     <>
@@ -245,14 +268,15 @@ export default function OutlookPage({ outlook, cells, liveTrack, frequency, rece
 
       {!outlook ? (
         <>
-          <div className="notice warn">資料不足，或 VIX 超過 3 個交易日未更新，今天沒有產生預測；下方的機構觀點與過去的預測紀錄照常顯示。</div>
+          <div className="notice warn">{outlookUnavailableText(outlookUnavailable)}</div>
           <div className="section">{trackPanel}</div>
         </>
       ) : (
         <>
-          <ForecastBlock outlook={outlook} cells={cells} horizon={horizon} minN={minN} minEpisodes={minEpisodes} trackPanel={trackPanel} frequency={frequency} />
+          <ForecastBlock outlook={outlook} cells={cells} horizon={horizon} minN={minN} minEpisodes={minEpisodes} trackPanel={trackPanel} frequency={frequency} phaseSummary={phaseSummary} />
         </>
       )}
+      {dd5TrackPanel}
 
       <h2 className="section" style={{ marginTop: "1.5rem" }}>機構觀點（背景資訊，不放進上面的機率）</h2>
       <p className="sub" style={{ marginBottom: ".8rem" }}>
@@ -261,14 +285,14 @@ export default function OutlookPage({ outlook, cells, liveTrack, frequency, rece
 
       <div className="panel" style={{ marginBottom: "1rem" }}>
         <h2>由下而上：個股目標價按指數權重反推</h2>
-        <p className="sub">S&amp;P 500 是市值加權指數，把每檔成分股的 12 個月共識目標價按權重加總，就得到「分析師隱含的指數目標」。</p>
+        <p className="sub">把涵蓋到的成分股 12 個月共識目標價的隱含漲幅按 SPY 權重平均，再套到 S&amp;P 500 收盤，推算「分析師隱含的指數目標」。這是涵蓋子集的外推，各檔股價日不同，不是全部成分股同一天的加總。</p>
         <div className="grid kpis" style={{ marginTop: ".6rem" }}>
           <div className="kpi">
             <div className="label">本站反推（權重前 200 檔）</div>
             <div className="value">{consensus?.impliedIndexTarget ? num(consensus.impliedIndexTarget, 0) : "—"}</div>
             <div className="delta">
               <Delta value={consensus?.impliedUpsidePct ?? null} percent digits={1} />{" "}
-              <span className="sub">涵蓋 {consensus ? `${num(consensus.coveredWeightPct, 0)}%` : "—"} 權重</span>
+              <span className="sub">涵蓋 {consensus ? `${num(consensus.coverage.target.weightPct, 0)}%` : "—"} 權重 · 以 SPX {consensus?.indexCloseDate ?? "—"} 收盤推算</span>
             </div>
           </div>
           <div className="kpi">
@@ -300,39 +324,50 @@ export default function OutlookPage({ outlook, cells, liveTrack, frequency, rece
         </p>
       </div>
 
-      <div className="grid two">
+      <div className="grid two outlook-views">
         <div className="panel">
           <h2>成分股分析師共識</h2>
           {!consensus ? (
-            <p className="sub">還沒有資料。每 4 小時輪流更新 SPY 權重前 200 檔中的 16 檔。</p>
+            <p className="sub">7 天內沒有更新的分析師共識。每 4 小時輪流更新 SPY 權重前 200 檔中的 16 檔。</p>
           ) : (
             <>
               <div className="grid kpis" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))" }}>
-                <div className="kpi"><div className="label">目標價隱含漲幅</div><div className="value" style={{ fontSize: "1.2rem" }}><Delta value={consensus.impliedUpsidePct} percent digits={1} /></div></div>
-                <div className="kpi"><div className="label">買進評等占比</div><div className="value" style={{ fontSize: "1.2rem" }}>{consensus.buyPct === null ? "—" : `${num(consensus.buyPct, 0)}%`}</div></div>
-                <div className="kpi"><div className="label">EPS 修正廣度</div><div className="value" style={{ fontSize: "1.2rem" }}><Delta value={consensus.revisionBreadth === null ? null : consensus.revisionBreadth * 100} digits={0} /></div><div className="delta sub">−100～+100</div></div>
+                <div className="kpi"><div className="label">目標價隱含漲幅</div><div className="value" style={{ fontSize: "1.2rem" }}><Delta value={consensus.impliedUpsidePct} percent digits={1} /></div><div className="delta sub">{coverageText(consensus.coverage.target)}</div></div>
+                <div className="kpi"><div className="label">買進評等占比</div><div className="value" style={{ fontSize: "1.2rem" }}>{consensus.buyPct === null ? "—" : `${num(consensus.buyPct, 0)}%`}</div><div className="delta sub">{coverageText(consensus.coverage.ratings)}</div></div>
+                <div className="kpi"><div className="label">EPS 修正廣度</div><div className="value" style={{ fontSize: "1.2rem" }}><Delta value={consensus.revisionBreadth === null ? null : consensus.revisionBreadth * 100} digits={0} /></div><div className="delta sub">近四週各檔（上修−下修）÷（上修＋下修），依權重平均後 ×100，−100～+100</div><div className="delta sub">{coverageText(consensus.coverage.revisions)}</div></div>
               </div>
               <p className="meta" style={{ margin: ".5rem 0" }}>
-                涵蓋 {consensus.symbols} 檔、約占指數 {num(consensus.coveredWeightPct, 0)}% 權重（{consensus.oldest}～{consensus.newest} 更新）。依 SPY 權重加權；目標價為 12 個月共識。買進占比是 Nasdaq 收錄的評等按權重平均，和 FactSet 全部評等的口徑不同，數字會有落差。
-                {consensus.coveredWeightPct < 50 && " 涵蓋不到一半權重，數字還不完整。"}
+                有可用數字的 {consensus.symbols} 檔約占指數 {num(consensus.coveredWeightPct, 0)}% 權重；
+                {consensus.noData.symbols > 0 && <>另有 {consensus.noData.symbols} 檔（{num(consensus.noData.weightPct, 0)}%）沒有可用數字，例如 Nasdaq 沒有分析師資料；</>}
+                分析師資料 {consensus.oldest}～{consensus.newest} 抓取；股價日 {consensus.priceOldest ?? "—"}～{consensus.priceNewest ?? "—"}，各檔不同日；權重用 SPY {consensus.weightsAsOf ?? "—"} 持股。目標價為 12 個月共識。買進占比是 Nasdaq 收錄的評等按權重平均，和 FactSet 全部評等的口徑不同，數字會有落差。
               </p>
               <div className="table-wrap">
                 <table>
-                  <thead><tr><th>代號</th><th className="num">權重</th><th className="num">股價</th><th className="num">目標價</th><th className="num">隱含</th><th className="num hide-sm">買/持/賣</th></tr></thead>
+                  <thead><tr><th>代號</th><th className="num">權重</th><th className="num">股價</th><th className="num">目標價</th><th className="num">隱含</th><th className="num hide-sm">買/持/賣</th><th className="num hide-sm" style={{ whiteSpace: "normal" }}>EPS 近四週修正</th></tr></thead>
                   <tbody>
                     {consensus.top.map((v) => (
                       <tr key={v.symbol}>
                         <td className="mono">{v.symbol}</td>
                         <td className="num">{num(v.weightPct, 2)}%</td>
-                        <td className="num">{num(v.price)}</td>
-                        <td className="num">{num(v.targetMean)}</td>
+                        <td className="num">{num(v.price)}<div className="meta">{v.priceDate?.slice(5) ?? "—"}</div></td>
+                        <td className="num" style={{ whiteSpace: "normal" }}>
+                          {v.targetMean === null && v.buy + v.hold + v.sell === 0 ? "Nasdaq 無資料" : num(v.targetMean)}
+                          {v.targetLow != null && v.targetHigh != null && <div className="meta" style={{ whiteSpace: "normal" }}>最低 {num(v.targetLow)}～最高 {num(v.targetHigh)}</div>}
+                        </td>
                         <td className="num"><Delta value={v.upsidePct} percent digits={1} /></td>
                         <td className="num hide-sm">{v.buy}/{v.hold}/{v.sell}</td>
+                        <td className="num hide-sm" style={{ whiteSpace: "normal" }}>
+                          {v.epsUp === null || v.epsDown === null ? "缺資料" : v.epsUp === 0 && v.epsDown === 0 ? "沒有修正" : `上修 ${v.epsUp}／下修 ${v.epsDown}`}
+                          <div className="meta">會計年度 {v.fiscalEnd ?? "缺資料"} · 估計數 {v.estimates ?? "缺資料"}</div>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
+              <p className="meta" style={{ marginTop: ".5rem" }}>
+                最低～最高是 Nasdaq 收錄的個別分析師目標價範圍，不是機率區間；EPS 欄是來源提供的近四週上修／下修次數，不是修正幅度，也不一定是不同分析師的家數；會計年度是來源列出的第一個年度。這些欄位只描述資料，能否預測報酬未經驗證（成效未證實），不是買賣訊號。
+              </p>
             </>
           )}
         </div>

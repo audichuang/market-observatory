@@ -1,25 +1,28 @@
 import { addDays, latestExpectedClose, MACRO_EVENTS, macroEventsSummary } from "../lib/calendar.ts";
 import { type Snapshot, buildSnapshot, snapshotLoadWindow } from "../lib/snapshot.ts";
+import { weightsStaleNote } from "../lib/weights-age.ts";
 import { CBOE_SOURCE, fetchCboeDaily } from "../lib/sources/cboe.ts";
 import { type EarningsDate, NASDAQ_SOURCE, fetchAnalystView, fetchEarningsCalendar, fetchEarningsDate, fetchNasdaqHistorical, fetchNasdaqNews } from "../lib/sources/nasdaq.ts";
-import { nextPendingRebase } from "../lib/rebase.ts";
+import { nextPendingRebase, refetchCoverage } from "../lib/rebase.ts";
 import { bumpDataVersion } from "./page-cache.ts";
+import { applySourceSwitches } from "./source-switches.ts";
 import { fetchSpyHoldings } from "../lib/sources/ssga.ts";
 import { type FactsetInsight, fetchInsight, latestInsightUrl } from "../lib/sources/factset.ts";
 import { YAHOO_SOURCE, fetchYahooDaily, fetchYahooLastCloses, fetchYahooSpark } from "../lib/sources/yahoo.ts";
 import { Budget } from "../lib/sources/http.ts";
 import { type ApnsConfig, notifyClose, notifyEvents } from "./push.ts";
 import { Series } from "../lib/analytics.ts";
-import { DEFAULT_MODEL, buildOutlook, vixAt } from "../lib/forecast.ts";
+import { DEFAULT_MODEL, buildObservations, buildOutlook, vixAt } from "../lib/forecast.ts";
+import { phaseSummaryOf, type PhaseSummary } from "../lib/forecast-eval.ts";
 import { rotationPicks } from "../lib/consensus.ts";
 import { easternDate } from "../lib/calendar.ts";
 import { EQUAL_WEIGHT_SYMBOL, FX_SYMBOL, INDEX_SYMBOL, VIX_SYMBOL, type WatchMember, nasdaqCheckSymbols, watchTickers, yahooSymbols } from "../lib/universe.ts";
 import { MAX_TRACKED, addToWatchlist, removeFromWatchlist } from "../lib/watchlist.ts";
 import { USER_WATCHLIST_PREFIX, WATCHLIST_KEY, latestHoldings, newTrackedQuotaPrefix, loadTrackedMembers, loadWatchlist, updateWatchlist } from "./watchlist.ts";
-import { type BarBatch, applyCrossChecks, compareCloses, finishRun, insertMissingBars, insertWeights, loadPrices, getSetting, loadWeightAnchors, nowIso, putSetting, saveSnapshots, startRun, upsertBars, weightsNear } from "./repo.ts";
+import { type BarBatch, applyCrossChecks, compareCloses, finishRun, insertMissingBars, replaceWeights, loadPrices, getSetting, loadWeightAnchors, nowIso, priceRanges, putSetting, saveSnapshots, startRun, upsertBars, weightsNear } from "./repo.ts";
 
-export type JobName = "prices" | "crosscheck" | "weights" | "news" | "events" | "analysts" | "factset" | "forecast" | "snapshots" | "notify-close" | "notify-events" | "backfill-prices" | "backfill-checks" | "backfill-index-history";
-export const JOB_NAMES: JobName[] = ["prices", "crosscheck", "weights", "news", "events", "analysts", "factset", "forecast", "snapshots", "notify-close", "notify-events", "backfill-prices", "backfill-checks", "backfill-index-history"];
+export type JobName = "prices" | "crosscheck" | "weights" | "news" | "events" | "analysts" | "factset" | "forecast" | "forecast-phase" | "snapshots" | "notify-close" | "notify-events" | "backfill-prices" | "backfill-checks" | "backfill-index-history";
+export const JOB_NAMES: JobName[] = ["prices", "crosscheck", "weights", "news", "events", "analysts", "factset", "forecast", "forecast-phase", "snapshots", "notify-close", "notify-events", "backfill-prices", "backfill-checks", "backfill-index-history"];
 
 export interface JobOptions {
   /** 回補工作的分段序號（從 0 開始） */
@@ -181,13 +184,24 @@ async function jobPrices(db: D1Database, _opts: JobOptions, budget: Budget): Pro
   const rebasedSymbols = Object.keys({ ...pending, ...rebased }).filter((s) => s in symbols);
   if (rebasedSymbols.length) {
     const now = rebasedSymbols.slice(0, budget.remaining);
+    const ranges = await priceRanges(db, now);
     const full = await fetchYahooBatch(now.map((s) => [s, symbols[s]] as [string, string]), "10y", expected, budget);
-    await upsertBars(db, full.ok, { allowRebase: true });
-    const stillPending = nextPendingRebase(pending, rebased, full.ok.map((b) => b.symbol));
+    const covered: BarBatch[] = [];
+    const uncovered: Record<string, string> = {};
+    for (const batch of full.ok) {
+      const coverage = refetchCoverage(ranges[batch.symbol] ?? null, batch.bars, expected);
+      if (coverage.ok) covered.push(batch);
+      else {
+        uncovered[batch.symbol] = coverage.reason;
+        failed[batch.symbol] = `分割後重抓的歷史未涵蓋已存區間，保留待修、下次重試：${coverage.reason}`;
+      }
+    }
+    await upsertBars(db, covered, { allowRebase: true });
+    const stillPending = nextPendingRebase(pending, rebased, covered.map((b) => b.symbol));
     await putSetting(db, PENDING_REBASE_KEY, stillPending);
     for (const [s, err] of Object.entries(full.failed)) failed[s] = `分割後重抓歷史失敗，已列入待修、下次重試：${err}`;
     for (const s of rebasedSymbols.slice(now.length)) failed[s] = "分割後要重抓歷史，這次請求額度不足，已列入待修、下次重試";
-    detail.rebased = { factors: { ...pending, ...rebased }, refetchFailed: full.failed, pending: stillPending };
+    detail.rebased = { factors: { ...pending, ...rebased }, refetchFailed: full.failed, uncovered, pending: stillPending };
   }
   const stale = ok.filter((b) => b.symbol !== FX_SYMBOL && b.bars.at(-1)?.date !== expected).map((b) => b.symbol);
   if (spx) {
@@ -248,14 +262,17 @@ async function jobCrosscheck(db: D1Database, _opts: JobOptions, budget: Budget):
 
 async function jobWeights(db: D1Database, _opts: JobOptions, budget: Budget): Promise<JobResult> {
   const file = await fetchSpyHoldings(budget);
-  const existed = await db.prepare("SELECT COUNT(*) AS n FROM weights WHERE as_of = ?").bind(file.asOf).first<{ n: number }>();
-  await insertWeights(db, file.asOf, file.holdings);
+  const correction = await replaceWeights(db, file.asOf, file.holdings);
   const snaps = await rebuildSnapshots(db, `SPY 持股 ${file.asOf}`);
   const mag = watchTickers(await loadTrackedMembers(db)).map((t) => `${t} ${file.holdings.find((h) => h.ticker === t)?.weightPct.toFixed(2) ?? "?"}%`);
+  const note = correction.unchanged ? "；已存在、內容相同" : correction.previous
+    ? `；同日更正：移除 ${correction.removed.join("、") || "無"}；新增 ${correction.added.join("、") || "無"}；權重變動 ${correction.changed} 檔（上一版取得於 ${correction.previousFetchedAt}）`
+    : "";
+  const staleNote = weightsStaleNote(file.asOf, latestExpectedClose());
   return {
-    status: "ok",
-    summary: `持股日期 ${file.asOf}（${file.holdings.length} 檔${existed?.n ? "，已存在、覆寫" : ""}）；${mag.join("、")}`,
-    detail: { asOf: file.asOf, count: file.holdings.length, snapshots: snaps.created },
+    status: staleNote ? "partial" : "ok",
+    summary: `${staleNote ? `${staleNote}；` : ""}持股日期 ${file.asOf}（${file.holdings.length} 檔）${note}；${mag.join("、")}`,
+    detail: { asOf: file.asOf, count: file.holdings.length, snapshots: snaps.created, correction },
   };
 }
 
@@ -302,6 +319,10 @@ const HISTORY_OVERLAP_DATES = 250;
 /** SPX 至少要比對到這麼多個重疊日期才信任 Cboe；沒有重疊就無從驗證，不寫入。 */
 const HISTORY_MIN_OVERLAP = 20;
 
+export function historyOverlapTrusted(compared: number, mismatches: number): boolean {
+  return compared >= HISTORY_MIN_OVERLAP && mismatches / compared <= 0.01;
+}
+
 /**
  * Yahoo 窗口（約十年）之前的 SPX／VIX 歷史由 Cboe 補（source='cboe'、不做交叉核對）。
  * 只往更早的方向、由新到舊補，歷史永遠連續，重跑就接著補；窗口內的列一律不動。
@@ -333,7 +354,7 @@ async function jobBackfillIndexHistory(db: D1Database, opts: JobOptions, budget:
     compared++;
     if (compareCloses(r.close, c) === "mismatch") overlapMismatches++;
   }
-  const spxTrusted = compared >= HISTORY_MIN_OVERLAP && overlapMismatches / compared <= 0.01;
+  const spxTrusted = historyOverlapTrusted(compared, overlapMismatches);
 
   const inserted = { SPX: 0, VIX: 0 };
   const remaining = { SPX: 0, VIX: 0 };
@@ -374,7 +395,7 @@ async function jobBackfillChecks(db: D1Database, opts: JobOptions, budget: Budge
  * Upsert one article under one symbol. Symbol membership is matched with comma delimiters on both sides,
  * so a substring (MS inside 'SPY,MSFT') does not count as already attached.
  */
-export const NEWS_UPSERT_SQL = `INSERT INTO news (id, symbols, title, url, publisher, published_at, source, fetched_at, summary, primary_symbol) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+export const NEWS_UPSERT_SQL = `INSERT INTO news (id, symbols, title, url, publisher, published_at, source, fetched_at, summary, primary_symbol, published_ago) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET symbols = CASE WHEN instr(',' || news.symbols || ',', ',' || excluded.symbols || ',') > 0 THEN news.symbols ELSE news.symbols || ',' || excluded.symbols END,
        summary = COALESCE(news.summary, excluded.summary), primary_symbol = COALESCE(news.primary_symbol, excluded.primary_symbol),
        -- A newly attached symbol: the AI must re-judge who the article is about
@@ -385,14 +406,17 @@ async function jobNews(db: D1Database, _opts: JobOptions, budget: Budget): Promi
   const all = ["SPY", ...(await loadTrackedMembers(db)).map((m) => m.key)];
   const symbols = all.slice(0, Math.max(0, budget.remaining - RETRY_RESERVE));
   const skipped = all.slice(symbols.length);
-  const results = await mapLimit(symbols, 3, (s) => fetchNasdaqNews(s, 8, budget));
+  const results = await mapLimit(symbols, 3, async (s) => {
+    const news = await fetchNasdaqNews(s, 8, budget);
+    return { news, fetchedAt: nowIso() };
+  });
   const stmt = db.prepare(NEWS_UPSERT_SQL);
   const stmts: D1PreparedStatement[] = [];
   const failed: string[] = [];
   const fetchedAt = nowIso();
   results.forEach((r, i) => {
     if (r.status === "rejected") return failed.push(`${symbols[i]}: ${errText(r.reason)}`);
-    for (const n of r.value) stmts.push(stmt.bind(n.id, symbols[i], n.title, n.url, n.publisher, n.publishedAt, NASDAQ_SOURCE, fetchedAt, n.summary, n.primarySymbol));
+    for (const n of r.value.news) stmts.push(stmt.bind(n.id, symbols[i], n.title, n.url, n.publisher, n.publishedAt, NASDAQ_SOURCE, r.value.fetchedAt, n.summary, n.primarySymbol, n.publishedAgo));
   });
   for (let i = 0; i < stmts.length; i += 100) await db.batch(stmts.slice(i, i + 100));
   // 只保留 120 天，避免表無限長大。
@@ -446,7 +470,7 @@ async function jobEvents(db: D1Database, _opts: JobOptions, budget: Budget): Pro
     stmts.push(clearFuture.bind(m.key, fetchedAt.slice(0, 10)));
     // 同一季只留一筆：id 用「代號＋年月」，日期改了就覆蓋。
     const id = `earnings-${m.key}-${e.date.slice(0, 7)}`;
-    found.push(`${m.key} ${e.date}${e.status === "estimated" ? "（估）" : ""}`);
+    found.push(`${m.key} ${e.date}${e.status === "estimated" ? "（估）" : e.status === "expected" ? "（預期）" : ""}`);
     stmts.push(stmt.bind(id, e.date, "earnings", m.key, `${m.company} 財報`, e.detail, e.status, e.sourceUrl, fetchedAt));
   }
   await db.batch(stmts);
@@ -559,7 +583,14 @@ export async function recordForecast(db: D1Database): Promise<ForecastRecord> {
           vixDate: S, vix: vixToday, spxCheck: status, recordedLagSessions: lag,
           cellGate: outlook.cellGate,
           assessments: outlook.assessments,
-          drawdown: { p: outlook.drawdown.pick.p, base: outlook.drawdown.pick.base.p, scored: outlook.drawdown.scored, cellGate: outlook.drawdown.cellGate },
+          // Before slot A, dd5 and P(up) share DEFAULT_MODEL. Once slot A adopts DD5_MODEL,
+          // store its version here; the top-level model_version remains the P(up) version.
+          drawdown: {
+            p: outlook.drawdown.pick.p, base: outlook.drawdown.pick.base.p, scored: outlook.drawdown.scored,
+            cellGate: outlook.drawdown.cellGate, gate: outlook.drawdown.gate,
+            modelVersion: outlook.modelVersion, regime: outlook.regime,
+            basis: outlook.drawdown.pick.basis, cell: outlook.drawdown.pick.cell, historyStart: outlook.historyStart,
+          },
         }),
       )
       .run();
@@ -605,7 +636,7 @@ export async function recordForecast(db: D1Database): Promise<ForecastRecord> {
 const ANALYST_UNIVERSE = 200;
 const EPS_REVISION_UNIVERSE = 100;
 const ANALYST_PER_RUN = 16;
-const EMPTY_VIEW = { targetMean: null, targetLow: null, targetHigh: null, buy: 0, hold: 0, sell: 0, fiscalEnd: null, epsForecast: null, epsUp: null, epsDown: null, estimates: null };
+const EMPTY_VIEW = { targetMean: null, targetLow: null, targetHigh: null, buy: 0, hold: 0, sell: 0, fiscalEnd: null, epsForecast: null, epsUp: null, epsDown: null, estimates: null, epsError: null };
 
 /** SPY 權重前 200 檔，每次挑最久沒更新的 16 檔抓分析師共識；股價用 Yahoo spark 一次取得。 */
 async function jobAnalysts(db: D1Database, _opts: JobOptions, budget: Budget): Promise<JobResult> {
@@ -627,7 +658,7 @@ async function jobAnalysts(db: D1Database, _opts: JobOptions, budget: Budget): P
   let prices = new Map<string, { date: string; close: number }>();
   let priceError: string | null = null;
   try {
-    prices = await fetchYahooLastCloses(picks, budget);
+    prices = await fetchYahooLastCloses(picks, budget, latestExpectedClose());
   } catch (e) {
     priceError = errText(e);
   }
@@ -650,9 +681,11 @@ async function jobAnalysts(db: D1Database, _opts: JobOptions, budget: Budget): P
   );
   const stmts: D1PreparedStatement[] = [];
   const failed: string[] = [];
+  const epsFailed: string[] = [];
   results.forEach((r, i) => {
     if (r.status === "rejected") return failed.push(`${picks[i]}: ${errText(r.reason)}`);
     const v = r.value;
+    if (v.epsError !== null) epsFailed.push(v.symbol);
     const p = prices.get(picks[i]);
     stmts.push(stmt.bind(v.symbol, asOf, p?.close ?? null, p?.date ?? null, v.targetMean, v.targetLow, v.targetHigh, v.buy, v.hold, v.sell, v.fiscalEnd, v.epsForecast, v.epsUp, v.epsDown, v.estimates, fetchedAt));
   });
@@ -667,9 +700,9 @@ async function jobAnalysts(db: D1Database, _opts: JobOptions, budget: Budget): P
   });
   await putSetting(db, ANALYST_FAILURES_KEY, nextFailures);
   return {
-    status: failed.length === 0 && !priceError ? "ok" : stmts.length === 0 ? "failed" : "partial",
-    summary: `分析師共識 ${stmts.length}/${picks.length} 檔（${picks.join(",")}）；股價 ${prices.size} 檔${priceError ? `（失敗：${priceError}）` : ""}`,
-    detail: { failed, priceError },
+    status: failed.length === 0 && !priceError && epsFailed.length === 0 ? "ok" : stmts.length === 0 ? "failed" : "partial",
+    summary: `分析師共識 ${stmts.length}/${picks.length} 檔（${picks.join(",")}）；股價 ${prices.size} 檔${priceError ? `（失敗：${priceError}）` : ""}${epsFailed.length ? `；EPS 失敗 ${epsFailed.length} 檔` : ""}`,
+    detail: { failed, priceError, epsFailed },
   };
 }
 
@@ -707,6 +740,28 @@ async function jobFactset(db: D1Database, _opts: JobOptions, budget: Budget): Pr
   };
 }
 
+export const FORECAST_PHASE_KEY = "forecast-phase-summary";
+
+async function jobForecastPhase(db: D1Database): Promise<JobResult> {
+  const loaded = await loadPrices(db, [INDEX_SYMBOL, VIX_SYMBOL], "0000-01-01");
+  const obs = buildObservations(loaded.series[INDEX_SYMBOL], loaded.series[VIX_SYMBOL]);
+  const last = obs.at(-1);
+  if (!last?.regime) return { status: "ok", summary: "資料不足，略過", detail: {} };
+  const previous = await getSetting<(PhaseSummary & { computedAt: string }) | null>(db, FORECAST_PHASE_KEY, null);
+  if (previous?.asOf === last.date && previous.modelVersion === DEFAULT_MODEL.version) {
+    return { status: "ok", summary: "已是最新", detail: {} };
+  }
+  const summary = phaseSummaryOf(obs, DEFAULT_MODEL)!;
+  if (summary.up?.mean === null && summary.dd5?.mean === null) return { status: "ok", summary: "資料不足，略過", detail: {} };
+  const stored = { ...summary, computedAt: nowIso() };
+  await putSetting(db, FORECAST_PHASE_KEY, stored);
+  return {
+    status: "ok",
+    summary: `相位平均 BSS：上漲 ${summary.up?.mean?.toFixed(3) ?? "—"}、dd5 ${summary.dd5?.mean?.toFixed(3) ?? "—"}`,
+    detail: { asOf: stored.asOf, modelVersion: stored.modelVersion, computedAt: stored.computedAt },
+  };
+}
+
 const JOBS: Record<JobName, (db: D1Database, opts: JobOptions, budget: Budget) => Promise<JobResult>> = {
   prices: jobPrices,
   crosscheck: jobCrosscheck,
@@ -715,6 +770,7 @@ const JOBS: Record<JobName, (db: D1Database, opts: JobOptions, budget: Budget) =
   events: jobEvents,
   analysts: jobAnalysts,
   factset: jobFactset,
+  "forecast-phase": jobForecastPhase,
   forecast: async (db) => {
     const f = await recordForecast(db);
     return {
@@ -747,16 +803,24 @@ const JOBS: Record<JobName, (db: D1Database, opts: JobOptions, budget: Budget) =
 export async function runJob(db: D1Database, job: JobName, trigger: string, opts: JobOptions = {}, budget = new Budget(SUBREQUEST_BUDGET)) {
   const id = await startRun(db, job, trigger);
   const before = budget.used;
+  const issuesBefore = budget.dataIssues.length;
+  const disabledBefore = budget.disabledRequests.length;
   const usage = () => ({ subrequests: budget.used - before, budgetLeft: budget.remaining });
   try {
+    await applySourceSwitches(db, budget);
     const r = await JOBS[job](db, opts, budget);
-    const detail = { ...r.detail, ...usage() };
-    await finishRun(db, id, r.status, r.summary, detail);
+    const disabled = [...new Set(budget.disabledRequests.slice(disabledBefore))];
+    if (disabled.length) r.summary += `；${disabled.join("；")}`;
+    const dataIssues = budget.dataIssues.slice(issuesBefore);
+    const status = dataIssues.length && r.status === "ok" ? "partial" as const : r.status;
+    const summary = r.summary + (dataIssues.length ? `；${dataIssues.length} 筆日線同日兩筆不同收盤、未採用：${dataIssues.slice(0, 3).join("；")}${dataIssues.length > 3 ? "…" : ""}` : "");
+    const detail = { ...r.detail, ...usage(), dataIssues };
+    await finishRun(db, id, status, summary, detail);
     await bumpDataVersion(db);
-    return { id, ...r, detail };
+    return { id, ...r, status, summary, detail };
   } catch (e) {
     const summary = errText(e);
-    const detail = { stack: e instanceof Error ? e.stack : null, ...usage() };
+    const detail = { stack: e instanceof Error ? e.stack : null, ...usage(), dataIssues: budget.dataIssues.slice(issuesBefore) };
     await finishRun(db, id, "failed", summary, detail);
     await bumpDataVersion(db);
     return { id, status: "failed" as const, summary, detail };
@@ -770,7 +834,7 @@ export async function runJob(db: D1Database, job: JobName, trigger: string, opts
 export const SCHEDULES = {
   // 收盤推播跟在抓價後面：當天收盤沒抓到就不發，隔天清晨的補抓（retry）抓到後再發（push_log 去重，不會發兩次）。
   prices: ["prices", "notify-close"],
-  crosscheck: ["crosscheck"],
+  crosscheck: ["crosscheck", "forecast-phase"],
   retry: ["prices", "crosscheck", "notify-close"],
   // 事件提醒在美東早上（UTC 11:30 = 台灣晚上 7:30）：當天的財報日剛更新完。
   "daily-reference": ["weights", "events", "factset", "notify-events"],
@@ -803,6 +867,7 @@ export const MAX_NEW_TRACKED_PER_DAY = 5;
  * 全站追蹤的公司數到 MAX_TRACKED 時，只能加別人已經在追蹤的公司。
  */
 export async function addWatchSymbol(db: D1Database, input: string, budget = new Budget(SUBREQUEST_BUDGET), listKey = WATCHLIST_KEY): Promise<WatchChange> {
+  const switches = await applySourceSwitches(db, budget);
   const list = await loadWatchlist(db, listKey);
   const { holdings } = await latestHoldings(db);
   const res = addToWatchlist(list, input, holdings);
@@ -811,6 +876,7 @@ export async function addWatchSymbol(db: D1Database, input: string, budget = new
   const tracked = await loadTrackedMembers(db);
   const trackedTickers = new Set(watchTickers(tracked));
   const isNew = member.tickers.some((t) => !trackedTickers.has(t));
+  if (isNew && switches["yahoo-chart"]?.disabled) return { ok: false, error: "來源已停用：Yahoo chart／spark 日線，暫時無法加入新公司" };
   if (isNew && tracked.length >= MAX_TRACKED) return { ok: false, error: `全站追蹤的公司已達 ${MAX_TRACKED} 家上限，目前只能加入其他人已在追蹤的公司` };
   // The owner list (WATCHLIST_KEY) is exempt: the cap guards against registered users using this path to hammer upstream sources.
   // Counted before fetching, so a failed fetch still uses a slot (the upstream requests were made either way).
@@ -829,13 +895,16 @@ export async function addWatchSymbol(db: D1Database, input: string, budget = new
   let summary = `已加入 ${member.company}（${member.tickers.join("＋")}）`;
   if (isNew) {
     const expected = latestExpectedClose();
+    const issuesBefore = budget.dataIssues.length;
     const { ok, failed } = await fetchYahooBatch(member.tickers.map((t) => [t, t] as [string, string]), "10y", expected, budget);
+    const dataIssues = budget.dataIssues.slice(issuesBefore);
     const failedNames = Object.keys(failed);
     if (failedNames.length) return { ok: false, error: `抓不到 ${failedNames.join(",")} 的歷史股價（${Object.values(failed)[0]}），稍後再試` };
     await upsertBars(db, ok, { allowRebase: true });
     // Nasdaq 核對最近兩個月；失敗不擋（之後的排程會再核對）。
     await crossCheckNasdaq(db, member.tickers.map((t) => ({ symbol: t, assetClass: "stocks" as const })), addDays(expected, -60), 60, budget).catch(() => null);
     summary += `，補了 ${ok.reduce((a, b) => a + b.bars.length, 0)} 筆日線`;
+    if (dataIssues.length) summary += `；略過 ${dataIssues.length} 天同日兩筆不同收盤的日線（${dataIssues.map((issue) => issue.split(" ")[2]).join("、")}）`;
   }
   // 抓價花了幾秒，這段時間名單可能被別的裝置改過：存檔時重讀、重新套用。
   const saved = await updateWatchlist(

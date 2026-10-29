@@ -2,6 +2,7 @@ import { useRouter, useShared } from "@void/react";
 import { useState } from "react";
 import { CheckBadge, RunStatusBadge, runStatusText } from "../src/ui/bits.tsx";
 import { num, taipeiTime } from "../src/ui/format.ts";
+import { refreshPage } from "../src/ui/refresh.ts";
 import type { CheckStatus } from "../src/lib/snapshot.ts";
 import type { Props } from "./sources.server";
 
@@ -10,10 +11,13 @@ const JOB_LABEL: Record<string, string> = {
   crosscheck: "Nasdaq 交叉核對",
   weights: "SPY 持股權重",
   news: "新聞",
+  "ai-translate": "新聞 AI 標題翻譯",
+  "ai-daily": "新聞 AI 每日重點",
   events: "財報與總經日程",
   analysts: "分析師共識（16 檔）",
   factset: "FactSet 週報",
   forecast: "重算下月展望",
+  "forecast-phase": "展望相位平均",
   snapshots: "重算近 30 天快照",
   "notify-close": "發送收盤推播",
   "notify-events": "發送今日事件推播",
@@ -32,7 +36,7 @@ const NO_SECOND_SOURCE = new Set(["USDTWD", "VIX"]);
 
 const SCHEDULE = [
   ["抓收盤價", "週一至五 UTC 21:40（美東收盤後）；隔日 UTC 01:10 補抓並再核對", "Yahoo chart（主）、Cboe VIX／SPX"],
-  ["交叉核對", "週一至五 UTC 22:50", "Nasdaq 歷史行情逐檔比對收盤"],
+  ["交叉核對", "週一至五 UTC 22:50", "Nasdaq 歷史行情逐檔比對收盤；之後重算展望相位平均"],
   ["持股權重＋日曆＋週報", "每天 UTC 11:30", "State Street SPY 持股檔、Nasdaq 財報日期、聯準會 FOMC 與勞工統計局 CPI／非農日程（程式內建的官方靜態日期）、FactSet Earnings Insight（有新一期才解析）"],
   ["新聞＋分析師共識", "每 4 小時", "Nasdaq 個股新聞；SPY 權重前 200 檔輪流抓目標價（前 100 檔加抓 EPS 修正，每次 16 檔）"],
 ];
@@ -44,11 +48,30 @@ const DATA_NOTES = [
   "投行策略師年底目標表是人工維護的背景資訊，不進方向預測模型：標「已核對原文」的列對過機構官方原文，其餘取自媒體報導。",
 ];
 
-export default function SourcesPage({ expected, freshness, mismatches, runs, weights, counts, jobs, tolerance, calendar, links }: Props) {
+const REGISTRY_RIGHTS = [
+  ["automatedAcquisition", "自動取得"], ["storage", "保存"], ["publicDisplay", "公開顯示"],
+  ["derivation", "衍生計算"], ["aiProcessing", "AI 處理"],
+] as const;
+const RUNTIME_LABEL = { worker: "Worker", local: "本機", manual: "人工", static: "程式內建" };
+const SWITCH_IMPACT: Record<string, string> = {
+  "yahoo-chart": "停用後抓價、加入新公司與分析師現價都會失敗。",
+  "cboe-index": "停用後 VIX 不更新，展望紀錄會停在「等 VIX」。",
+  "ssga-holdings": "停用後權重停更；超過既有期限時會標示「權重未更新」。",
+};
+
+function AiLastRun({ run }: { run: Props["ai"]["daily"]["lastRun"] }) {
+  return run ? <div className="meta">
+    最近一次：<RunStatusBadge status={run.status} /> {taipeiTime(run.finishedAt)}
+    {run.summary && <div>{run.summary}</div>}
+  </div> : <div className="meta">尚無執行紀錄</div>;
+}
+
+export default function SourcesPage({ expected, freshness, mismatches, runs, weights, weightsStale, counts, jobs, tolerance, calendar, links, registry, switches, ai }: Props) {
   const router = useRouter();
   const { isOwner } = useShared();
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [switchMessage, setSwitchMessage] = useState<string | null>(null);
   const [showAllRuns, setShowAllRuns] = useState(false);
 
   async function trigger(job: string) {
@@ -58,9 +81,33 @@ export default function SourcesPage({ expected, freshness, mismatches, runs, wei
       const res = await fetch(`/api/admin/run?job=${job}`, { method: "POST" });
       const body = (await res.json()) as { status?: string; summary?: string; error?: string };
       setMessage(`${label(job)}：${body.status ? runStatusText(body.status) : `錯誤 ${res.status}`} ${body.summary ?? body.error ?? ""}`);
-      router.refresh();
+      await refreshPage(router);
     } catch {
       setMessage(`${label(job)} 失敗：連不上伺服器或回應格式不對，請稍後再試`);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function toggleSource(id: string, name: string, disabled: boolean) {
+    if (disabled && !confirm("停用後排程不再向這個來源發請求；已存的資料保留，畫面照常顯示到資料過期。確定停用？")) return;
+    setBusy(id);
+    setSwitchMessage(null);
+    try {
+      const res = await fetch("/api/admin/sources", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, disabled }),
+      });
+      const body = (await res.json()) as { error?: string };
+      if (!res.ok) {
+        setSwitchMessage(`${name}：${body.error ?? `錯誤 ${res.status}`}`);
+        return;
+      }
+      setSwitchMessage(`${name}：${disabled ? "已停用" : "已恢復"}`);
+      await refreshPage(router);
+    } catch {
+      setSwitchMessage(`${name} 切換失敗：連不上伺服器或回應格式不對，請稍後再試`);
     } finally {
       setBusy(null);
     }
@@ -113,6 +160,7 @@ export default function SourcesPage({ expected, freshness, mismatches, runs, wei
         </div>
         <div className="panel">
           <h2>SPY 持股檔</h2>
+          {weightsStale && <div className="notice warn">{weightsStale}</div>}
           <p className="sub">來源：<a href={links.ssga} target="_blank" rel="noreferrer">State Street SPY 每日持股</a>。通常落後 1～2 個交易日，歸因時依價格推算到前一交易日。</p>
           <table>
             <thead><tr><th>持股日期</th><th className="num">檔數</th><th className="num">權重合計</th><th>抓取時間</th></tr></thead>
@@ -123,6 +171,30 @@ export default function SourcesPage({ expected, freshness, mismatches, runs, wei
             </tbody>
           </table>
         </div>
+      </div>
+
+      <div className="panel section">
+        <h2>新聞 AI（本機排程）</h2>
+        <ul className="list">
+          <li>
+            <strong>每日重點</strong>
+            <AiLastRun run={ai.daily.lastRun} />
+            <div className="meta">最後完整成功：{taipeiTime(ai.daily.lastOkAt)}</div>
+            <div className="meta">{ai.daily.latestTradeDate
+              ? `${ai.daily.latestTradeDate} 的大盤重點：${ai.daily.marketDigestWritten ? "已寫入" : "還沒寫入"}`
+              : "尚無交易日快照"}</div>
+          </li>
+          <li>
+            <strong>標題翻譯</strong>
+            <AiLastRun run={ai.translate.lastRun} />
+            <div className="meta">最後完整成功：{taipeiTime(ai.translate.lastOkAt)}</div>
+            <div className="meta">待翻譯 {ai.translate.backlog.count} 則{ai.translate.backlog.oldestFetchedAt && `，最早 ${taipeiTime(ai.translate.backlog.oldestFetchedAt)} 抓到`}</div>
+          </li>
+          <li>
+            <strong>新聞來源</strong>
+            <div className="meta">最後成功抓取：{taipeiTime(ai.news.lastOkAt)}</div>
+          </li>
+        </ul>
       </div>
 
       <div className="panel section">
@@ -156,6 +228,61 @@ export default function SourcesPage({ expected, freshness, mismatches, runs, wei
         </div>
       </div>
 
+      {isOwner && <div className="panel section">
+        <h2>來源授權清冊（站長）</h2>
+        <p className="sub">這份清冊整理的是條款文字與本站用途的落差，不是法律意見；列在這裡不代表已取得授權。</p>
+        {switchMessage && <p className="sub" role="status">{switchMessage}</p>}
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>來源</th><th>用在哪</th>{REGISTRY_RIGHTS.map(([key, title]) => <th key={key}>{title}</th>)}<th>條款（版本日／查閱日）</th></tr></thead>
+            <tbody>
+              {registry.map((source) => (
+                <tr key={source.id}>
+                  <td style={{ minWidth: "10rem" }}>
+                    <strong>{source.name}</strong>
+                    <div className="meta">{source.id}</div>
+                    <div className="meta">{RUNTIME_LABEL[source.runtime]}</div>
+                    {source.runtime === "worker" ? <>
+                      <div className="meta">{switches[source.id]?.disabled ? `已停用（${taipeiTime(switches[source.id].at)}）` : "啟用中"}</div>
+                      <button className="secondary" disabled={busy !== null} onClick={() => toggleSource(source.id, source.name, !switches[source.id]?.disabled)}>
+                        {busy === source.id ? "切換中…" : switches[source.id]?.disabled ? "恢復" : "停用"}
+                      </button>
+                    </> : <div className="meta">不可切換</div>}
+                  </td>
+                  <td style={{ minWidth: "22rem" }}>
+                    <div className="meta">工作：{source.jobs.join("、")}</div>
+                    <div className="meta">畫面：{source.screens.join("、")}</div>
+                    <div className="meta" style={{ marginTop: ".5rem" }}>取得欄位：</div>
+                    {source.fields.map((field) => <div key={field.name} className="meta"><strong>{field.name}</strong>：{field.usage}</div>)}
+                    <div className="meta" style={{ marginTop: ".5rem" }}>停用影響：{source.disableImpact}</div>
+                    {SWITCH_IMPACT[source.id] && <div className="meta">{SWITCH_IMPACT[source.id]}</div>}
+                    {source.notes.map((note) => <p key={note} className="meta">{note}</p>)}
+                  </td>
+                  {REGISTRY_RIGHTS.map(([key]) => (
+                    <td key={key} style={{ minWidth: "10rem" }}>
+                      <strong>{source.rights[key].status}</strong>
+                      <div className="meta">{source.rights[key].basis}</div>
+                    </td>
+                  ))}
+                  <td style={{ minWidth: "16rem" }}>
+                    {source.terms.map((term) => <div key={term.name} style={{ marginBottom: ".5rem" }}>
+                      {term.url ? <a href={term.url} target="_blank" rel="noreferrer">{term.name}</a> : <span>{term.name}；條款網址未查</span>}
+                      <div className="meta">版本日：{term.versionDate ?? "未核實"}</div>
+                      <div className="meta">{term.versionNote}</div>
+                    </div>)}
+                    <div className="meta">本站查閱日：{source.reviewedOn}</div>
+                    <details className="meta" style={{ marginTop: ".5rem" }}>
+                      <summary>依據文件</summary>
+                      {source.evidence.map((doc) => <div key={doc} style={{ overflowWrap: "anywhere" }}>{doc}</div>)}
+                    </details>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>}
+
       {mismatches.length > 0 && (
         <div className="panel section">
           <h2>近 60 天來源不一致</h2>
@@ -178,7 +305,7 @@ export default function SourcesPage({ expected, freshness, mismatches, runs, wei
               <div style={{ display: "flex", gap: ".5rem", alignItems: "center", flexWrap: "wrap" }}>
                 <RunStatusBadge status={r.status} />
                 <strong>{label(r.job)}</strong>
-                <span className="meta">{taipeiTime(r.started_at)} · {r.trigger.startsWith("cron") ? "排程" : "手動"}</span>
+                <span className="meta">{taipeiTime(r.started_at)} · {r.trigger === "local" ? "本機" : r.trigger === "cron" ? "排程" : "手動"}</span>
               </div>
               <div className="meta">{r.summary}</div>
             </li>

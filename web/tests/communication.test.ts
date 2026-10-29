@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { LIVE_MIN_N, NO_INCREMENTAL_SKILL, PROPORTION_INTERVAL, SKILL_INTERVAL, dd5Definition, dd5ShortLabel, frequencySentences, upTargetLabel, liveTrackOf, naturalFrequency, outOfCent, outOfTen } from "../src/lib/communication.ts";
+import { FORECAST_PENDING_BADGE, LIVE_MIN_N, NO_INCREMENTAL_SKILL, PROPORTION_INTERVAL, SKILL_INTERVAL, dd5Definition, dd5ShortLabel, forecastPendingNote, frequencySentences, upTargetLabel, liveTrackOf, naturalFrequency, outOfCent, outOfTen } from "../src/lib/communication.ts";
 import { DEFAULT_MODEL, assessmentsOf, reasonsOf, buildOutlook, type Assessments, type CellGate } from "../src/lib/forecast.ts";
 import { Series } from "../src/lib/analytics.ts";
+import * as communication from "../src/lib/communication.ts";
 
 const day = (i: number) => new Date(Date.UTC(2020, 0, 1) + i * 864e5).toISOString().slice(0, 10);
 const rate = (p: number, episodes: number) => ({ p, days: 1000, nEff: 47, episodes, low: p - 0.1, high: p + 0.1 });
@@ -178,4 +179,183 @@ test("U-01 與 D-04 文案：不說與平常差不多；兩種區間分名", () 
   assert.notEqual(PROPORTION_INTERVAL, SKILL_INTERVAL);
   assert.match(PROPORTION_INTERVAL, /歷史比例/);
   assert.match(SKILL_INTERVAL, /預測力.*不是今天/);
+});
+
+test("總覽預測待更新：標籤與說明區分預測資料日及最新收盤日", () => {
+  assert.equal(
+    forecastPendingNote("A", "B"),
+    "最新收盤 B 的預測還沒記錄（通常是在等當天的 VIX 或 S&P 500 收盤核對），這裡先顯示 A 收盤的紀錄；展望頁用最新資料即時試算，數字可能不同。",
+  );
+  assert.equal(FORECAST_PENDING_BADGE, "待更新");
+});
+
+test("展望無法產生：SPX 只有 50 筆且 VIX 齊全時是 insufficient；SPX 缺資料優先於 VIX", () => {
+  const spx = new Series(points.slice(0, 50));
+  const vix = new Series(spx.points.map((p) => ({ ...p, close: 20 })));
+  assert.equal(buildOutlook(spx, vix), null);
+  assert.deepEqual(communication.outlookUnavailable(spx, vix), {
+    reason: "insufficient", spxDate: day(49), vixDate: day(49), staleSessions: 0, maxStaleSessions: 3,
+  });
+  assert.deepEqual(communication.outlookUnavailable(new Series([]), new Series([])), {
+    reason: "insufficient", spxDate: null, vixDate: null, staleSessions: null, maxStaleSessions: 3,
+  });
+  assert.deepEqual(communication.outlookUnavailable(spx, new Series([])), {
+    reason: "vix-stale", spxDate: day(49), vixDate: null, staleSessions: null, maxStaleSessions: 3,
+  });
+});
+
+test("展望無法產生：三種原因的完整提示與舊後端 fallback", () => {
+  const unavailable = { reason: "vix-stale" as const, spxDate: "2026-10-27", vixDate: "2026-10-20", staleSessions: 5, maxStaleSessions: 3 };
+  assert.equal(
+    communication.outlookUnavailableText(unavailable),
+    "VIX 最新只到 2026-10-20，比 S&P 500（2026-10-27）落後 5 個交易日，超過 3 個交易日的上限，今天不產生預測。下方的過去預測紀錄與機構觀點照常顯示。",
+  );
+  assert.equal(
+    communication.outlookUnavailableText({ ...unavailable, vixDate: null, staleSessions: null }),
+    "還沒有 VIX 資料，今天不產生預測。下方的過去預測紀錄與機構觀點照常顯示。",
+  );
+  assert.equal(
+    communication.outlookUnavailableText({ ...unavailable, reason: "insufficient" }),
+    "歷史資料還不夠計算條件與驗證，今天不產生預測。下方的過去預測紀錄與機構觀點照常顯示。",
+  );
+  const fallback = "資料不足，或 VIX 超過 3 個交易日未更新，今天沒有產生預測；下方的機構觀點與過去的預測紀錄照常顯示。";
+  assert.equal(communication.outlookUnavailableText(undefined), fallback);
+  assert.equal(communication.outlookUnavailableText(null), fallback);
+  assert.equal(communication.outlookUnavailableText({ ...unavailable, reason: "future-reason" } as never), fallback);
+});
+
+// --- L4: forecast live tracks ---
+import { dd5ClassOf, dd5LiveTrackOf, publishStatusOf, upClassOf } from "../src/lib/communication.ts";
+import { expectedSessions } from "../src/lib/calendar.ts";
+
+const dd5Detail = (lag = 0, modelVersion = "dd5-v1", p = 0.8, base = 0.2) =>
+  JSON.stringify({ recordedLagSessions: lag, drawdown: { p, base, modelVersion } });
+
+test("dd5 分類：準時 lag 0 即時、lag 2 或逾時補記；缺資格欄位或時限不明優先歸不明", () => {
+  const date = "2026-03-06";
+  const onTime = "2026-03-06T22:00:00Z";
+  assert.equal(dd5ClassOf(dd5Detail(), date, onTime), "realtime");
+  assert.equal(dd5ClassOf(dd5Detail(2), date, onTime), "delayed");
+  assert.equal(dd5ClassOf(dd5Detail(), date, "2026-03-09T22:00:00Z"), "delayed");
+  assert.equal(dd5ClassOf(dd5Detail(2), date, "x"), "unknown");
+  for (const detail of [null, "{", "null", JSON.stringify({ drawdown: { p: 0.1, base: 0.2, modelVersion: "v1" } }),
+    ...["p", "base", "modelVersion"].map((key) => {
+      const d = JSON.parse(dd5Detail(2));
+      delete d.drawdown[key];
+      return JSON.stringify(d);
+    }), dd5Detail(2, ""), dd5Detail(2, "v1", "0.1" as never)]) {
+    for (const createdAt of [onTime, "2026-03-09T22:00:00Z"]) {
+      assert.equal(dd5ClassOf(detail, date, createdAt), "unknown", String(detail));
+    }
+  }
+});
+
+const dd5Dates = expectedSessions("2026-01-02", "2027-06-30");
+const dd5Points = (n: number) => dd5Dates.slice(0, n).map((date) => ({ date, close: 100 }));
+const dd5Row = (i: number, detail: string | null = dd5Detail()) => ({ date: dd5Dates[i], close: 100, detail, created_at: `${dd5Dates[i]}T22:00:00Z` });
+
+test("dd5 格線：從第一筆即時列起，全部版本共用；補記格點略過不遞補", () => {
+  const result = dd5LiveTrackOf([
+    dd5Row(64, dd5Detail(0, "v2")), dd5Row(0, null), dd5Row(1), dd5Row(2, dd5Detail(0, "off-grid")),
+    dd5Row(22, dd5Detail(0, "v2")), dd5Row(43, dd5Detail(2)), dd5Row(44, dd5Detail(0, "off-grid")),
+  ], dd5Points(86));
+  assert.equal(result.realtime, 5);
+  assert.equal(result.delayed, 1);
+  assert.equal(result.unknown, 1);
+  assert.deepEqual(result.groups.map((g) => [g.modelVersion, g.n]), [["dd5-v1", 1], ["v2", 2]]);
+  assert.equal(result.note, "只計即時發布的列（寫入時是最新交易日，且在下一個交易日美東 16:30 前寫入）；延遲補記 1 列、資格不明 1 列另列、不計分。依模型版本分開計分。");
+});
+
+test("PUB-1 逾時 lag 0 列不作 dd5 格線起點，逾時格點略過不遞補", () => {
+  const rows = [dd5Row(0), dd5Row(1), dd5Row(21), dd5Row(22), dd5Row(23), dd5Row(43)];
+  rows[0].created_at = `${dd5Dates[1]}T22:00:00Z`;
+  rows[3].created_at = `${dd5Dates[23]}T22:00:00Z`;
+  const result = dd5LiveTrackOf(rows, dd5Points(65));
+  assert.equal(result.realtime, 4);
+  assert.equal(result.delayed, 2);
+  assert.deepEqual(result.groups.map((g) => g.n), [2]); // Only sessions 1 and 43, on the new grid.
+});
+
+test("PUB-1：夏令與冬令下一交易日美東 16:30 前準時、之後逾時", () => {
+  for (const [date, before, boundary, after] of [
+    ["2026-03-09", "2026-03-10T20:29:00Z", "2026-03-10T20:30:00Z", "2026-03-10T20:31:00Z"],
+    ["2026-01-05", "2026-01-06T21:29:00Z", "2026-01-06T21:30:00Z", "2026-01-06T21:31:00Z"],
+  ]) {
+    assert.equal(publishStatusOf(date, before), "on-time");
+    assert.equal(publishStatusOf(date, boundary), "late");
+    assert.equal(publishStatusOf(date, after), "late");
+  }
+});
+
+test("PUB-1：補抓、週末與感恩節仍準時，下一交易日收盤後逾時", () => {
+  assert.equal(publishStatusOf("2026-03-06", "2026-03-07T01:10:00Z"), "on-time");
+  assert.equal(publishStatusOf("2026-03-06", "2026-03-08T22:00:00Z"), "on-time");
+  assert.equal(publishStatusOf("2026-11-25", "2026-11-26T22:00:00Z"), "on-time");
+  assert.equal(publishStatusOf("2026-11-25", "2026-11-27T22:00:00Z"), "late");
+});
+
+test("PUB-1：壞時間、任一美東日期在日曆外、或應有收盤日早於 trade_date 都不明", () => {
+  for (const [date, at] of [
+    ["2026-03-06", "x"],
+    ["2024-12-31", "2025-01-02T22:00:00Z"],
+    ["2026-03-06", "2040-01-13T23:00:00Z"],
+    ["2026-03-06", "2026-03-06T21:29:00Z"],
+    ["2025-01-02", "2025-01-01T01:10:00Z"], // UTC is covered; the eastern date is not.
+  ]) assert.equal(publishStatusOf(date, at), "unknown", `${date} / ${at}`);
+  assert.equal(publishStatusOf("2027-12-31", "2028-01-01T01:10:00Z"), "on-time");
+});
+
+test("P(up) 資格不依賴 dd5 欄位，缺 lag／存下的值或時限不明先歸不明", () => {
+  const row = { date: "2026-03-06", p: 0.7, base: 0.6, close: 100, detail: JSON.stringify({ recordedLagSessions: 0 }), created_at: "2026-03-06T22:00:00Z" };
+  assert.equal(upClassOf(row), "realtime");
+  assert.equal(upClassOf({ ...row, detail: JSON.stringify({ recordedLagSessions: 2 }) }), "delayed");
+  assert.equal(upClassOf({ ...row, created_at: "2026-03-09T22:00:00Z" }), "delayed");
+  for (const detail of [null, "{", "null", "{}", JSON.stringify({ recordedLagSessions: "0" })]) {
+    assert.equal(upClassOf({ ...row, detail, created_at: "2026-03-09T22:00:00Z" }), "unknown");
+  }
+  assert.equal(upClassOf({ ...row, detail: JSON.stringify({ recordedLagSessions: 2 }), created_at: "x" }), "unknown");
+  for (const key of ["p", "base", "close"]) assert.equal(upClassOf({ ...row, [key]: null } as never), "unknown");
+});
+
+test("dd5 標籤：21 日內含邊界 0.95，22 日才跌不算；21 日收盤存在才到期", () => {
+  for (const dropOn of [1, 21, 22]) {
+    const points = dd5Points(23);
+    points[dropOn].close = 95;
+    const track = dd5LiveTrackOf([dd5Row(0)], points);
+    assert.equal(track.groups[0].eventShare, dropOn <= 21 ? 1 : 0);
+  }
+  const immature = dd5Points(21);
+  immature[1].close = 90;
+  assert.deepEqual(dd5LiveTrackOf([dd5Row(0)], immature).groups, []);
+  assert.deepEqual(dd5LiveTrackOf([], dd5Points(23)).groups, []);
+});
+
+test("dd5 以存下的 p／base 計分：11 月不報 BSS，12 月符合手算值", () => {
+  const points = dd5Points(253);
+  const rows = Array.from({ length: 12 }, (_, k) => {
+    if (k % 2 === 0) points[k * 21 + 1].close = 95;
+    return dd5Row(k * 21, dd5Detail(0, "v1", k % 2 === 0 ? 0.8 : 0.2, k % 2 === 0 ? 0.4 : 0.2));
+  });
+  const small = dd5LiveTrackOf(rows.slice(0, 11), points).groups[0];
+  assert.equal(small.n, 11);
+  assert.equal(small.tooFew, true);
+  assert.equal(small.bss, null);
+  const full = dd5LiveTrackOf(rows, points).groups[0];
+  assert.equal(full.n, 12);
+  assert.equal(full.tooFew, false);
+  // Six events: model error .2 in both outcomes; base errors .6 and .2.
+  assert.ok(Math.abs(full.brier! - 0.04) < 1e-12);
+  assert.ok(Math.abs(full.brierBase! - 0.2) < 1e-12);
+  assert.ok(Math.abs(full.bss! - 0.8) < 1e-12);
+  assert.equal(full.eventShare, 0.5);
+});
+
+test("dd5 起始價用存下的 close，歷史起始價修訂不改結果", () => {
+  const points = dd5Points(22);
+  points[1].close = 95;
+  const before = dd5LiveTrackOf([dd5Row(0)], points);
+  points[0].close = 1000;
+  assert.deepEqual(dd5LiveTrackOf([dd5Row(0)], points), before);
+  assert.equal(before.groups[0].eventShare, 1);
+  assert.equal(dd5LiveTrackOf([{ ...dd5Row(0), close: 90 }], points).groups[0].eventShare, 0);
 });

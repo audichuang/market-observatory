@@ -1,12 +1,13 @@
 // 下月展望（跟使用者無關，整頁照資料版本快取）。網頁 loader 與 App 的 API 共用。
 import { addDays } from "../lib/calendar.ts";
-import { frequencySentences, liveTrackOf } from "../lib/communication.ts";
-import { aggregateConsensus, type ViewRow } from "../lib/consensus.ts";
+import { dd5LiveTrackOf, frequencySentences, liveNoteOf, liveTrackOf, outlookUnavailable, upClassOf } from "../lib/communication.ts";
+import { aggregateConsensus, consensusCutoff, freshLatestViews, type ViewRow } from "../lib/consensus.ts";
 import { HORIZON, MIN_EFFECTIVE_N, MIN_EPISODES, buildObservations, buildOutlook, conditionalRate, type Rate, type Regime } from "../lib/forecast.ts";
+import type { PhaseSummary } from "../lib/forecast-eval.ts";
 import { FACTSET_EARNINGS_INSIGHT_URL, REUTERS_POLL, STRATEGIST_TARGETS, STRATEGIST_TARGETS_CHECKED, strategistTable } from "../lib/strategists.ts";
 import { INDEX_SYMBOL, VIX_SYMBOL } from "../lib/universe.ts";
 import type { FactsetInsight } from "../lib/sources/factset.ts";
-import { FACTSET_HISTORY_KEY } from "./jobs.ts";
+import { FACTSET_HISTORY_KEY, FORECAST_PHASE_KEY } from "./jobs.ts";
 import { cachedPage, readDb } from "./page-cache.ts";
 import { getSetting, loadPrices } from "./repo.ts";
 import { type ViewCtx, exec } from "./views.ts";
@@ -60,26 +61,33 @@ export async function outlookView(c: ViewCtx) {
       : null;
 
     // L09：上線後實際紀錄只用不重疊的已到期列（獨立月份），與樣本內、滾動驗證分開。
-    const allRows = await db.prepare("SELECT trade_date AS date, probability AS p, base_rate AS base, close FROM forecasts ORDER BY trade_date").all<{ date: string; p: number; base: number; close: number }>();
-    const liveTrack = liveTrackOf(allRows.results, spx.points);
+    const allRows = await db.prepare("SELECT trade_date AS date, probability AS p, base_rate AS base, close, detail, created_at FROM forecasts ORDER BY trade_date").all<{ date: string; p: number; base: number; close: number; detail: string | null; created_at: string }>();
+    const counts = { realtime: 0, delayed: 0, unknown: 0 };
+    const realtime = allRows.results.filter((row) => {
+      const kind = upClassOf(row);
+      counts[kind]++;
+      return kind === "realtime";
+    });
+    const liveTrack = { ...liveTrackOf(realtime, spx.points), ...counts, note: liveNoteOf(counts, "up") };
+    const liveTrackDd5 = dd5LiveTrackOf(allRows.results, spx.points);
     // L11：自然頻率句（up 與 drawdown）。
     const frequency = outlook ? frequencySentences(outlook) : null;
 
-    // 成分股分析師共識（SPY 權重前 100 檔，7 天內更新過的）。
+    // 成分股分析師共識（SPY 權重前 200 檔，7 天內更新過的）。
+    const today = new Date().toISOString().slice(0, 10);
+    const cutoff = consensusCutoff(today);
     const weightsRows = await db
-      .prepare("SELECT ticker, weight_pct FROM weights WHERE as_of = (SELECT MAX(as_of) FROM weights)")
-      .all<{ ticker: string; weight_pct: number }>();
+      .prepare("SELECT ticker, weight_pct, as_of FROM weights WHERE as_of = (SELECT MAX(as_of) FROM weights)")
+      .all<{ ticker: string; weight_pct: number; as_of: string }>();
     const weights = new Map(weightsRows.results.map((w) => [w.ticker, w.weight_pct]));
     const views = await db
-      .prepare("SELECT symbol, as_of AS asOf, price, target_mean AS targetMean, buy, hold, sell, eps_up AS epsUp, eps_down AS epsDown FROM analyst_views WHERE as_of >= ?")
-      .bind(addDays(outlook?.asOf ?? lastSpx?.date ?? new Date().toISOString().slice(0, 10), -10))
+      .prepare("SELECT symbol, as_of AS asOf, price, price_date AS priceDate, target_mean AS targetMean, target_low AS targetLow, target_high AS targetHigh, buy, hold, sell, eps_up AS epsUp, eps_down AS epsDown, fiscal_end AS fiscalEnd, estimates FROM analyst_views WHERE as_of >= ?")
+      .bind(cutoff)
       .all<ViewRow>();
-    const today = new Date().toISOString().slice(0, 10);
-    const consensus = views.results.length ? aggregateConsensus(views.results, weights, today) : null;
-    const topViews = views.results
-      .filter((v) => weights.has(v.symbol))
-      .sort((a, b) => (weights.get(b.symbol) ?? 0) - (weights.get(a.symbol) ?? 0) || b.asOf.localeCompare(a.asOf))
-      .filter((v, i, arr) => arr.findIndex((x) => x.symbol === v.symbol) === i)
+    const freshViews = freshLatestViews(views.results, weights, cutoff);
+    const consensus = freshViews.length ? aggregateConsensus(freshViews, weights, today) : null;
+    const topViews = freshViews
+      .sort((a, b) => (weights.get(b.symbol) ?? 0) - (weights.get(a.symbol) ?? 0))
       .slice(0, 12)
       .map((v) => ({ ...v, weightPct: weights.get(v.symbol) ?? null, upsidePct: v.price && v.targetMean ? (v.targetMean / v.price - 1) * 100 : null }));
 
@@ -91,13 +99,22 @@ export async function outlookView(c: ViewCtx) {
     const close = outlook?.close ?? lastSpx?.close ?? null;
     return {
       outlook,
+      outlookUnavailable: outlook ? null : outlookUnavailable(spx, vix),
+      phaseSummary: await getSetting<(PhaseSummary & { computedAt: string }) | null>(db, FORECAST_PHASE_KEY, null),
       cells,
       track,
       liveTrack,
+      liveTrackDd5,
       frequency,
       recent: recent.slice(0, 30),
       consensus: consensus
-        ? { ...consensus, top: topViews, impliedIndexTarget: consensus.impliedUpsidePct === null || close === null ? null : close * (1 + consensus.impliedUpsidePct / 100) }
+        ? {
+            ...consensus,
+            top: topViews,
+            weightsAsOf: weightsRows.results[0]?.as_of ?? null,
+            indexCloseDate: outlook?.asOf ?? lastSpx?.date ?? null,
+            impliedIndexTarget: consensus.impliedUpsidePct === null || close === null ? null : close * (1 + consensus.impliedUpsidePct / 100),
+          }
         : null,
       factset,
       strategists: {

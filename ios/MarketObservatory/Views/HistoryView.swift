@@ -1,5 +1,6 @@
 import Charts
 import SwiftUI
+import UIKit
 
 struct HistoryView: View {
     @Environment(SessionStore.self) private var session
@@ -8,6 +9,8 @@ struct HistoryView: View {
     @State private var symbol = "SPX"
     @State private var months = 12
     @State private var loadTask: Task<Void, Never>?
+    @State private var researchExpanded = false
+    @State private var researchCopied = false
     // 選取的 checkmark 比 chevron 寬，固定寬度讓數字欄右緣對齊
     @ScaledMetric(relativeTo: .caption) private var rowIconWidth: CGFloat = 14
     @ScaledMetric(relativeTo: .body) private var chartHeight: CGFloat = 240
@@ -89,6 +92,7 @@ struct HistoryView: View {
 
     private func content(_ h: History) -> some View {
         let labels = Dictionary(h.stats.map { ($0.symbol, $0.label ?? $0.symbol) }, uniquingKeysWith: { a, _ in a })
+        let indexFirst = h.stats.first { $0.symbol == "SPX" }?.first
         let statLayout = dts.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout())
         return ScrollViewReader { proxy in
             List {
@@ -136,6 +140,49 @@ struct HistoryView: View {
                 }
                 .listRowSeparator(.hidden)
 
+                if h.watch.contains(h.symbol) {
+                    Section {
+                        if let url = Research.edgarFilingsURL(h.symbol) {
+                            Link("SEC EDGAR 申報清單", destination: url)
+                        }
+                        if let ir = Research.irURLs[h.symbol], let url = URL(string: ir) {
+                            Link("公司投資人關係（IR）", destination: url)
+                        } else {
+                            Text("這家公司未收錄 IR 網址；可從 EDGAR 的年報（10-K）找到公司網站。")
+                                .foregroundStyle(.secondary)
+                        }
+                        DisclosureGroup("研究表範本（7 題）", isExpanded: $researchExpanded) {
+                            ForEach(Array(Research.fields.enumerated()), id: \.offset) { i, field in
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("\(i + 1). \(field.label)").font(.headline)
+                                    Text(field.prompt)
+                                }
+                                .fixedSize(horizontal: false, vertical: true)
+                            }
+                            Button("複製範本") {
+                                let formatter = DateFormatter()
+                                formatter.locale = Locale(identifier: "en_US_POSIX")
+                                formatter.calendar = Calendar(identifier: .gregorian)
+                                formatter.timeZone = .current
+                                formatter.dateFormat = "yyyy-MM-dd"
+                                UIPasteboard.general.string = Research.template(
+                                    company: h.label ?? h.symbol, ticker: h.symbol, date: formatter.string(from: Date())
+                                )
+                                researchCopied = true
+                            }
+                            if researchCopied {
+                                Text("已複製，可貼到你自己的筆記保存")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    } header: {
+                        Text("研究表與原始資料")
+                    } footer: {
+                        Text(Research.note)
+                    }
+                }
+
                 Section {
                     if h.watch.count > RebasedChart.members {
                         Text("圖上畫 S&P 500、RSP 與名單前 \(RebasedChart.members) 家；下方統計列出全部 \(h.watch.count) 家。")
@@ -145,6 +192,9 @@ struct HistoryView: View {
                     RebasedChart(series: h.rebased, watch: h.watch, labels: labels, selected: symbol)
                         .frame(height: min(chartHeight, 240 * 1.5))
                         .opacity(busy ? 0.5 : 1)
+                    Text("每條線以區間第一個交易日收盤為 0%，與下表「區間報酬」同一起點")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 } header: {
                     Text("名單 vs 指數（起點 0%）")
                         .textCase(nil)
@@ -160,7 +210,7 @@ struct HistoryView: View {
                             reload()
                         } label: {
                             HStack {
-                                statRow(s)
+                                statRow(s, indexFirst: indexFirst)
                                 Image(systemName: s.symbol == symbol ? "checkmark" : "chevron.right")
                                     .font(.caption.weight(.semibold))
                                     .foregroundStyle(.tertiary)
@@ -195,6 +245,10 @@ struct HistoryView: View {
             }
             .listStyle(.insetGrouped)
             .refreshable { await load() }
+            .onChange(of: h.symbol) {
+                researchExpanded = false
+                researchCopied = false
+            }
         }
     }
 
@@ -211,12 +265,13 @@ struct HistoryView: View {
         LegendDot(color: ContributionChart.indexColor, text: "指數漲跌")
     }
 
-    @ViewBuilder private func statRow(_ s: History.Stat) -> some View {
+    @ViewBuilder private func statRow(_ s: History.Stat, indexFirst: String?) -> some View {
         let risk = "回檔 \(Fmt.pct(s.mdd, 1)) · 波動 \(Fmt.num(s.vol, 1))%"
         let isIndex = s.symbol == "SPX" || s.symbol == "RSP"
         let title = isIndex ? (s.label ?? s.symbol) : s.symbol
         let kind = s.symbol == "SPX" ? "指數" : s.symbol == "RSP" ? "等權重 ETF" : (s.label ?? "")
-        let sub = (kind.isEmpty ? [] : [kind]) + ["收盤 \(Fmt.num(s.close))"]
+        let since = s.first != indexFirst ? s.first.map { "自 \(Fmt.shortDate($0))" } : nil
+        let sub = (kind.isEmpty ? [] : [kind]) + ["收盤 \(Fmt.num(s.close))"] + [since].compactMap { $0 }
         if dts.isAccessibilitySize {
             VStack(alignment: .leading, spacing: 5) {
                 Text(title).font(.headline)

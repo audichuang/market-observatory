@@ -157,7 +157,13 @@ struct OverviewView: View {
 
                 Section {
                     IndexHero(s: s, createdAt: row.createdAt)
-                    if let m = o.market { MarketDigestCard(digest: m) }
+                    if let m = o.market {
+                        MarketDigestCard(digest: m)
+                        DisclosureGroup("參考來源（整篇，非逐句）") {
+                            DigestSourcesList(sources: m.sources, sourcesMissing: m.sourcesMissing, isMarket: true, showsHeading: false)
+                        }
+                        .accessibilityIdentifier("market-digest-sources")
+                    }
                     indicatorsToggle(s)
                     if showIndicators {
                         kpis(s)
@@ -181,6 +187,23 @@ struct OverviewView: View {
                     Section("下月展望") {
                         NavigationLink(value: Destination.outlook) {
                             VStack(alignment: .leading, spacing: 20) {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text("資料日 \(Fmt.fullDate(f.tradeDate))")
+                                        .font(.footnote).foregroundStyle(.secondary)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                    if f.tradeDate < s.tradeDate {
+                                        Text(Copy.forecastPendingBadge)
+                                            .font(.caption.weight(.semibold))
+                                            .padding(.horizontal, 8)
+                                            .padding(.vertical, 4)
+                                            .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+                                            .foregroundStyle(.orange)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                        Text(Copy.forecastPendingNote(forecastDate: Fmt.fullDate(f.tradeDate), snapshotDate: Fmt.fullDate(s.tradeDate)))
+                                            .font(.footnote).foregroundStyle(.secondary)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                    }
+                                }
                                 if let d = f.drawdown {
                                     VStack(alignment: .leading, spacing: 8) {
                                         Text("下跌風險").font(.subheadline.weight(.semibold))
@@ -234,8 +257,9 @@ struct OverviewView: View {
             Text(e.title).font(.subheadline)
         }
         if dts.isAccessibilitySize {
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) { day; EventStatusBadge(status: e.status) }
+            VStack(alignment: .leading, spacing: 6) {
+                day.fixedSize(horizontal: true, vertical: false)
+                EventStatusBadge(status: e.status)
                 titleLine
             }
         } else {
@@ -320,7 +344,7 @@ struct OverviewView: View {
     }
 
     private func spreadCard(_ s: Snapshot) -> some View {
-        Kpi(label: "等權重 − 市值加權", value: Fmt.pct(s.breadth.spreadPct), tone: s.breadth.spreadPct) {
+        Kpi(label: "等權重 − 市值加權", value: Fmt.pp(s.breadth.spreadPct), tone: s.breadth.spreadPct) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("RSP \(Fmt.pct(s.breadth.rspReturnPct))")
                 Text("vs SPX \(Fmt.pct(s.breadth.spxReturnPct))")
@@ -485,6 +509,7 @@ private struct MarketDigestCard: View {
 
 /// 指數 hero：收盤、漲跌、四個期間報酬與資料產出時間，一張全寬卡。
 private struct IndexHero: View {
+    @Environment(\.dynamicTypeSize) private var dts
     let s: Snapshot
     let createdAt: String?
 
@@ -499,11 +524,22 @@ private struct IndexHero: View {
                 CheckBadge(status: s.index.check.status)
             }
             Text(Fmt.num(s.index.close)).font(.largeTitle.weight(.bold).monospacedDigit()).lineLimit(1).minimumScaleFactor(0.8)
-            HStack(spacing: 4) {
-                Delta(value: s.index.changePts)
-                Text("(\(Text(Fmt.pct(s.index.returnPct)).foregroundStyle(Color.tone(s.index.returnPct))))").foregroundStyle(.secondary)
+            if dts.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("\(Fmt.signed(s.index.changePts)) 點")
+                        .foregroundStyle(Color.tone(s.index.changePts))
+                    Text("(\(Text(Fmt.pct(s.index.returnPct)).foregroundStyle(Color.tone(s.index.returnPct))))")
+                        .foregroundStyle(.secondary)
+                }
+                .font(.headline.monospacedDigit())
+                .fixedSize(horizontal: false, vertical: true)
+            } else {
+                HStack(spacing: 4) {
+                    Delta(value: s.index.changePts)
+                    Text("(\(Text(Fmt.pct(s.index.returnPct)).foregroundStyle(Color.tone(s.index.returnPct))))").foregroundStyle(.secondary)
+                }
+                .font(.headline)
             }
-            .font(.headline)
             periods.padding(.top, 8)
             Text("資料 \(Fmt.taipeiTime(createdAt)) 產出").font(.caption2).foregroundStyle(.secondary)
         }
@@ -548,6 +584,7 @@ private struct EventStatusBadge: View {
     var body: some View {
         switch status {
         case "estimated": Text("推估日期").font(.caption2).foregroundStyle(.orange)
+        case "expected": Text("預期").font(.caption2).foregroundStyle(.orange)
         case "tentative": Text("暫定").font(.caption2).foregroundStyle(.orange)
         default: EmptyView()
         }
@@ -678,9 +715,11 @@ private struct Kpi<Detail: View, Badge: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 4) {
-                Text(label).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                Text(label).font(.caption).foregroundStyle(.secondary)
+                    .lineLimit(dts.isAccessibilitySize ? nil : 2)
                 badge()
             }
+            .fixedSize(horizontal: false, vertical: true)
             if let value {
                 Text(value)
                     .font(.title3.weight(.semibold).monospacedDigit())

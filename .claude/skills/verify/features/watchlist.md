@@ -1,10 +1,11 @@
 # 觀察名單
 
-每個帳號一份名單（預設七巨頭，最多 30 家），只收最新 SPY 持股裡的成分股，同公司多股類（GOOGL＋GOOG）合併成一列。加入全站沒人追蹤過的公司時會先抓十年日線（約幾秒），抓不到就整個不加。改名單後總覽與最近 45 個交易日的貢獻立刻用新名單重算。
+每個帳號一份名單（預設七巨頭，最多 30 家），只收最新 SPY 持股裡的成分股，同公司多股類（GOOGL＋GOOG）合併成一列。加入全站沒人追蹤過的公司時會先抓十年日線（約幾秒），抓不到（含空歷史）就整個不加，顯示「抓不到 X 的歷史股價」；中段同日不同收盤只略過該日，仍照常加入，完成訊息附「略過 N 天同日兩筆不同收盤的日線（日期）」。改名單後總覽與最近 45 個交易日的貢獻立刻用新名單重算。
 
 ## Sub-features
 
 - `watchlist-list`（D1）：顯示家數「N/30 家」、合計權重＝API `totalWeight`，每家權重＝API。
+- `watchlist-weights-stale`（網頁）：最新 SPY 持股落後 `latestScheduledClose()` 超過 2 個 NYSE 交易日時，在「目前 N 家 合計權重 X%」下顯示共用的「權重未更新：最新 SPY 持股停在 …」橘色警示，原有持股 as-of 句保留。`weightsStale` 僅在網頁 loader，`/api/v1/watchlist` 維持原有欄位，App 名單頁維持原樣。
 - `watchlist-add`（D2、D3）：用輸入框或權重最大的候選按鈕加入；有進度提示「加入 X 中…」，完成「已加入 X」；總覽同步出現。
 - `watchlist-add-invalid`（D4）：輸入不存在的代號（`ZZZZ`）：網頁顯示中文錯誤，App 搜尋顯示系統字串「沒有「ZZZZ」的結果」。
 - `watchlist-new-daily-cap`：非站長帳號每天（美東日期）最多加入 5 家全站沒人追蹤的公司，第 6 家顯示「今天新增的新公司已達上限…」、名單不變；別人已在追蹤的公司不受限，站長名單不受限。只有單元測試（`tests/leak-guards.test.ts`）覆蓋，實際操作要 6 家新公司、會打真實上游。
@@ -25,13 +26,14 @@ Preconditions:
 - 基準狀態、測試帳號登入、名單是七巨頭、AVGO 不在名單。
 
 - **列表。** `goto("/watchlist")`，等 `input[placeholder="代號或公司，例如 AVGO"]`。`fetch("/api/v1/watchlist")` 比家數、合計權重、每家權重（D1）。截圖 `watchlist-before.png`。
+- **權重未更新。** 沿用 `overview.md` 的舊持股準備與還原步驟，開 `/watchlist`，確認家數與合計權重下方有 `notice warn`，與 `/sources` 的警示逐字相同、目標日期為排程應有日期；存 `watchlist-weights-stale.png`，讀 `/api/v1/watchlist` 確認沒有 `weightsStale` 欄位。還原後重新載入，警示消失。
 - **加入。** `fill('input[placeholder="代號或公司，例如 AVGO"]', "AVGO")`，`click('form button[type=submit]')`。用 `waitForFunction(() => [...document.querySelectorAll("li")].some(li => li.innerText.includes("AVGO")), undefined, { timeout: 60000 })` 等列表出現，`[role=status]` 文字是「已加入 Broadcom」。截圖 `watchlist-add.png`。
 - **讀回。** `JSON.parse((await page.fetch("/api/v1/watchlist")).body).members.map(m => m.key)` 最後一個是 `AVGO`、`totalWeight` 增加、`candidates.map(c => c.ticker)` 裡不再有 AVGO（D5）；`goto("/")` 的表格有「Broadcom AVGO」，名單合計＋其他成分股仍＝指數漲跌（D3）。截圖 `watchlist-add-overview.png`、存 `watchlist-add.api.json`。
 - **跨介面。** 跑 iOS walkthrough：`04-watchlist.png` 有 8 家、最後一家 AVGO、「8/30 家」。
 - **錯誤代號。** 輸入 `ZZZZ` 按加入：`[role=status]` 是「ZZZZ 不在最新的 S&P 500 成分股（SPY 持股）裡」，名單不變（D4）。
 - **移除（還原基準）。** 先用 `evaluate` 找到含 AVGO 的 `li`、把它的「移除」按鈕標上 `data-verify-target="remove"`，再 `click('[data-verify-target="remove"]')`。會跳 confirm「從名單移除 Broadcom？股價資料會保留，之後可以再加回來。」：先 `page.dismissDialog()`，AVGO 要還在（網頁版的 D7）；再點一次、`page.acceptDialog()`，等 AVGO 從列表消失；`members` 讀回 7 家、總覽不再有 Broadcom（D8）。
 - **App 加入、移除、點公司。** 名單是七巨頭時跑 `ios-test.sh … VerifyInteractionTests/test04_Watchlist`（只斷言「7/30 家」開頭；`D1-before.txt`、`D8-removed.txt` 的合計權重對 API `totalWeight`）：`D5-search-nvda.txt`（已在名單的不出現）、`D4-search-zzzz.txt`、`D2-added.txt`（第一次加入全站沒人追蹤的公司時是「已加入 Broadcom（AVGO），補了 2514 筆日線」；「8/30 家 · 合計權重 …」對 API `totalWeight`）、`D6-full-swipe.png`（整列快速左滑後仍 8 家）、`D7-confirm.png`、`D8-removed.png`、`D9-tsla.png`。
-- **Proof。** `watchlist-before.png`、`watchlist-add.png`、`watchlist-add-overview.png`、`watchlist-add.api.json`、`ios/04-watchlist.png`、test04 的截圖與 `.txt`、移除後的 API JSON。
+- **Proof。** `watchlist-before.png`、`watchlist-add.png`、`watchlist-add-overview.png`、`watchlist-add.api.json`、`ios/<機型>/04-watchlist.png`、test04 的截圖與 `.txt`、移除後的 API JSON。
 
 - App 一般及最大字級檢查公司名稱、權重與加入候選列有足夠留白且文字完整。
 
@@ -39,7 +41,7 @@ Preconditions:
 
 - 「加入」按鈕在輸入框空白時停用；輸入框有 `aria-label="股票代號"`，但 ego-browser 用 role 名稱找不到它，用 placeholder。
 - `text=Broadcom` 會同時對到 datalist 的 option 與狀態列，等列表的 `li` 而不是文字。
-- 加入全站沒人追蹤的公司要抓十年日線（本機約 5–15 秒）；Yahoo 限流時會失敗並顯示原因，名單不變——這是正確行為，不是測試要繞過的東西。
+- 加入全站沒人追蹤的公司要抓十年日線（本機約 5–15 秒）；Yahoo 限流或回空歷史時會失敗並顯示原因，名單不變。空歷史拒收與衝突日略過訊息用 `tests/data-gates.test.ts` 合成回應驗證，真實上游無法穩定重現。
 - `/api/v1/watchlist` 也回傳 `candidates`（還沒加入的成分股），整包 JSON 搜 `"AVGO"` 不管加沒加都會中；判斷名單一律看 `members`。
 - 移除會跳原生 confirm，沒處理前任何 `evaluate` 都會丟 `PageDialogOpenedError`。
 - 正式站的站長名單是使用者真的在用的資料；只用一次性帳號測加減。

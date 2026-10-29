@@ -22,6 +22,14 @@ export const POST = defineHandler.withValidator({
     translate: z.array(z.object({ ids: z.array(z.string().min(1).max(200)).min(1).max(20), answer })).max(20).optional(),
     points: z.array(z.object({ id: z.string().min(1).max(200), answer })).max(30).optional(),
     digests: z.array(z.object({ key: z.string().min(1).max(20), date: z.string(), newsIds: z.array(z.string().max(200)).max(20), answer })).max(60).optional(),
+    run: z.object({
+      id: z.string().min(1).max(64),
+      kind: z.enum(["translate", "daily"]),
+      expected: z.array(z.string()).max(500),
+      missing: z.array(z.string()).max(500),
+      unavailable: z.array(z.object({ key: z.string(), reason: z.string() })).max(100),
+      manifest: z.unknown().optional(),
+    }).optional(),
   }),
 })(async (c, { body }) => {
   if (!viewerOf(c)?.isOwner) return c.json({ error: "只有站長能執行" }, 403);

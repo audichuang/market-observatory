@@ -320,6 +320,79 @@ final class VerifyInteractionTests: XCTestCase {
         app.buttons["今天"].tap(); sleep(1); snap("E5-today")
     }
 
+    func test20_OverlapPrunesRemovedWatchlistCompany() throws {
+        let app = try signedIn()
+        tab(app, "更多"); open(app, "ETF 與定投試算")
+        let edit = app.buttons["填金額"]
+        reveal(app, edit, scrolls: 12).tap()
+        replaceText(app.textFields["ovEtf"], "300000")
+        app.buttons["etfKeyboardDone"].tap()
+        replaceText(reveal(app, app.textFields["ov-NVDA"]), "50000")
+        app.buttons["etfKeyboardDone"].tap()
+        replaceText(reveal(app, app.textFields["ov-AAPL"]), "10000")
+        app.buttons["etfKeyboardDone"].tap()
+        app.buttons["計算"].tap()
+        let exposure = app.staticTexts["假設曝險（台幣）"]
+        XCTAssertTrue(reveal(app, exposure).waitForExistence(timeout: 15))
+        snap("overlap-app-before-removal"); note("overlap-app-before-removal", texts(app))
+
+        // Keep the ETF navigation stack alive while removing a company in the overview tab.
+        tab(app, "總覽"); app.buttons["觀察名單"].tap()
+        let row = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'NVDA' AND NOT (label CONTAINS '收盤')")).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 10))
+        addTeardownBlock { @MainActor () async throws in
+            // Relaunch to dismiss any sheet or alert left open by a failed assertion.
+            app.terminate()
+            let app = try self.signedIn()
+            self.tab(app, "總覽"); app.buttons["觀察名單"].tap()
+            let row = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'NVDA' AND NOT (label CONTAINS '收盤')")).firstMatch
+            if !row.waitForExistence(timeout: 10) {
+                app.buttons["加入"].tap()
+                let search = app.searchFields.firstMatch
+                XCTAssertTrue(search.waitForExistence(timeout: 5))
+                search.tap(); search.typeText("NVDA")
+                let nvda = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'NVDA'")).firstMatch
+                XCTAssertTrue(nvda.waitForExistence(timeout: 5)); nvda.tap()
+            }
+            XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH '7/30 家'")).firstMatch.waitForExistence(timeout: 60))
+            app.navigationBars["觀察名單"].buttons["完成"].tap()
+        }
+        row.swipeLeft()
+        app.buttons["移除"].firstMatch.tap()
+        app.alerts.buttons["移除"].tap()
+        let six = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH '6/30 家'")).firstMatch
+        XCTAssertTrue(six.waitForExistence(timeout: 30))
+        snap("overlap-app-removed-watchlist"); note("overlap-app-removed-watchlist", texts(app))
+        app.navigationBars["觀察名單"].buttons["完成"].tap()
+        tab(app, "更多")
+        XCTAssertTrue(app.navigationBars["ETF 與定投"].exists)
+        let period = app.buttons["YTD"]
+        reveal(app, period, up: false, scrolls: 16)
+        XCTAssertTrue(period.isHittable)
+        snap("overlap-app-refresh-top"); note("overlap-app-refresh-top", app.debugDescription)
+        let window = app.windows.firstMatch
+        window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3))
+            .press(forDuration: 0.2, thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.85)))
+        reveal(app, edit, scrolls: 12)
+        // The previous exposure stays visible while refresh prunes and reloads the query.
+        XCTAssertTrue(reveal(app, app.staticTexts["310,000.00"]).waitForExistence(timeout: 15), "移除公司並刷新後應顯示新總額")
+        reveal(app, edit, up: false)
+        let issue = app.staticTexts["另外持有請用觀察名單內的 KEY:金額，以逗號分隔"]
+        XCTAssertFalse(issue.exists)
+        XCTAssertTrue(reveal(app, exposure).waitForExistence(timeout: 15), "移除公司並刷新後應自動恢復曝險結果")
+        snap("overlap-app-changed-list"); note("overlap-app-changed-list", texts(app))
+        let total = app.staticTexts["你填的總額（台幣）"]
+        reveal(app, total)
+        XCTAssertTrue(app.staticTexts["310,000.00"].exists, "ETF 300000 與 AAPL 10000 應保留，NVDA 50000 應移除")
+        snap("overlap-app-pruned-total"); note("overlap-app-pruned-total", texts(app))
+        reveal(app, edit, up: false).tap()
+        XCTAssertEqual(app.textFields["ovEtf"].value as? String, "300000")
+        XCTAssertFalse(app.textFields["ov-NVDA"].exists)
+        XCTAssertEqual(app.textFields["ov-AAPL"].value as? String, "10000")
+        snap("overlap-app-pruned-editor"); note("overlap-app-pruned-editor", texts(app))
+        app.buttons["取消"].tap()
+    }
+
     // F2、F3、F3b、F4、F5（改規劃，結束時改回 VOO／3 年／10000、每批 50000）
     func test06_EtfsPlan() throws {
         let app = try signedIn()
@@ -358,10 +431,20 @@ final class VerifyInteractionTests: XCTestCase {
         setDefault(app)
 
         reveal(app, app.buttons["我的規劃"], up: false).tap()
-        let exit = app.textFields["考慮出場漲幅 %"]
+        let exit = app.textFields["檢討門檻 ±%"]
         XCTAssertTrue(exit.waitForExistence(timeout: 5))
-        replaceText(exit, "150"); sleep(1)
-        snap("F4-exit150"); note("F4-exit150", "儲存 enabled=\(app.buttons["儲存"].isEnabled)\n" + texts(app))
+        // A right-edge tap can still leave the caret before "20" in this labeled field.
+        // Open the selection menu and select all instead of relying on the caret position.
+        exit.tap()
+        exit.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.5)).tap()
+        let selectAll = app.menuItems["全選"]
+        XCTAssertTrue(selectAll.waitForExistence(timeout: 3), "檢討門檻沒有出現全選選單")
+        selectAll.tap()
+        exit.typeText(XCUIKeyboardKey.delete.rawValue + "150"); sleep(1)
+        snap("F4-exit150"); note("F4-exit150", "檢討門檻預期=150，實際=\(exit.value ?? "nil")\n儲存 enabled=\(app.buttons["儲存"].isEnabled)\n" + texts(app))
+        XCTAssertEqual(exit.value as? String, "150", "檢討門檻必須確實輸入 150，不能殘留原值")
+        XCTAssertFalse(app.buttons["儲存"].isEnabled, "檢討門檻 150 不應允許儲存")
+        XCTAssertTrue(app.staticTexts["金額要是 0 到 10 億的整數，檢討門檻 0–100%，備註最多 2000 字。"].exists)
         app.buttons["取消"].tap(); sleep(1)
         app.buttons["我的規劃"].tap()
         let tranche = app.textFields["每批投入"]
@@ -785,6 +868,9 @@ final class VerifyInteractionTests: XCTestCase {
             disclosure.tap()
             reveal(app, detail)
             XCTAssertTrue(detail.waitForExistence(timeout: 5), "\(title) 展開後沒有 BSS 解釋")
+            if target == "up" {
+                XCTAssertFalse(app.staticTexts.containing(NSPredicate(format: "label CONTAINS '命中率'")).firstMatch.exists, "上漲驗證不應再列命中率")
+            }
             snap("H1-validation-\(target)-expanded"); note("H1-validation-\(target)", texts(app))
             reveal(app, disclosure, up: false).tap()
             XCTAssertTrue(detail.waitForNonExistence(timeout: 5), "\(title) 無法收合")
@@ -806,5 +892,56 @@ final class VerifyInteractionTests: XCTestCase {
         app.alerts.buttons["刪除帳號"].tap()
         XCTAssertTrue(app.textFields["email"].waitForExistence(timeout: 20), "刪除後沒有回到登入畫面")
         snap("Z3-deleted")
+    }
+
+    // C8: Research is available only for watchlist companies, immediately after the main chart.
+    func test19_HistoryResearch() throws {
+        let app = try signedIn()
+        tab(app, "走勢")
+        XCTAssertTrue(app.buttons["標的：S&P 500"].waitForExistence(timeout: 15))
+        app.buttons["標的：S&P 500"].tap()
+        let nvda = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'NVIDIA'")).firstMatch
+        XCTAssertTrue(nvda.waitForExistence(timeout: 5), "標的選單裡沒有 NVIDIA")
+        nvda.tap()
+        XCTAssertTrue(app.buttons["標的：NVIDIA"].waitForExistence(timeout: 15))
+
+        let section = app.staticTexts["研究表與原始資料"]
+        reveal(app, section)
+        XCTAssertTrue(section.isHittable, "NVIDIA 主圖後沒有研究表")
+        let edgar = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'SEC EDGAR 申報清單'")).firstMatch
+        reveal(app, edgar)
+        XCTAssertTrue(edgar.isHittable, "研究表沒有 EDGAR 連結")
+        let ir = app.descendants(matching: .any).matching(NSPredicate(format: "label == '公司投資人關係（IR）'")).firstMatch
+        XCTAssertTrue(ir.exists, "NVIDIA 沒有 IR 連結")
+        snap("C8-research-links")
+        var evidence = "\(edgar.label)\n\(ir.label)\n"
+
+        let disclosure = app.buttons["研究表範本（7 題）"]
+        reveal(app, disclosure).tap()
+        for (i, label) in ["企業驅動", "盈餘假設", "與共識的差異", "估值敏感度", "下一個核對事件", "反證", "論點失效條件"].enumerated() {
+            let question = app.staticTexts["\(i + 1). \(label)"]
+            reveal(app, question)
+            XCTAssertTrue(question.isHittable, "範本缺少第 \(i + 1) 題")
+            evidence += texts(app) + "\n"
+        }
+        let copy = app.buttons["複製範本"]
+        reveal(app, copy).tap()
+        let copied = app.staticTexts["已複製，可貼到你自己的筆記保存"]
+        reveal(app, copied)
+        XCTAssertTrue(copied.waitForExistence(timeout: 5), "複製後沒有顯示「已複製」")
+        snap("C8-research"); note("C8-research", evidence + texts(app))
+
+        app.buttons["標的：NVIDIA"].tap()
+        let spx = app.buttons["S&P 500（SPX）"]
+        XCTAssertTrue(spx.waitForExistence(timeout: 5)); spx.tap()
+        XCTAssertTrue(app.buttons["標的：S&P 500"].waitForExistence(timeout: 15))
+        reveal(app, app.buttons["1 年"], up: false)
+        // Scan from the main chart through the following sections; offscreen lazy rows alone cannot prove absence.
+        for _ in 0 ..< 6 {
+            XCTAssertFalse(section.exists, "S&P 500 不應顯示研究表")
+            XCTAssertFalse(edgar.exists, "S&P 500 不應顯示 EDGAR 連結")
+            app.swipeUp()
+        }
+        snap("C8-research-spx"); note("C8-research-spx", texts(app))
     }
 }

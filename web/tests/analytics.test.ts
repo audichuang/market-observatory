@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { Series, leverageDrift, periodReturn, rollWeight, simulateDca, smaAt, smaSeries } from "../src/lib/analytics.ts";
+import { Series, leverageDrift, periodReturn, rangeReturn, rollWeight, simulateDca, smaAt, smaSeries } from "../src/lib/analytics.ts";
 
 const s = (pairs: [string, number][]) => new Series(pairs.map(([date, close]) => ({ date, close })));
 
@@ -40,10 +40,38 @@ test("定投：每月第一個交易日買一次，市值與單筆對照正確",
   assert.equal(r.maxDrawdownPct, -25);
 });
 
+test("定投：月中起點從之後第一個交易日買入，保留首月與單筆對照", () => {
+  const x = s([["2040-01-02", 10], ["2040-01-16", 10], ["2040-02-01", 20], ["2040-02-02", 20]]);
+  const r = simulateDca(x, "2040-01-15", 1000)!;
+  assert.equal(r.firstBuyDate, "2040-01-16");
+  assert.equal(r.path[0].date, "2040-01-16");
+  assert.equal(r.months, 2);
+  assert.equal(r.invested, 2000);
+  assert.equal(r.lumpSumValue, 4000);
+});
+
 test("槓桿偏離 = 實際報酬 − 倍數 × 指數報酬", () => {
   const etf = s([["2026-01-02", 100], ["2026-01-05", 115]]);
   const idx = s([["2026-01-02", 100], ["2026-01-05", 106]]);
   const d = leverageDrift(etf, idx, 3, "2026-01-02", "2026-01-05")!;
   assert.equal(d.naive.toFixed(6), (18).toFixed(6));
   assert.equal(d.drift.toFixed(6), (-3).toFixed(6));
+});
+
+test("rangeReturn 從區間第一筆收盤算起", () => {
+  const inRange = s([["2026-01-05", 110], ["2026-01-06", 121]]).points;
+  assert.ok(Math.abs(rangeReturn(inRange, "2026-01-06")! - 10) < 0.000001);
+});
+
+test("rangeReturn 沒有區間資料時回 null", () => {
+  assert.equal(rangeReturn([], "2026-01-06"), null);
+});
+
+test("rangeReturn 缺少指定終點的收盤時回 null", () => {
+  const inRange = s([["2026-01-05", 110], ["2026-01-06", 121]]).points;
+  assert.equal(rangeReturn(inRange, "2026-01-07"), null);
+});
+
+test("rangeReturn 只有終點當天一筆時回 null", () => {
+  assert.equal(rangeReturn(s([["2026-01-06", 121]]).points, "2026-01-06"), null);
 });

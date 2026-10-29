@@ -15,7 +15,7 @@ const errorText = (e: unknown) => {
   return e instanceof Error && e.message ? `操作失敗：${e.message}` : "操作失敗，請檢查網路後再試";
 };
 
-export default function WatchlistPage({ members, candidates, asOf, totalWeight, max }: Props) {
+export default function WatchlistPage({ members, candidates, asOf, totalWeight, max, weightsStale }: Props) {
   const router = useRouter();
   const [symbol, setSymbol] = useState("");
   const [status, setStatus] = useState<Status>({ kind: "idle" });
@@ -110,6 +110,7 @@ export default function WatchlistPage({ members, candidates, asOf, totalWeight, 
             目前 {members.length} 家 <span className="meta">合計權重 {num(totalWeight, 1)}%</span>
           </h2>
         </div>
+        {weightsStale && <div className="notice warn">{weightsStale}</div>}
         {members.length === 0 ? (
           <p className="sub">名單是空的；總覽的「{REST_LABEL}」就是整個指數。</p>
         ) : (

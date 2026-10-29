@@ -6,6 +6,7 @@ import type { Props } from "./news.server";
 const STATUS: Record<string, [string, string]> = {
   confirmed: ["ok", "公司已公布"],
   estimated: ["warn", "Zacks 推估"],
+  expected: ["warn", "預期"],
   scheduled: ["ok", "官方日程"],
   tentative: ["warn", "官方暫定"],
 };
@@ -18,7 +19,7 @@ export default function NewsPage({ symbol, keys, today, news, digests, events }:
       <div className="page-head">
         <div>
           <h1>新聞與事件日曆</h1>
-          <p className="sub">新聞每 4 小時從 Nasdaq 抓一次（觀察名單與 SPY），標題與重點在你打開時由 AI 翻成中文、全站共用；財報日期每天更新，總經事件（FOMC、CPI、非農）依聯準會與勞工統計局公布的日程。</p>
+          <p className="sub">新聞每 4 小時從 Nasdaq 抓一次（觀察名單與 SPY）。標題約每 4 小時由本機排程的 AI 翻成中文；文章重點與每日摘要在美股交易日收盤後的台灣早上產生，全站共用。AI 可能出錯，請以原文為準。財報日期每天更新，總經事件（FOMC、CPI、非農）依聯準會與勞工統計局公布的日程。</p>
         </div>
       </div>
       <div className="grid two">

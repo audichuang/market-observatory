@@ -1,4 +1,4 @@
-import { type Budget, type DailyBar, SourceError, fetchWithTimeout, mdyToIso, parseLooseNumber } from "./http.ts";
+import { type Budget, type DailyBar, type DayConflict, SourceError, dedupeDaily, fetchWithTimeout, mdyToIso, parseLooseNumber } from "./http.ts";
 
 export const CBOE_SOURCE = "cboe";
 
@@ -12,7 +12,7 @@ export const CBOE_URLS = {
  * Cboe 歷史 CSV：VIX 有 DATE,OPEN,HIGH,LOW,CLOSE；SPX 只有 DATE,SPX 兩欄。
  * 只回傳 since（含）之後的列，避免把三十年資料都塞進記憶體以外的地方。
  */
-export function parseCboeCsv(text: string, since = "0000-00-00"): DailyBar[] {
+export function parseCboeCsv(text: string, since = "0000-00-00", conflicts?: DayConflict[]): DailyBar[] {
   const lines = text.trim().split(/\r?\n/);
   const header = lines.shift()?.split(",").map((h) => h.trim().toUpperCase()) ?? [];
   if (header[0] !== "DATE") throw new SourceError(CBOE_SOURCE, `CSV 表頭不符：${header.join(",")}`);
@@ -30,10 +30,16 @@ export function parseCboeCsv(text: string, since = "0000-00-00"): DailyBar[] {
     const pick = (name: string) => (col(name) >= 0 ? parseLooseNumber(cells[col(name)]) : null);
     out.push({ date, open: pick("OPEN"), high: pick("HIGH"), low: pick("LOW"), close, volume: null });
   }
-  return out.reverse();
+  const result = dedupeDaily(out.reverse(), false);
+  conflicts?.push(...result.conflicts);
+  return result.bars;
 }
 
 export async function fetchCboeDaily(which: keyof typeof CBOE_URLS, since: string, budget?: Budget): Promise<DailyBar[]> {
   const res = await fetchWithTimeout(CBOE_SOURCE, CBOE_URLS[which], { timeoutMs: 30000, budget });
-  return parseCboeCsv(await res.text(), since);
+  const conflicts: DayConflict[] = [];
+  const bars = parseCboeCsv(await res.text(), since, conflicts);
+  for (const { date, closes } of conflicts) budget?.dataIssues.push(`${CBOE_SOURCE} ${which} ${date} 有兩筆不同收盤（${closes.join("、")}），這天的資料不採用`);
+  if (!bars.length) throw new SourceError(CBOE_SOURCE, `${since} 之後沒有資料`);
+  return bars;
 }

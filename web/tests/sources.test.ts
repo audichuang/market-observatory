@@ -2,9 +2,21 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { isNyseSession, latestExpectedClose } from "../src/lib/calendar.ts";
 import { parseCboeCsv } from "../src/lib/sources/cboe.ts";
-import { parseEarningsCalendar, parseEarningsDate, parseNasdaqHistorical } from "../src/lib/sources/nasdaq.ts";
+import type { DayConflict } from "../src/lib/sources/http.ts";
+import { parseEarningsCalendar, parseEarningsDate, parseNasdaqHistorical, parseNasdaqNews } from "../src/lib/sources/nasdaq.ts";
 import { parseSpyHoldings } from "../src/lib/sources/ssga.ts";
-import { parseYahooChart } from "../src/lib/sources/yahoo.ts";
+import { parseYahooChart, parseYahooSpark } from "../src/lib/sources/yahoo.ts";
+
+test("Nasdaq 新聞：保留 ago 原文、去除首尾空白並限制 40 字，發布日期不變", () => {
+  const rows = parseNasdaqNews([
+    { title: "News", url: "/articles/time", created: "Oct 23, 2026", ago: "  2 hours ago  " },
+    { title: "Long", url: "/articles/long", ago: `  ${"x".repeat(41)}  ` },
+    { title: "Empty", url: "/articles/empty", ago: "  " },
+    { title: "Missing", url: "/articles/missing" },
+  ]);
+  assert.equal(rows[0].publishedAt, "2026-10-23");
+  assert.deepEqual(rows.map((row) => row.publishedAgo), ["2 hours ago", "x".repeat(40), null, null]);
+});
 
 test("Yahoo：依交易所時區換日期、丟掉空收盤、代號不符就報錯", () => {
   const json = {
@@ -22,6 +34,62 @@ test("Yahoo：依交易所時區換日期、丟掉空收盤、代號不符就報
   assert.throws(() => parseYahooChart(json, "NVDA"), /不同/);
 });
 
+test("Yahoo：拒收非日線頻率，1d 與缺少頻率欄位照常接受", () => {
+  const chart = {
+    meta: { symbol: "NVDA", dataGranularity: "3mo" as string | undefined },
+    timestamp: [1792589400],
+    indicators: { quote: [{ close: [10] }] },
+  };
+  assert.throws(() => parseYahooChart({ chart: { result: [chart] } }, "NVDA"), /回應頻率是 3mo，不是日線/);
+  assert.equal(parseYahooSpark({ spark: { result: [{ symbol: "NVDA", response: [chart] }] } }).size, 0);
+  chart.meta.dataGranularity = "1d";
+  assert.equal(parseYahooChart({ chart: { result: [chart] } }, "NVDA").length, 1);
+  delete chart.meta.dataGranularity;
+  assert.equal(parseYahooChart({ chart: { result: [chart] } }, "NVDA").length, 1);
+});
+
+test("Yahoo：中段衝突日整天略過，最後一天留最後一筆，相同收盤合併且日期遞增", () => {
+  const chart = {
+    meta: { symbol: "NVDA", dataGranularity: "1d" },
+    // Source order need not be chronological; the latest date is still the live-day exception.
+    timestamp: [1792762200, 1792589400, 1792675800, 1792675860, 1792589460, 1792762260, 1792675920],
+    indicators: { quote: [{ close: [30, 5, 10, 20, 5.000001, 40, 10], open: [1, 2, 3, 4, 5, 6, 7] }] },
+  };
+  const conflicts: DayConflict[] = [];
+  const bars = parseYahooChart({ chart: { result: [chart] } }, "NVDA", conflicts);
+  assert.deepEqual(bars.map((b) => [b.date, b.close, b.open]), [["2026-10-21", 5.000001, 5], ["2026-10-23", 40, 6]]);
+  assert.deepEqual(conflicts, [{ date: "2026-10-22", closes: [10, 20, 10] }]);
+
+  chart.timestamp = [1792589400, 1792675800, 1792675860, 1792762200];
+  chart.indicators.quote[0].close = [5, 10, 20, 30];
+  const middleConflicts: DayConflict[] = [];
+  assert.deepEqual(parseYahooChart({ chart: { result: [chart] } }, "NVDA", middleConflicts).map((b) => b.date), ["2026-10-21", "2026-10-23"]);
+  assert.deepEqual(middleConflicts, [{ date: "2026-10-22", closes: [10, 20] }]);
+
+  const lastConflicts: DayConflict[] = [];
+  chart.timestamp = [1792762200, 1792762260];
+  chart.indicators.quote[0].close = [30, 40];
+  assert.equal(parseYahooChart({ chart: { result: [chart] } }, "NVDA", lastConflicts)[0].close, 40);
+  assert.deepEqual(lastConflicts, []);
+});
+
+test("Yahoo spark：回報各代號衝突，空結果與錯頻率交給逐檔補抓", () => {
+  const chart = {
+    meta: { symbol: "NVDA", dataGranularity: "1d" },
+    timestamp: [1792589400, 1792675800, 1792675860, 1792762200],
+    indicators: { quote: [{ close: [5, 10, 20, 30] }] },
+  };
+  const conflicts: Record<string, DayConflict[]> = {};
+  const bars = parseYahooSpark({ spark: { result: [
+    { symbol: "NVDA", response: [chart] },
+    { symbol: "EMPTY", response: [{ meta: { symbol: "EMPTY" }, timestamp: [] }] },
+    { symbol: "WRONG", response: [{ ...chart, meta: { symbol: "WRONG", dataGranularity: "3mo" } }] },
+  ] } }, conflicts);
+  assert.deepEqual([...bars.keys()], ["NVDA"]);
+  assert.deepEqual(bars.get("NVDA")!.map((b) => b.date), ["2026-10-21", "2026-10-23"]);
+  assert.deepEqual(conflicts, { NVDA: [{ date: "2026-10-22", closes: [10, 20] }] });
+});
+
 test("Cboe：VIX 五欄與 SPX 兩欄都能解析，since 之前的列不讀", () => {
   const vix = parseCboeCsv("DATE,OPEN,HIGH,LOW,CLOSE\n10/22/2026,19,20,18,19.03\n10/23/2026,19.1,20,18.5,19.45\n", "2026-10-23");
   assert.deepEqual(vix, [{ date: "2026-10-23", open: 19.1, high: 20, low: 18.5, close: 19.45, volume: null }]);
@@ -30,7 +98,24 @@ test("Cboe：VIX 五欄與 SPX 兩欄都能解析，since 之前的列不讀", (
   assert.throws(() => parseCboeCsv("<html>"), /表頭/);
 });
 
-test("Nasdaq：歷史行情、Zacks 推估與財報日曆", () => {
+for (const source of ["Nasdaq", "Cboe"]) test(`${source}：衝突日整天略過（含最後一天），相同收盤留來源最後一列`, () => {
+  const rows = [
+    { date: "10/21/2026", close: "5", open: "1" },
+    { date: "10/21/2026", close: "5.000001", open: "2" },
+    { date: "10/22/2026", close: "10", open: "3" },
+    { date: "10/22/2026", close: "20", open: "4" },
+    { date: "10/23/2026", close: "30", open: "5" },
+    { date: "10/23/2026", close: "40", open: "6" },
+  ];
+  const conflicts: DayConflict[] = [];
+  const bars = source === "Nasdaq"
+    ? parseNasdaqHistorical({ tradesTable: { rows } }, conflicts)
+    : parseCboeCsv("DATE,OPEN,CLOSE\n" + rows.map((r) => `${r.date},${r.open},${r.close}`).join("\n"), undefined, conflicts);
+  assert.deepEqual(bars.map((b) => [b.date, b.close, b.open]), [["2026-10-21", 5.000001, 2]]);
+  assert.deepEqual(conflicts, [{ date: "2026-10-22", closes: [10, 20] }, { date: "2026-10-23", closes: [30, 40] }]);
+});
+
+test("Nasdaq：歷史行情、Zacks 推估、預期財報日與財報日曆", () => {
   const bars = parseNasdaqHistorical({ tradesTable: { rows: [{ date: "10/23/2026", close: "$216.54", volume: "6,317,269" }, { date: "10/22/2026", close: "218.22" }] } });
   assert.deepEqual(bars.map((b) => [b.date, b.close]), [["2026-10-22", 218.22], ["2026-10-23", 216.54]]);
   assert.equal(bars[1].volume, 6317269);
@@ -39,7 +124,10 @@ test("Nasdaq：歷史行情、Zacks 推估與財報日曆", () => {
   assert.equal(est.date, "2026-11-18");
   assert.equal(est.status, "estimated");
   assert.equal(est.detail, "市場預估 EPS $2.49");
+  const expected = parseEarningsDate("AAPL", { announcement: "Earnings announcement* for AAPL: Nov 2, 2026", reportText: "Apple Inc. is expected* to report earnings on 11/02/2026 after market close. According to Zacks Investment Research, based on 9 analysts' forecasts, the consensus EPS forecast for the quarter is $1.77." })!;
+  assert.equal(expected.status, "expected");
   const both = parseEarningsDate("NVDA", { announcement: "Earnings announcement* for NVDA: Nov 18, 2026", reportText: "the consensus EPS forecast for the quarter is $2.49. The reported EPS for the same quarter last year was $1.24." })!;
+  assert.equal(both.status, "expected");
   assert.equal(both.detail, "市場預估 EPS $2.49，去年同季 $1.24");
   assert.equal(parseEarningsDate("META", { announcement: "Earnings announcement* for META: ", reportText: "hasn't provided" }), null);
 

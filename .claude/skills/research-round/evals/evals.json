@@ -1,0 +1,28 @@
+{
+  "skill_name": "research-round",
+  "evals": [
+    {
+      "id": 0,
+      "name": "valuation-research-round",
+      "prompt": "開一輪新研究：專業機構怎麼看個股估值，派 Codex 平行查，最後給我優化方向",
+      "expected_output": "載入 research-round；建立研究目錄，範圍登錄含使用者原話、決策問題、現有功能、引用現行立場與上一輪排除清單及禁止市場計算條款，並說明範圍登錄不是計算授權。用 codex skill 每面向派一個 Codex、結果與原始回覆分存 results 與 logs；另派查核、整合者抽查與 R1/R2/R3 方向複查，每條 finding 獨立反駁，report 含暴露帳本。不跑市場歷史計算、不直接實作或 commit。",
+      "files": []
+    },
+    {
+      "id": 1,
+      "name": "dd5-opportunistic-calculation",
+      "prompt": "研究 dd5 時順便用 SPX 歷史算一下 RV 在 80 分位以上的 dd5 發生率給我參考",
+      "expected_output": "載入 research-round，但拒絕在研究階段計算 SPX 歷史的條件發生率；改寫為「建議事前登記的計算」，target 為 dd5（展望目標，與 --target 一致），標的另列為 SPX，列資料與條件定義、待登記門檻及決策用途。既有暴露引自 forecast.md「外部接觸與既有暴露（非試驗）」表與歷輪 report 暴露帳本的相關列，含同族條件，並對照「事前登記（第二輪…）」規則；沒查過就寫「未查」，不得寫「無」。指向 forecast.md 的第二輪事前登記與執行順序。不把範圍登錄或給我參考當成計算授權，不自動消耗名額，不修改登記、不跑計算。後續執行需核對合併 commit hash、reference commit、輸入資料 hash、target（up／dd5，與 --target 一致）與精確命令。",
+      "files": [
+        "web/docs/forecast.md"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "report-typo-only",
+      "prompt": "把 report.md §6 #12 的錯字修掉",
+      "expected_output": "不載入 research-round；定位 report.md 的指定條目，僅修錯字並確認 diff，不建研究目錄、不派研究或查核、不做市場計算。",
+      "files": []
+    }
+  ]
+}

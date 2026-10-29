@@ -1,4 +1,4 @@
-import { type Budget, type DailyBar, SourceError, fetchWithTimeout, mdyToIso, parseLooseNumber } from "./http.ts";
+import { type Budget, type DailyBar, type DayConflict, SourceError, dedupeDaily, fetchWithTimeout, mdyToIso, parseLooseNumber } from "./http.ts";
 
 export const NASDAQ_SOURCE = "nasdaq";
 
@@ -32,7 +32,7 @@ interface HistoricalData {
   tradesTable?: { rows?: { date: string; close: string; open?: string; high?: string; low?: string; volume?: string }[] | null };
 }
 
-export function parseNasdaqHistorical(data: HistoricalData): DailyBar[] {
+export function parseNasdaqHistorical(data: HistoricalData, conflicts?: DayConflict[]): DailyBar[] {
   const rows = data.tradesTable?.rows ?? [];
   const out: DailyBar[] = [];
   for (const r of rows) {
@@ -41,19 +41,25 @@ export function parseNasdaqHistorical(data: HistoricalData): DailyBar[] {
     if (!date || close === null) continue;
     out.push({ date, close, open: parseLooseNumber(r.open), high: parseLooseNumber(r.high), low: parseLooseNumber(r.low), volume: parseLooseNumber(r.volume) });
   }
-  return out.sort((a, b) => a.date.localeCompare(b.date));
+  const result = dedupeDaily(out, false);
+  conflicts?.push(...result.conflicts);
+  return result.bars;
 }
 
 export async function fetchNasdaqHistorical(symbol: string, assetClass: "stocks" | "etf", fromDate: string, limit = 40, budget?: Budget): Promise<DailyBar[]> {
   const url = `https://api.nasdaq.com/api/quote/${encodeURIComponent(nasdaqSymbol(symbol))}/historical?assetclass=${assetClass}&fromdate=${fromDate}&limit=${limit}`;
-  return parseNasdaqHistorical(await getJson<HistoricalData>(url, budget));
+  const conflicts: DayConflict[] = [];
+  const bars = parseNasdaqHistorical(await getJson<HistoricalData>(url, budget), conflicts);
+  for (const { date, closes } of conflicts) budget?.dataIssues.push(`${NASDAQ_SOURCE} ${symbol} ${date} 有兩筆不同收盤（${closes.join("、")}），這天的資料不採用`);
+  if (!bars.length) throw new SourceError(NASDAQ_SOURCE, "回應沒有任何日線");
+  return bars;
 }
 
 export interface EarningsDate {
   symbol: string;
   date: string;
-  /** Zacks 演算法推估（estimated）或公司已公布（confirmed） */
-  status: "estimated" | "confirmed";
+  /** estimated: Zacks algorithm; expected: earnings-date fallback; confirmed: earnings calendar only. */
+  status: "estimated" | "expected" | "confirmed";
   detail: string;
   sourceUrl: string;
 }
@@ -70,7 +76,7 @@ export function parseEarningsDate(symbol: string, data: { announcement?: string;
   return {
     symbol,
     date: `${m[3]}-${MONTHS[m[1]]}-${m[2].padStart(2, "0")}`,
-    status: /estimated|derived from an algorithm/i.test(text) ? "estimated" : "confirmed",
+    status: /estimated|derived from an algorithm/i.test(text) ? "estimated" : "expected",
     detail: parts.join("，"),
     sourceUrl: `https://www.nasdaq.com/market-activity/stocks/${symbol.toLowerCase()}/earnings`,
   };
@@ -87,6 +93,7 @@ export interface NewsItem {
   url: string;
   publisher: string | null;
   publishedAt: string | null;
+  publishedAgo: string | null;
   /** 英文摘要（description），可能是空的 */
   summary: string | null;
   /** 文章主角（primarysymbol），Yahoo 格式（BRK-B） */
@@ -98,6 +105,7 @@ interface NewsRow {
   url?: string;
   publisher?: string;
   created?: string;
+  ago?: string;
   id?: number | string;
   description?: string;
   primarysymbol?: string;
@@ -121,6 +129,7 @@ export function parseNasdaqNews(rows: NewsRow[]): NewsItem[] {
       url,
       publisher: r.publisher?.trim() || null,
       publishedAt: parseNasdaqCreated(r.created),
+      publishedAgo: r.ago?.trim().slice(0, 40) || null,
       // description 常以「Key Points」開頭、句子黏在一起：去掉開頭字樣、限制長度
       summary: r.description?.replace(/^\s*Key Points\s*/i, "").trim().slice(0, 600) || null,
       primarySymbol: r.primarysymbol ? fromNasdaqSymbol(r.primarysymbol.toUpperCase()) : null,
@@ -184,6 +193,7 @@ export interface AnalystView {
   epsUp: number | null;
   epsDown: number | null;
   estimates: number | null;
+  epsError: string | null;
 }
 
 interface TargetPriceData {
@@ -216,6 +226,7 @@ export function parseAnalystView(symbol: string, target: TargetPriceData, foreca
     epsUp: parseLooseNumber(row?.up),
     epsDown: parseLooseNumber(row?.down),
     estimates: parseLooseNumber(row?.noOfEstimates),
+    epsError: null,
   };
 }
 
@@ -223,9 +234,13 @@ export function parseAnalystView(symbol: string, target: TargetPriceData, foreca
 /** withEpsRevisions=false 時只抓目標價（1 個請求），用來擴大涵蓋範圍又不超過子請求上限。 */
 export async function fetchAnalystView(symbol: string, withEpsRevisions = true, budget?: Budget): Promise<AnalystView> {
   const base = `https://api.nasdaq.com/api/analyst/${encodeURIComponent(nasdaqSymbol(symbol))}`;
+  let epsError: string | null = null;
   const [target, forecast] = await Promise.all([
     getJson<TargetPriceData>(`${base}/targetprice`, budget),
-    withEpsRevisions ? getJson<EarningsForecastData>(`${base}/earnings-forecast`, budget).catch(() => null) : Promise.resolve(null),
+    withEpsRevisions ? getJson<EarningsForecastData>(`${base}/earnings-forecast`, budget).catch((e) => {
+      epsError = e instanceof Error ? e.message : String(e);
+      return null;
+    }) : Promise.resolve(null),
   ]);
-  return parseAnalystView(symbol, target, forecast);
+  return { ...parseAnalystView(symbol, target, forecast), epsError };
 }

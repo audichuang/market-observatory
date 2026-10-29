@@ -2,34 +2,26 @@
 //   node scripts/ai-batch.ts pull <translate|daily>   從正式站拿待辦，寫出 .ai-batch/<kind>/tasks.md（沒事做就印「沒有待辦」）
 //   （agent 讀 tasks.md，把每個任務的答案寫進 .ai-batch/<kind>/answers.json）
 //   node scripts/ai-batch.ts push <translate|daily>   把答案送回正式站驗證、寫進 D1
-// pull 加 --check：沒有待辦時以結束碼 1 結束，給 Orca 的 precheck 用（沒事做就不叫 agent，不花訂閱額度）。
+// --check: daily only checks work (including pending translations); translate still writes the batch for Orca.
+// push exits with 3 for missing/rejected answers. Successful HTTP responses are saved as receipt.json.
 // 提示詞用 src/lib/news-ai.ts 的同一套（用語規則一致）；伺服器端見 src/server/ai-batch.ts、routes/api/admin/ai.ts。
 // 帳密：MO_EMAIL／MO_PASSWORD，沒設就用 1Password 的 Agent vault（~/.config/op/agent-sa.env）。
 import { execFileSync } from "node:child_process";
+import { createHash, randomInt } from "node:crypto";
 import { get as httpsGet } from "node:https";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { DIGEST_SCHEMA, ENRICH_SCHEMA, type EnrichInput, POINTS_SCHEMA, type Prompt, digestPrompt, enrichPrompt, extractArticleText, marketPrompt, matchYahooArticle, pointsPrompt } from "../src/lib/news-ai.ts";
-import type { DigestWork, MarketWork } from "../src/server/ai-batch.ts";
+import { DIGEST_SCHEMA, ENRICH_SCHEMA, type EnrichInput, POINTS_SCHEMA } from "../src/lib/news-ai.ts";
+import { type BatchManifest, type DailyWork, type PointSource, type Receipt, type Task, type Unavailable, article, buildDailyTasks, buildTranslateTasks, createYahooSearch, hasDailyWork, preparePush, renderTasks, summarizeReceipt } from "./ai-batch-lib.ts";
 
 const base = (process.env.MO_URL ?? "https://market-observatory.kzfvvwnwhp.workers.dev").replace(/\/$/, "");
 const [cmd, kind] = process.argv.slice(2);
-if (!["pull", "push"].includes(cmd) || !["translate", "daily"].includes(kind)) {
+if (!["pull", "push"].includes(cmd) || (kind !== "translate" && kind !== "daily")) {
   console.error("用法：node scripts/ai-batch.ts <pull|push> <translate|daily>");
   process.exit(2);
 }
-const dir = join(import.meta.dirname, "..", ".ai-batch", kind);
-const MARKET_KEY = "SPX";
-
-/** 一個任務：給 agent 的提示詞與答案格式；meta 是送回伺服器用的，agent 不用管。 */
-interface Task {
-  id: string;
-  title: string;
-  prompt: Prompt;
-  schema: unknown;
-  meta: { type: "translate"; ids: string[] } | { type: "points"; id: string } | { type: "digest"; key: string; date: string; newsIds: string[] };
-}
+const dir = join(process.env.MO_AI_BATCH_DIR ?? join(import.meta.dirname, "..", ".ai-batch"), kind);
 
 function credentials(): { email: string; password: string } {
   if (process.env.MO_EMAIL && process.env.MO_PASSWORD) return { email: process.env.MO_EMAIL, password: process.env.MO_PASSWORD };
@@ -91,144 +83,120 @@ function getText(url: string, hops = 3): Promise<{ status: number; type: string;
   });
 }
 
-/** 每個代號的 Yahoo 新聞搜尋結果（同一次 pull 裡共用，同一家公司的幾則重點只搜一次）。 */
-const yahooNews = new Map<string, Promise<{ title?: unknown; link?: unknown }[]>>();
-function searchYahoo(symbol: string) {
-  let p = yahooNews.get(symbol);
-  if (!p) {
-    p = getText(`https://query2.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(symbol)}&newsCount=30&quotesCount=0`)
-      .then((r) => (r.status === 200 ? ((JSON.parse(r.body) as { news?: { title?: unknown; link?: unknown }[] }).news ?? []) : []))
-      .catch(() => []);
-    yahooNews.set(symbol, p);
-  }
-  return p;
-}
+const searchYahoo = createYahooSearch(getText);
+const readArticle = (title: string, symbols: string[]) => article(title, symbols, getText, searchYahoo);
 
-/**
- * 抓原文正文；抓不到回 null（這則就不寫重點）。Nasdaq 文章頁對機器回 403（Akamai），
- * 所以改在 Yahoo 用代號搜新聞、以標題對回同一篇轉載，抓 Yahoo 那頁。Zacks 等不在 Yahoo 的來源對不到。
- */
-async function article(title: string, symbols: string[]): Promise<string | null> {
-  for (const symbol of symbols.slice(0, 3)) {
-    const url = matchYahooArticle(title, await searchYahoo(symbol));
-    if (!url) continue;
-    try {
-      const res = await getText(url);
-      return res.status === 200 && res.type.includes("html") ? extractArticleText(res.body) : null;
-    } catch {
-      return null;
-    }
-  }
-  return null;
-}
-
-function chunk<T>(xs: T[], n: number): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < xs.length; i += n) out.push(xs.slice(i, i + n));
-  return out;
-}
-
-async function buildTasks(cookie: string): Promise<Task[]> {
+async function buildTasks(cookie: string): Promise<{ tasks: Task[]; unavailable: Unavailable[]; points: PointSource[]; snapshot?: BatchManifest["snapshot"] }> {
   if (kind === "translate") {
     const { translate } = await api<{ translate: EnrichInput[] }>(cookie, "GET", "/api/admin/ai?kind=translate");
-    return chunk(translate, 20).map((items, i) => ({
-      id: `t${i + 1}`,
-      title: `標題翻譯與分類（${items.length} 則）`,
-      prompt: enrichPrompt(items),
-      schema: ENRICH_SCHEMA,
-      meta: { type: "translate", ids: items.map((x) => x.id) },
-    }));
+    return { tasks: buildTranslateTasks(translate), unavailable: [], points: [] };
   }
-  const work = await api<{
-    date: string | null;
-    points: { id: string; title: string; url: string; summary: string | null; symbols: string[] }[];
-    digests: DigestWork[];
-    market: MarketWork | null;
-  }>(cookie, "GET", "/api/admin/ai?kind=daily");
-  const tasks: Task[] = [];
-  if (work.market) {
-    const { newsIds, ...m } = work.market;
-    tasks.push({ id: "m1", title: `大盤：${m.date} 為什麼漲跌`, prompt: marketPrompt(m), schema: DIGEST_SCHEMA, meta: { type: "digest", key: MARKET_KEY, date: m.date, newsIds } });
+  const work = await api<DailyWork>(cookie, "GET", "/api/admin/ai?kind=daily");
+  const built = await buildDailyTasks(work, readArticle);
+  const unconfirmedIds = new Map(work.digests.map((d) => [d.key, (d.unconfirmed ?? []).map((n) => n.id)]));
+  if (work.market) unconfirmedIds.set("SPX", (work.market.unconfirmed ?? []).map((n) => n.id));
+  for (const task of built.tasks) {
+    if (task.meta.type === "digest") task.meta.newsIds.push(...unconfirmedIds.get(task.meta.key)!);
   }
-  work.digests.forEach((d, i) =>
-    tasks.push({
-      id: `d${i + 1}`,
-      title: `${d.company}（${d.key}）${d.date} 重點`,
-      prompt: digestPrompt(d),
-      schema: DIGEST_SCHEMA,
-      meta: { type: "digest", key: d.key, date: d.date, newsIds: d.news.map((n) => n.id) },
-    }),
-  );
-  // 抓不到原文就不寫：只靠標題寫出的重點等於把標題換句話說
-  const bodies = await Promise.all(work.points.map((p) => article(p.title, p.symbols)));
-  work.points.forEach((p, i) =>
-    bodies[i] &&
-    tasks.push({
-      id: `p${i + 1}`,
-      title: `文章重點：${p.title}`,
-      prompt: pointsPrompt({ title: p.title, body: bodies[i], summary: p.summary, symbols: p.symbols }),
-      schema: POINTS_SCHEMA,
-      meta: { type: "points", id: p.id },
-    }),
-  );
-  return tasks;
+  return { ...built, snapshot: { date: work.date, revision: work.revision ?? null } };
 }
 
-function render(tasks: Task[]): string {
-  const answers = join(dir, "answers.json");
-  const head = `# 新聞 AI 待辦（${kind}，${tasks.length} 個任務）
+const sha256 = (content: string | Buffer) => createHash("sha256").update(content).digest("hex");
 
-逐一完成下面每個任務：照「規則」與「內容」寫出答案，答案必須符合該任務的 JSON 格式。
-全部寫完後，把答案存成 \`${answers}\`，格式是以任務代號為鍵的物件，例如：
-\`\`\`json
-${JSON.stringify(Object.fromEntries(tasks.slice(0, 2).map((t) => [t.id, "<符合該任務格式的 JSON 物件>"])), null, 2)}
-\`\`\`
-只寫這個檔案；不要改其他檔案、不要 commit、不要部署。寫完執行 \`node scripts/ai-batch.ts push ${kind}\`。
-`;
-  const body = tasks.map(
-    (t) => `\n---\n\n## ${t.id}：${t.title}\n\n### 規則\n\n${t.prompt.system}\n\n### 內容\n\n${t.prompt.user}\n\n### 答案格式（JSON Schema）\n\n\`\`\`json\n${JSON.stringify(t.schema)}\n\`\`\`\n`,
-  );
-  return head + body.join("");
+function gitOutput(args: string[]): string | undefined {
+  try {
+    return execFileSync("git", args, { cwd: join(import.meta.dirname, ".."), encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+  } catch {
+    return undefined;
+  }
 }
 
-const cookie = await signIn();
+function archivePrevious() {
+  const tasksFile = join(dir, "tasks.json");
+  if (!existsSync(tasksFile) || !JSON.parse(readFileSync(tasksFile, "utf8")).length) return;
+  const manifestFile = join(dir, "manifest.json");
+  const runId = existsSync(manifestFile)
+    ? (JSON.parse(readFileSync(manifestFile, "utf8")) as { runId: string }).runId
+    : `legacy-${statSync(tasksFile).mtime.toISOString()}`;
+  mkdirSync(join(dir, "runs"), { recursive: true });
+  const archive = join(dir, "runs", runId);
+  // Refuse an existing destination rather than overwrite any archived evidence.
+  mkdirSync(archive);
+  for (const file of ["tasks.json", "tasks.md", "answers.json", "manifest.json", "receipt.json"]) {
+    if (existsSync(join(dir, file))) renameSync(join(dir, file), join(archive, file));
+  }
+}
+
+async function dailyPrecheck(cookie: string) {
+  const work = await api<DailyWork>(cookie, "GET", "/api/admin/ai?kind=daily");
+  if (await hasDailyWork(work, async (point) => "body" in (await readArticle(point.title, point.symbols)))) {
+    console.log("每日有待辦（precheck 不寫檔，排程會再 pull 一次）");
+    return;
+  }
+  const { translate } = await api<{ translate: EnrichInput[] }>(cookie, "GET", "/api/admin/ai?kind=translate");
+  if (translate.length) {
+    console.log(`每日沒有待辦，但有 ${translate.length} 則新聞待翻譯`);
+  } else {
+    console.log("每日沒有待辦，也沒有新聞待翻譯。");
+    process.exitCode = 1;
+  }
+}
 
 if (cmd === "pull") {
-  const tasks = await buildTasks(cookie);
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, "answers.json"), "{}\n");
-  writeFileSync(join(dir, "tasks.json"), JSON.stringify(tasks, null, 2));
-  if (!tasks.length) {
-    writeFileSync(join(dir, "tasks.md"), "沒有待辦。\n");
-    console.log(`沒有待辦（${kind}），不用做任何事。`);
-    if (process.argv.includes("--check")) process.exitCode = 1;
+  const cookie = await signIn();
+  if (kind === "daily" && process.argv.includes("--check")) {
+    await dailyPrecheck(cookie);
   } else {
-    writeFileSync(join(dir, "tasks.md"), render(tasks));
-    console.log(`${tasks.length} 個任務，讀 ${join(dir, "tasks.md")}，答案寫進 ${join(dir, "answers.json")}，再執行 push。`);
+    const pulledAt = new Date().toISOString();
+    const runId = `${kind}-${pulledAt.replace(/[-:.]/g, "")}-${randomInt(36 ** 4).toString(36).padStart(4, "0")}`;
+    const { tasks, unavailable, points, snapshot } = await buildTasks(cookie);
+    for (const task of tasks) task.id += `-${runId.slice(-4)}`;
+    const tasksJson = JSON.stringify(tasks, null, 2);
+    const dirty = gitOutput(["status", "--porcelain", "--untracked-files=no", "--", "src", "scripts", "package.json", "package-lock.json"]);
+    const manifest: BatchManifest = {
+      runId, kind, pulledAt, gitCommit: gitOutput(["rev-parse", "HEAD"]) ?? "unknown", gitDirty: dirty === undefined ? "unknown" : dirty.length > 0,
+      promptSourceSha256: sha256(readFileSync(join(import.meta.dirname, "../src/lib/news-ai.ts"))),
+      schemaSha256: { translate: sha256(JSON.stringify(ENRICH_SCHEMA)), points: sha256(JSON.stringify(POINTS_SCHEMA)), digest: sha256(JSON.stringify(DIGEST_SCHEMA)) },
+      tasksSha256: sha256(tasksJson), requestedModel: process.env.AI_BATCH_MODEL ?? "unknown", snapshot, points, unavailable,
+    };
+    archivePrevious();
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "answers.json"), "{}\n");
+    writeFileSync(join(dir, "tasks.json"), tasksJson);
+    writeFileSync(join(dir, "manifest.json"), JSON.stringify(manifest, null, 2));
+    if (!tasks.length) {
+      writeFileSync(join(dir, "tasks.md"), "沒有待辦。\n");
+      console.log(`沒有待辦（${kind}），不用做任何事。`);
+      if (process.argv.includes("--check")) process.exitCode = 1;
+    } else {
+      writeFileSync(join(dir, "tasks.md"), renderTasks(tasks, kind, join(dir, "answers.json")));
+      console.log(`${tasks.length} 個任務，讀 ${join(dir, "tasks.md")}，答案寫進 ${join(dir, "answers.json")}，再執行 push。`);
+    }
   }
 } else {
   const tasksFile = join(dir, "tasks.json");
   if (!existsSync(tasksFile)) throw new Error("沒有 tasks.json，先執行 pull");
   const tasks = JSON.parse(readFileSync(tasksFile, "utf8")) as Task[];
-  const answers = JSON.parse(readFileSync(join(dir, "answers.json"), "utf8")) as Record<string, unknown>;
-  const parse = (a: unknown) => (typeof a === "string" ? JSON.parse(a) : a);
-  const body = {
-    model: process.env.AI_BATCH_MODEL ?? "claude-orca",
-    translate: [] as { ids: string[]; answer: unknown }[],
-    points: [] as { id: string; answer: unknown }[],
-    digests: [] as { key: string; date: string; newsIds: string[]; answer: unknown }[],
-  };
-  const missing: string[] = [];
-  for (const t of tasks) {
-    if (!(t.id in answers)) {
-      missing.push(t.id);
-      continue;
-    }
-    const answer = parse(answers[t.id]);
-    if (t.meta.type === "translate") body.translate.push({ ids: t.meta.ids, answer });
-    else if (t.meta.type === "points") body.points.push({ id: t.meta.id, answer });
-    else body.digests.push({ key: t.meta.key, date: t.meta.date, newsIds: t.meta.newsIds, answer });
+  if (!tasks.length) {
+    console.log("沒有任務");
+  } else {
+    const answers = JSON.parse(readFileSync(join(dir, "answers.json"), "utf8")) as Record<string, unknown>;
+    const manifestFile = join(dir, "manifest.json");
+    // A batch pulled by the previous CLI has no manifest yet.
+    const pulledAt = statSync(tasksFile).mtime.toISOString();
+    const manifest: BatchManifest = existsSync(manifestFile)
+      ? JSON.parse(readFileSync(manifestFile, "utf8"))
+      : { runId: `legacy-${pulledAt}`, kind, pulledAt, unavailable: [] };
+    manifest.requestedModel = process.env.AI_BATCH_MODEL ?? manifest.requestedModel ?? "unknown";
+    manifest.answersWrittenAt = statSync(join(dir, "answers.json")).mtime.toISOString();
+    manifest.pushedAt = new Date().toISOString();
+    const body = preparePush(tasks, answers, manifest, process.env.AI_BATCH_MODEL ?? "claude-orca");
+    const cookie = await signIn();
+    const receipt = await api<Receipt>(cookie, "POST", "/api/admin/ai", body);
+    writeFileSync(manifestFile, JSON.stringify(manifest, null, 2));
+    writeFileSync(join(dir, "receipt.json"), JSON.stringify(receipt, null, 2));
+    const result = summarizeReceipt(receipt, body.run);
+    console.log(result.message);
+    process.exitCode = result.exitCode;
   }
-  const r = await api<{ translated: number; points: number; digests: number; skipped: string[] }>(cookie, "POST", "/api/admin/ai", body);
-  console.log(`寫入：翻譯 ${r.translated} 則、文章重點 ${r.points} 則、每日重點 ${r.digests} 則${missing.length ? `；沒有答案：${missing.join(",")}` : ""}${r.skipped.length ? `；略過：${r.skipped.join("；")}` : ""}`);
 }

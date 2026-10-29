@@ -6,6 +6,7 @@ App 登入後註冊 APNs；每個帳號可以設定每日收盤摘要、名單�
 
 - `push-device-health`：同帳號同環境重新註冊保留上次失敗，換帳號或環境清除；送達成功清錯誤，BadDeviceToken／Unregistered 刪 token；每人最多保留最近 10 台。
 - `push-prefs`（F7、F8）：推播設定頁四個項目；關掉每日摘要、門檻改 ±6.0%，離開再進來仍保留，API `/api/v1/push` 的 `prefs` 是 `daily:false`、`moveThresholdPct:6`；之後改回開、±5.0%。
+- `push-close-unverified`：收盤摘要的 SPX `index.check.status` 為 `mismatch` 時標題尾加「（未核對）」；名單任一列 `check` 為 `mismatch` 時，合計寫「名單 +23.1 點（40%，未核對）」，無占比則寫「名單 +23.1 點（未核對）」。大漲大跌只在來源不一致的公司項目尾加標籤，單家公司時標題也加，多家公司時標題不變。`match`、`pending`、`unavailable` 的文字逐字不變；照原時間、每人每天每種一則，不延遲也不重送。
 - `push-banner`（G1）：前景收到推播出現橫幅，標題與內文可讀。
 - `push-dismiss-overlay`（G4）：點推播關掉總覽日期／觀察名單 sheet、返回展望前的總覽，新聞明細 sheet 也會關閉；日期以 payload 為準。
 - `push-open-daily`（G2）：背景點收盤推播 → 總覽、顯示 payload 的那天。
@@ -17,9 +18,11 @@ App 登入後註冊 APNs；每個帳號可以設定每日收盤摘要、名單�
 
 ## Driving it with ego-browser / XCUITest
 
+**收盤文字（無畫面，不需模擬器）。** 在 worktree 的 `web/` 用 `npx void db execute "SELECT data FROM snapshots ORDER BY trade_date DESC, revision DESC LIMIT 1"` 取最新本機快照，在 node 呼叫 `viewForMembers` 後交給 `dailySummary`／`bigMoves`，只在記憶體改核對狀態：SPX 與名單列分別改 `mismatch`，確認上述位置有「未核對」；名單無占比也要看一次。將 SPX 與名單列全改 `pending`、`unavailable`，摘要與單家／多家大漲大跌的 title／body 應與全 `match` 逐字相同。保存快照交易日、名單、門檻及產生的文字；若本機快照沒有符合門檻的公司，明列未驗證大漲大跌的原因，對應案例看 `node --test tests/push.test.ts tests/scheduled-close.test.ts tests/push-route.test.ts`。不發送真實通知；APNs 需 TestFlight 實機與金鑰，部署後可在站長的 `push_log` 核對當天實際 title／body。
+
 Preconditions:
 
-- 「MO Verify <run-id>」模擬器上 App 已登入測試帳號（跑過 walkthrough）。
+- 本輪 `ios-up.sh` 開的 MO 機上 App 已登入測試帳號（跑過 walkthrough）。
 
 - **裝置衛生。** 本機測試跑 `cd web && node --test tests/devices.test.ts tests/push.test.ts tests/push-route.test.ts`，涵蓋重新註冊、換帳號／環境、成功清錯、APNs reason 分類、第 11 台淘汰，以及 POST 測試推播送達成功清除上次失敗（與排程共用相同 SQL）。真實 APNs 驗收需 TestFlight 實機：推播設定按「測試推播」，成功後「上次失敗」清空；模擬器僅驗呈現與點開導向。
 - **設定頁。** walkthrough 的 `09-push.png`、`09b-push-more.png`。改偏好跑 `ios-test.sh … VerifyInteractionTests/test07_PushPrefs`：關「每日收盤摘要」、門檻按兩次＋變 ±6.0%，離開再進來寫 `F8-reopen.txt`，再改回寫 `F8-restored.txt`。在改回之前要讀 API 的話，另用網頁的 `page.fetch("/api/v1/push")`（同一個測試帳號）比 `prefs`。
@@ -39,4 +42,5 @@ Preconditions:
 
 - 未簽章的模擬器版註冊不了 APNs：設定頁頂端的「這個版本無法註冊推播（模擬器或未簽章版本）」與「這台裝置註冊失敗」是預期的，算 pass；真正的 APNs 送達只能在 TestFlight 版實機驗。
 - `simctl push` 不經過後端，驗的是 App 收到後的呈現與導向，不是收盤推播的排程邏輯（那個看 `npm test` 的 push 測試與 runs 紀錄）。
+- 收盤文字只標 `mismatch`：SPX 在 UTC 21:40 的 `prices` 工作由 Cboe 核對，摘要標題平常就可能帶標籤；名單個股到 UTC 22:50 的 `crosscheck` 才核對，平常送出時為 `pending`，只有 UTC 01:10 的 `retry` 先核對再送時，名單段或大漲大跌才可能帶標籤。正文變長時，iOS 兩行橫幅可能截掉最後項目，真機呈現未實測。
 - 點推播橫幅曾經閃退（async 版 `didReceive` 在非主執行緒呼叫 completion handler，SIGABRT），已改成 completion-handler 版並在主執行緒處理。G2、G3 每輪都要跑，並確認 `~/Library/Logs/DiagnosticReports` 沒有新的 MarketObservatory crash。

@@ -93,6 +93,12 @@ test("名單滿上限時，五支排程各自一次執行都不超過額度、�
   for (const file of ["daily-reference", "prices", "crosscheck", "retry", "news"]) {
     const r = await invokeCron(file, db, sql);
     assertWithinLimit(file, r);
+    if (file === "crosscheck") {
+      const phase = r.runs.find((run) => run.job === "forecast-phase");
+      assert.ok(phase, "crosscheck 排程須執行展望相位平均");
+      assert.equal(phase.status, "ok", phase.summary);
+      assert.equal(JSON.parse(phase.detail).subrequests, 0);
+    }
     t.diagnostic(`${file}：${r.requests} 個請求，同時最多 ${r.maxInFlight} 個；${r.runs.map((x) => `${x.job}=${x.status}`).join("、")}`);
     for (const run of r.runs) {
       // weights（SSGA xlsx）與 factset（PDF）在假網路裡刻意回壞資料，只看請求數；其餘工作要成功。
@@ -295,7 +301,7 @@ test("財報日曆沒排到時改查推估日期：股類代號（BRK-B）也查
 test("新聞已掛 MSFT 再掛 MS：MS 不會被當成 MSFT 的子字串吞掉，AI 判斷要重跑", async () => {
   const { db, sql } = await migratedDb();
   const { NEWS_UPSERT_SQL } = await import("../src/server/jobs.ts");
-  const upsert = (symbol: string) => db.prepare(NEWS_UPSERT_SQL).bind("n1", symbol, "t", "u", "p", "2026-10-23", "nasdaq", "x", null, null).run();
+  const upsert = (symbol: string) => db.prepare(NEWS_UPSERT_SQL).bind("n1", symbol, "t", "u", "p", "2026-10-23", "nasdaq", "x", null, null, null).run();
   await upsert("MSFT");
   sql.prepare("UPDATE news SET enriched_at = 'x' WHERE id = 'n1'").run();
   await upsert("MS");

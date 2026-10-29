@@ -202,6 +202,35 @@ export function phaseAveraged(obs: Observation[], cfg: ModelConfig, label: Label
   return phaseAverageFromCells(phaseCells(obs, cfg, grid, label), opts);
 }
 
+export interface PhaseTargetSummary {
+  mean: number | null;
+  low: number | null;
+  high: number | null;
+  min: number | null;
+  max: number | null;
+  cycles: PhaseResult["cycles"];
+}
+
+export interface PhaseSummary {
+  asOf: string;
+  modelVersion: string;
+  phases: number;
+  up: PhaseTargetSummary | null;
+  dd5: PhaseTargetSummary | null;
+}
+
+/** Daily report using the registered G08 defaults; unavailable statistics remain JSON null. */
+export function phaseSummaryOf(obs: Observation[], cfg: ModelConfig): PhaseSummary | null {
+  const last = obs.at(-1);
+  if (!last?.regime) return null;
+  const finite = (n: number) => Number.isFinite(n) ? n : null;
+  const target = (label: Label): PhaseTargetSummary => {
+    const r = phaseAveraged(obs, cfg, label);
+    return { mean: finite(r.mean), low: finite(r.ci.low), high: finite(r.ci.high), min: finite(r.min), max: finite(r.max), cycles: r.cycles };
+  };
+  return { asOf: last.date, modelVersion: cfg.version, phases: PHASES, up: target("up"), dd5: target("dd5") };
+}
+
 /**
  * 配對的相位平均 BSS（候選 vs 參考）：訓練樣本取兩者 regime 的交集，
  * 一律在參考變體的格點上評分；回報整格被捨去的格數（任一方缺列）。

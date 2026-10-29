@@ -1,21 +1,25 @@
 // 各頁的資料（網頁 loader 與 App 的 JSON API 共用同一份）。
 // 跟使用者無關的部分照資料版本快取（cachedPage）；名單、定投規劃這類每個人不同的部分在快取外套上，
 // 或把名單放進快取鍵，不會把甲的名單快取給乙看。
-import { maxDrawdown, periodReturn, smaSeries, Series, leverageDrift, simulateDca } from "../lib/analytics.ts";
+import { maxDrawdown, periodReturn, rangeReturn, smaSeries, Series, leverageDrift, simulateDca } from "../lib/analytics.ts";
 import { addDays, latestExpectedClose, latestScheduledClose } from "../lib/calendar.ts";
 import { importanceFor, isImportant } from "../lib/news-ai.ts";
 import { viewForMembers } from "../lib/snapshot.ts";
 import { ETFS, ETF_CATALOG_AS_OF, EQUAL_WEIGHT_SYMBOL, FX_SYMBOL, INDEX_SYMBOL, VIX_SYMBOL, type WatchMember } from "../lib/universe.ts";
-import { MAX_WATCH, displayName, isConstituent } from "../lib/watchlist.ts";
+import { MAX_WATCH, displayName, isConstituent, memberWeights } from "../lib/watchlist.ts";
 import { PLAN_LIMITS } from "../lib/plan.ts";
+import { costScenario, parseCostQuery } from "../lib/costs.ts";
+import { TAX_CHECKLISTS } from "../lib/tax-facts.ts";
+import { overlapPreview, parseOverlapQuery } from "../lib/overlap.ts";
+import { weightsStaleNote } from "../lib/weights-age.ts";
 import { z } from "zod";
-import { type Viewer, getViewerSetting, settingKey, viewerWatchlist } from "./account.ts";
+import { type Viewer, getViewerSetting, settingKey, viewerWatchlist, watchlistKey } from "./account.ts";
 import { rebuildSnapshots, WATCHLIST_REBUILD_SESSIONS } from "./jobs.ts";
 import { MARKET_KEY } from "./ai-batch.ts";
-import { latestDigests } from "./news-ai.ts";
+import { latestDigests, withDigestSources } from "./news-ai.ts";
 import { bumpDataVersion, cachedPage, readDb } from "./page-cache.ts";
 import { getSnapshot, listRevisions, listSnapshotDates, loadPrices, putSetting } from "./repo.ts";
-import { latestHoldings, loadTrackedMembers } from "./watchlist.ts";
+import { latestHoldings, loadTrackedMembers, loadWatchlist } from "./watchlist.ts";
 
 export interface ViewCtx {
   env: { DB: D1Database };
@@ -93,7 +97,7 @@ export async function overviewView(c: ViewCtx, v: Viewer) {
           .bind(s.weights.asOf, ...tickers)
           .first<{ n: number }>()
       : Promise.resolve(null),
-    s ? latestDigests(c.env.DB, members, s.tradeDate, addDays(s.tradeDate, 1)) : Promise.resolve([]),
+    s ? latestDigests(c.env.DB, members, s.tradeDate, s.tradeDate) : Promise.resolve([]),
     s ? marketDigest(c.env.DB, s.tradeDate) : Promise.resolve(null),
   ]);
   return {
@@ -109,7 +113,7 @@ export async function overviewView(c: ViewCtx, v: Viewer) {
     forecast: shared.forecast,
     restCount: rest?.n ?? null,
     viewingLatest: !date,
-    // 名單公司在這個交易日（或之後一天，盤後新聞）的 AI 新聞重點
+    // 名單公司的 AI 新聞重點：只取這個交易日的摘要
     digests,
     market,
   };
@@ -117,7 +121,8 @@ export async function overviewView(c: ViewCtx, v: Viewer) {
 
 /** 總覽最上面那段「今天為什麼漲跌」：排程寫在 news_digests（代號 SPX），沒寫到就不顯示。 */
 async function marketDigest(db: D1Database, date: string) {
-  return db.prepare("SELECT date, summary, tone FROM news_digests WHERE symbol = ? AND date = ?").bind(MARKET_KEY, date).first<{ date: string; summary: string; tone: string }>();
+  const digest = await db.prepare("SELECT date, summary, tone, news_ids FROM news_digests WHERE symbol = ? AND date = ?").bind(MARKET_KEY, date).first<{ date: string; summary: string; tone: string; news_ids: string }>();
+  return digest ? (await withDigestSources(db, [digest]))[0] : null;
 }
 
 // ── 走勢 ───────────────────────────────────────────────
@@ -166,7 +171,7 @@ export async function historyView(c: ViewCtx, v: Viewer) {
       .filter((_, i) => i % step === 0 || i === visible.length - 1)
       .map((p) => ({ date: p.date, close: r2(p.close) as number, sma20: r2(p.sma20), sma60: r2(p.sma60), sma200: r2(p.sma200) }));
 
-    // 相對報酬比較：每條線以區間第一個交易日為 0%。
+    // Each line starts at its first close in the range (0%), matching the interval statistics.
     const rebased = compareSymbols.map((s) => {
       const pts = loaded.series[s].points.filter((p) => p.date >= start);
       const base = pts[0]?.close;
@@ -180,7 +185,8 @@ export async function historyView(c: ViewCtx, v: Viewer) {
         symbol: s,
         label: SYMBOL_LABELS[s],
         close: series.last()?.close ?? null,
-        ret: periodReturn(series, start, end),
+        ret: rangeReturn(inRange, end),
+        first: inRange[0]?.date ?? null,
         mdd: maxDrawdown(inRange),
         vol: annualVol(inRange.map((p) => p.close)),
       };
@@ -190,23 +196,22 @@ export async function historyView(c: ViewCtx, v: Viewer) {
     // 名單上任何一家那天沒有貢獻數字（缺價、還沒追蹤）就整天記成 null，不拿半套名單充數。
     const tickers = members.flatMap((m) => m.tickers);
     const keys = members.map((m) => m.key);
-    const placeholders = (n: number) => Array.from({ length: n }, () => "?").join(",") || "NULL";
     const contrib = await db
       .prepare(
         `SELECT s.trade_date AS date,
                 json_extract(s.data, '$.index.changePts') AS idx,
                 (SELECT SUM(json_extract(r.value, '$.contributionPts')) FROM json_each(s.data, '$.mag7') r
-                  WHERE json_extract(r.value, '$.key') IN (${placeholders(keys.length)})
-                     OR EXISTS (SELECT 1 FROM json_each(r.value, '$.tickers') t WHERE t.value IN (${placeholders(tickers.length)}))) AS mag7,
+                  WHERE json_extract(r.value, '$.key') IN (SELECT value FROM json_each(?1))
+                     OR EXISTS (SELECT 1 FROM json_each(r.value, '$.tickers') t WHERE t.value IN (SELECT value FROM json_each(?2)))) AS mag7,
                 (SELECT COUNT(*) FROM json_each(s.data, '$.mag7') r
                   WHERE json_extract(r.value, '$.contributionPts') IS NOT NULL
-                    AND (json_extract(r.value, '$.key') IN (${placeholders(keys.length)})
-                     OR EXISTS (SELECT 1 FROM json_each(r.value, '$.tickers') t WHERE t.value IN (${placeholders(tickers.length)})))) AS n
+                    AND (json_extract(r.value, '$.key') IN (SELECT value FROM json_each(?1))
+                     OR EXISTS (SELECT 1 FROM json_each(r.value, '$.tickers') t WHERE t.value IN (SELECT value FROM json_each(?2))))) AS n
          FROM snapshots s
          JOIN (SELECT trade_date, MAX(revision) AS r FROM snapshots GROUP BY trade_date ORDER BY trade_date DESC LIMIT 40) m
          ON s.trade_date = m.trade_date AND s.revision = m.r ORDER BY s.trade_date`,
       )
-      .bind(...keys, ...tickers, ...keys, ...tickers)
+      .bind(JSON.stringify(keys), JSON.stringify(tickers))
       .all<{ date: string; idx: number | null; mag7: number | null; n: number }>();
     // 只在 SQL 取需要的數字，不把 40 份完整快照 JSON 拉回 Worker 解析。
     const contribution = contrib.results.map((r) => {
@@ -214,7 +219,7 @@ export async function historyView(c: ViewCtx, v: Viewer) {
       return { date: r.date, index: r.idx, mag7, rest: mag7 !== null && r.idx !== null ? r.idx - mag7 : null };
     });
 
-    const mainStats = { ret: periodReturn(main, start, end), mdd: maxDrawdown(main.points.filter((p) => p.date >= start)), points: visible.length, first: visible[0]?.date ?? null, last: visible.at(-1)?.date ?? null };
+    const mainStats = { ret: rangeReturn(main.points.filter((p) => p.date >= start), end), mdd: maxDrawdown(main.points.filter((p) => p.date >= start)), points: visible.length, first: visible[0]?.date ?? null, last: visible.at(-1)?.date ?? null };
     return { symbol, label: SYMBOL_LABELS[symbol], watch: members.map((m) => m.key), months, ranges: RANGES, symbols: Object.entries(SYMBOL_LABELS), priceLine, mainStats, rebased, stats, contribution };
   });
 }
@@ -291,7 +296,7 @@ export async function etfsView(c: ViewCtx, v: Viewer) {
       return { ...e, close: lastPt?.close ?? null, lastDate: lastPt?.date ?? null, ytd: periodReturn(s, ytdStart, end), returns, drift1y };
     });
 
-    // 定投試算：價格換成台幣計價（每天用當天或之前最近的 USD/TWD），每月第一個交易日投入固定台幣。
+    // 定投試算：價格換成台幣計價（每天用當天或之前最近的 USD/TWD），首筆在起點當天或之後第一個有價格的交易日，之後每月第一個交易日投入固定台幣。
     const fx = loaded.series[FX_SYMBOL];
     const price = loaded.series[etf];
     const twdPoints = price.points
@@ -308,7 +313,22 @@ export async function etfsView(c: ViewCtx, v: Viewer) {
 
     return { asOf: end, catalogAsOf: ETF_CATALOG_AS_OF, rows, periods: PERIODS.map(([k]) => k), sim: { etf, years, monthlyTwd, startDate }, dca, fxLast };
   });
-  return { ...computed, plan };
+  const funding = c.req.query("funding") === "lump" ? "lump" : "monthly";
+  const costInput = parseCostQuery((key) => c.req.query(key));
+  const costs = costInput === null || "issue" in costInput ? costInput : costScenario(costInput, {
+    monthlyTwd: computed.sim.monthlyTwd,
+    fxRate: computed.fxLast?.close ?? null,
+    fxDate: computed.fxLast?.date ?? null,
+    etf: ETFS.find((e) => e.ticker === computed.sim.etf)!,
+    today: new Date().toISOString().slice(0, 10),
+  });
+  const [list, { asOf, holdings }] = await Promise.all([loadWatchlist(c.env.DB, watchlistKey(v)), latestHoldings(c.env.DB)]);
+  // Holdings and their age stay outside the price cache, including when the scheduled close advances.
+  const overlap: ReturnType<typeof overlapPreview> & { weightsStale?: string | null } = {
+    ...overlapPreview({ list, holdings, asOf, etf: ETFS.find((e) => e.ticker === computed.sim.etf)!, input: parseOverlapQuery((key) => c.req.query(key), list) }),
+    weightsStale: weightsStaleNote(asOf, latestScheduledClose()),
+  };
+  return { ...computed, plan, funding, costScenario: costs, checklists: TAX_CHECKLISTS, overlap };
 }
 
 // ── 新聞與日曆 ───────────────────────────────────────────
@@ -370,11 +390,17 @@ export async function newsView(c: ViewCtx, v: Viewer) {
   // 指定代號時，「重要」是這則真的在講那家公司
   const important = importanceFor(members, symbol);
   const digestMembers = symbol ? members.filter((m) => m.key === symbol) : members;
-  const [events, news, digests] = await Promise.all([eventsTask, newsTask, latestDigests(c.env.DB, digestMembers, addDays(today, -3))]);
+  const [events, news, digests, latest] = await Promise.all([
+    eventsTask,
+    newsTask,
+    latestDigests(c.env.DB, digestMembers, addDays(today, -3)),
+    c.env.DB.prepare("SELECT MAX(trade_date) AS d FROM snapshots").first<{ d: string | null }>(),
+  ]);
   return {
     symbol,
     keys,
     today,
+    latestTradeDate: latest?.d ?? null,
     news: news.results.map((n) => newsOut(n, important(n))),
     digests,
     events: events.filter((e) => e.kind !== "earnings" || (e.symbol !== null && keys.includes(e.symbol))),
@@ -387,14 +413,12 @@ export async function newsView(c: ViewCtx, v: Viewer) {
 export async function watchlistView(c: ViewCtx, v: Viewer) {
   const db = c.env.DB;
   const [list, { asOf, holdings }, tracked] = await Promise.all([membersOf(c, v), latestHoldings(db), loadTrackedMembers(db)]);
-  const weight = new Map(holdings.map((h) => [h.ticker, h.weightPct]));
   const inList = new Set(list.flatMap((m) => m.tickers));
   const trackedTickers = new Set(tracked.flatMap((m) => m.tickers));
-  const members = list.map((m) => ({ ...m, weightPct: m.tickers.reduce((a, t) => a + (weight.get(t) ?? 0), 0), outOfIndex: holdings.length ? m.tickers.filter((t) => !weight.has(t)) : [] }));
+  const { members, totalWeight } = memberWeights(list, holdings);
   // 可加入的成分股：權重由大到小，給搜尋框的建議清單用；tracked 表示全站已經在追蹤（加入不用等抓十年日線）。
   const candidates = holdings
     .filter((h) => isConstituent(h) && !inList.has(h.ticker))
     .map((h) => ({ ticker: h.ticker, name: displayName(h.name), weightPct: Math.round(h.weightPct * 1000) / 1000, tracked: trackedTickers.has(h.ticker) }));
-  const totalWeight = members.reduce((a, m) => a + m.weightPct, 0);
   return { members, candidates, asOf, totalWeight, max: MAX_WATCH };
 }

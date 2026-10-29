@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { aggregateConsensus, type ViewRow } from "../src/lib/consensus.ts";
+import { aggregateConsensus, consensusCutoff, freshLatestViews, type ViewRow } from "../src/lib/consensus.ts";
 import { parseInsightText } from "../src/lib/sources/factset.ts";
 
 const row = (symbol: string, asOf: string, price: number | null, targetMean: number | null, extra: Partial<ViewRow> = {}): ViewRow => ({
@@ -26,6 +26,16 @@ test("每檔只取最新一列；過期、不在權重表裡的不算", () => {
   assert.equal(c.impliedUpsidePct?.toFixed(6), (20).toFixed(6));
 });
 
+test("七天界線包含當天，每檔只留權重表內最新一列", () => {
+  const cutoff = consensusCutoff("2026-10-28");
+  assert.equal(cutoff, "2026-10-21");
+  assert.equal(consensusCutoff("2026-10-28", 3), "2026-10-25");
+  const boundary = row("A", "2026-10-21", 100, 110);
+  const newest = row("B", "2026-10-27", 100, null);
+  const rows = [boundary, newest, row("B", "2026-10-26", 100, 120), row("C", "2026-10-20", 100, 130), row("ZZZ", "2026-10-27", 100, 140)];
+  assert.deepEqual(freshLatestViews(rows, new Map([["A", 7], ["B", 3], ["C", 2]]), cutoff), [boundary, newest]);
+});
+
 test("買進占比與 EPS 修正廣度依權重加權；沒有修正的個股不計入廣度", () => {
   const weights = new Map([["A", 6], ["B", 3], ["C", 1]]);
   const c = aggregateConsensus(
@@ -39,6 +49,53 @@ test("買進占比與 EPS 修正廣度依權重加權；沒有修正的個股不
   );
   assert.equal(c.buyPct?.toFixed(6), (((6 * 0.75 + 3 * 0 + 1 * 1) / 10) * 100).toFixed(6));
   assert.equal(c.revisionBreadth?.toFixed(6), ((6 * 0.5 + 3 * -1) / 9).toFixed(6));
+});
+
+test("空資料列不算涵蓋，各指標回報自己的分母", () => {
+  const c = aggregateConsensus(
+    [
+      row("A", "2026-10-23", 100, null),
+      row("B", "2026-10-24", 100, 120, { buy: 3, hold: 1, epsUp: 3, epsDown: 1 }),
+    ],
+    new Map([["A", 7], ["B", 3]]),
+    "2026-10-25",
+  );
+  assert.equal(c.coveredWeightPct, 3);
+  assert.equal(c.symbols, 1);
+  assert.deepEqual(c.noData, { symbols: 1, weightPct: 7 });
+  assert.deepEqual(c.coverage, {
+    target: { symbols: 1, weightPct: 3 },
+    ratings: { symbols: 1, weightPct: 3 },
+    revisions: { symbols: 1, weightPct: 3 },
+  });
+  assert.equal(c.oldest, "2026-10-23");
+  assert.equal(c.newest, "2026-10-24");
+});
+
+test("各指標只涵蓋自己的有效列，股價日範圍只取目標價列", () => {
+  const c = aggregateConsensus(
+    [
+      row("A", "2026-10-24", 100, 110, { priceDate: "2026-10-22" }),
+      row("B", "2026-10-24", null, null, { buy: 3, hold: 1, priceDate: "2026-10-01" }),
+      row("C", "2026-10-24", 100, 150, { priceDate: "2026-10-23" }),
+      row("D", "2026-10-24", null, null, { epsUp: 1, epsDown: 3, priceDate: "2026-10-25" }),
+    ],
+    new Map([["A", 7], ["B", 3], ["C", 2], ["D", 1]]),
+    "2026-10-25",
+  );
+  assert.deepEqual(c.coverage, {
+    target: { symbols: 2, weightPct: 9 },
+    ratings: { symbols: 1, weightPct: 3 },
+    revisions: { symbols: 1, weightPct: 1 },
+  });
+  assert.equal(c.symbols, 4);
+  assert.equal(c.coveredWeightPct, 13);
+  assert.deepEqual(c.noData, { symbols: 0, weightPct: 0 });
+  assert.equal(c.impliedUpsidePct?.toFixed(6), "18.888889");
+  assert.equal(c.buyPct, 75);
+  assert.equal(c.revisionBreadth, -0.5);
+  assert.equal(c.priceOldest, "2026-10-22");
+  assert.equal(c.priceNewest, "2026-10-23");
 });
 
 test("FactSet 週報：數字中間夾空白也抽得出來；句型不符就回 null", () => {

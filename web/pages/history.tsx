@@ -1,5 +1,6 @@
 import { Link, useRouter } from "@void/react";
 import LineChart from "../src/ui/LineChart.tsx";
+import ResearchPanel from "../src/ui/ResearchPanel.tsx";
 import { REST_LABEL, REST_LABEL_SHORT } from "../src/lib/snapshot.ts";
 import { Delta } from "../src/ui/bits.tsx";
 import { num } from "../src/ui/format.ts";
@@ -12,6 +13,7 @@ const CHART_MEMBERS = 10;
 export default function HistoryPage({ symbol, watch, months, ranges, symbols, priceLine, mainStats, rebased, stats, contribution }: Props) {
   const router = useRouter();
   const label = Object.fromEntries(symbols)[symbol];
+  const indexFirst = stats.find((s) => s.symbol === "SPX")?.first;
   const go = (s: string, m: number) => router.visit(`/history?symbol=${s}&months=${m}`);
   return (
     <>
@@ -53,6 +55,8 @@ export default function HistoryPage({ symbol, watch, months, ranges, symbols, pr
         />
       </div>
 
+      {watch.includes(symbol) && <ResearchPanel key={symbol} company={label} ticker={symbol} />}
+
       <div className="panel section">
         <div className="head-row">
           <h2>觀察名單 vs S&amp;P 500 相對報酬</h2>
@@ -67,6 +71,7 @@ export default function HistoryPage({ symbol, watch, months, ranges, symbols, pr
             .filter((r) => !watch.includes(r.symbol) || watch.indexOf(r.symbol) < CHART_MEMBERS)
             .map((r, i) => ({ name: r.symbol === "SPX" ? "S&P 500" : r.symbol, color: COLORS[i % COLORS.length], dashed: r.symbol === "RSP", points: r.points }))}
         />
+        <p className="sub">每條線以區間第一個交易日收盤為 0%，與下表「區間報酬」同一起點</p>
         <div className="table-wrap" style={{ marginTop: "1rem" }}>
           <table>
             <thead>
@@ -77,7 +82,7 @@ export default function HistoryPage({ symbol, watch, months, ranges, symbols, pr
                 <tr key={s.symbol}>
                   <td><Link href={`/history?symbol=${s.symbol}&months=${months}`}>{s.label}</Link></td>
                   <td className="num">{num(s.close)}</td>
-                  <td className="num"><Delta value={s.ret} percent /></td>
+                  <td className="num"><Delta value={s.ret} percent />{s.first && s.first !== indexFirst && <span className="meta"> 自 {s.first}</span>}</td>
                   <td className="num"><Delta value={s.mdd} percent /></td>
                   <td className="num">{s.vol === null ? "—" : `${num(s.vol, 1)}%`}</td>
                 </tr>

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 收掉這次驗證自己啟動的東西：dev server 整棵程序樹、這次建的模擬器、DerivedData、密碼與 cookie。
+# Stop this run's dev server tree and simulator; remove DerivedData, passwords and cookies.
 # 證據（$RUN/evidence/）保留，最後印出它的位置與檔案數。
 #   down.sh <run-id>
 source "$(dirname "$0")/lib.sh"
@@ -10,9 +10,9 @@ if kill -0 "$DEV_PID" 2>/dev/null; then kill_tree "$DEV_PID"; ok "dev server PID
 if [ -f "$RUN/sim.udid" ]; then
   UDID=$(cat "$RUN/sim.udid")
   xcrun simctl shutdown "$UDID" 2>/dev/null || true
-  xcrun simctl delete "$UDID" && ok "模擬器 $UDID 已刪"
-  rm -f "$RUN/sim.udid"
+  ok "模擬器 $UDID 已關機（保留）"
 fi
+rm -f "$RUN/sim.udid" "$RUN/sim.device"
 # ego-browser 的 task space（SKILL.md 規定名字是 mo-verify-<run-id>）：drive 時忘了 finish 的話這裡收掉；已經 finish 過就什麼都不做。
 if command -v ego-browser >/dev/null; then
   # 已經 finish 過的 space 有時會讓這個呼叫卡住：最多等 20 秒，逾時就放掉（space 本來就結束了）。

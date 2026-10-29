@@ -257,8 +257,9 @@ struct OverviewView: View {
             Text(e.title).font(.subheadline)
         }
         if dts.isAccessibilitySize {
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) { day; EventStatusBadge(status: e.status) }
+            VStack(alignment: .leading, spacing: 6) {
+                day.fixedSize(horizontal: true, vertical: false)
+                EventStatusBadge(status: e.status)
                 titleLine
             }
         } else {
@@ -508,6 +509,7 @@ private struct MarketDigestCard: View {
 
 /// 指數 hero：收盤、漲跌、四個期間報酬與資料產出時間，一張全寬卡。
 private struct IndexHero: View {
+    @Environment(\.dynamicTypeSize) private var dts
     let s: Snapshot
     let createdAt: String?
 
@@ -522,11 +524,22 @@ private struct IndexHero: View {
                 CheckBadge(status: s.index.check.status)
             }
             Text(Fmt.num(s.index.close)).font(.largeTitle.weight(.bold).monospacedDigit()).lineLimit(1).minimumScaleFactor(0.8)
-            HStack(spacing: 4) {
-                Delta(value: s.index.changePts)
-                Text("(\(Text(Fmt.pct(s.index.returnPct)).foregroundStyle(Color.tone(s.index.returnPct))))").foregroundStyle(.secondary)
+            if dts.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("\(Fmt.signed(s.index.changePts)) 點")
+                        .foregroundStyle(Color.tone(s.index.changePts))
+                    Text("(\(Text(Fmt.pct(s.index.returnPct)).foregroundStyle(Color.tone(s.index.returnPct))))")
+                        .foregroundStyle(.secondary)
+                }
+                .font(.headline.monospacedDigit())
+                .fixedSize(horizontal: false, vertical: true)
+            } else {
+                HStack(spacing: 4) {
+                    Delta(value: s.index.changePts)
+                    Text("(\(Text(Fmt.pct(s.index.returnPct)).foregroundStyle(Color.tone(s.index.returnPct))))").foregroundStyle(.secondary)
+                }
+                .font(.headline)
             }
-            .font(.headline)
             periods.padding(.top, 8)
             Text("資料 \(Fmt.taipeiTime(createdAt)) 產出").font(.caption2).foregroundStyle(.secondary)
         }
@@ -702,9 +715,11 @@ private struct Kpi<Detail: View, Badge: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 4) {
-                Text(label).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                Text(label).font(.caption).foregroundStyle(.secondary)
+                    .lineLimit(dts.isAccessibilitySize ? nil : 2)
                 badge()
             }
+            .fixedSize(horizontal: false, vertical: true)
             if let value {
                 Text(value)
                     .font(.title3.weight(.semibold).monospacedDigit())

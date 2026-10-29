@@ -706,27 +706,47 @@ struct OutlookView: View {
                     .font(.footnote).foregroundStyle(.secondary)
             }
             ForEach((p.recent ?? []).prefix(8)) { f in
-                HStack(spacing: 8) {
-                    Text(f.date).monospacedDigit()
-                    Text(Fmt.plainPct(f.p * 100)).monospacedDigit()
-                    Text(callText(f.call)).foregroundStyle(.secondary)
-                    if p.liveTrack != nil {
-                        Text(f.modelVersion ?? "舊版紀錄").font(.caption).foregroundStyle(.secondary)
-                    }
-                    Spacer()
+                let result = Group {
                     if let up = f.up {
                         Text(up ? "後來上漲" : "後來下跌").foregroundStyle(up ? Color.up : Color.down)
                     } else {
                         Text("待到期").foregroundStyle(.secondary)
                     }
                 }
-                .font(.subheadline)
+                if dts.isAccessibilitySize {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(f.date).monospacedDigit()
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("上漲機率").font(.caption).foregroundStyle(.secondary)
+                            Text(Fmt.plainPct(f.p * 100)).monospacedDigit()
+                        }
+                        Text(callText(f.call)).foregroundStyle(.secondary)
+                        if p.liveTrack != nil {
+                            Text("模型 \(f.modelVersion ?? "舊版紀錄")")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        result
+                    }
+                    .font(.subheadline)
+                    .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    HStack(spacing: 8) {
+                        Text(f.date).monospacedDigit()
+                        Text(Fmt.plainPct(f.p * 100)).monospacedDigit()
+                        Text(callText(f.call)).foregroundStyle(.secondary)
+                        if p.liveTrack != nil {
+                            Text(f.modelVersion ?? "舊版紀錄").font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        result
+                    }
+                    .font(.subheadline)
+                }
             }
         } header: {
             Text(p.liveTrack == nil ? "實際發出的預測" : "上線後實際紀錄：上漲機率")
         } footer: {
-            if p.liveTrack != nil { Text("合併所有已發布的模型版本；每列以紀錄日收盤為起點。這是和樣本內、滾動驗證分開的第三種分數。") }
-            if let note = p.liveTrack?.note { Text(note) }
+            if let footer = OutlookRecordCopy.upFooter(p.liveTrack) { Text(footer) }
         }
     }
 

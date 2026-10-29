@@ -195,6 +195,7 @@ struct EtfView: View {
                         .accessibilityHint("收盤、結構備註與近一年偏離")
                         EtfFactsDisclosure(row: r, catalogAsOf: e.catalogAsOf)
                     }
+                    .buttonStyle(.borderless)
                     .padding(.vertical, 4)
                 }
             } header: {

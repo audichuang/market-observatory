@@ -854,8 +854,8 @@ final class VerifyInteractionTests: XCTestCase {
             keepAboveTabBar(app, reveal(app, facts)); facts.tap()
             let isin = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'ISIN：'")).firstMatch
             XCTAssertTrue(isin.waitForExistence(timeout: 5), "產品資料沒有展開")
+            snap("F1-facts-VOO-\(size)"); note("F1-facts-VOO-\(size)", texts(app) + "\n" + app.debugDescription)
             XCTAssertFalse(productNote.exists, "產品資料不應連帶展開 ETF 細節")
-            snap("F1-facts-VOO-\(size)"); note("F1-facts-VOO-\(size)", texts(app))
             reveal(app, facts, up: false).tap()
             XCTAssertTrue(isin.waitForNonExistence(timeout: 5), "產品資料沒有收合")
             keepAboveTabBar(app, reveal(app, details)); details.tap()

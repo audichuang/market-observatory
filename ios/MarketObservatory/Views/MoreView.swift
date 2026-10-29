@@ -46,6 +46,7 @@ struct MoreView: View {
 struct EtfView: View {
     @Environment(SessionStore.self) private var session
     @Environment(\.dynamicTypeSize) private var typeSize
+    @ScaledMetric(relativeTo: .caption) private var accessibleChartHeight = 180
     @State private var state: LoadState<Etfs> = .idle
     @State private var period = "1Y"
     @State private var editing = false
@@ -267,8 +268,46 @@ struct EtfView: View {
                     }
                     .chartForegroundStyleScale(["市值": Color.up, "累計投入": Color(red: 0x5C / 255, green: 0x6B / 255, blue: 0x7A / 255)])
                     .chartLegend(position: .top, alignment: .leading)
-                    .chartYAxis { AxisMarks { AxisGridLine(); AxisTick(); AxisValueLabel(format: FloatingPointFormatStyle<Double>.number.notation(.compactName)) } }
-                    .frame(height: 180)
+                    .chartXAxis {
+                        if typeSize.isAccessibilitySize {
+                            AxisMarks(values: [d.path.first, d.path.last].compactMap { step in
+                                step.flatMap { Fmt.day($0.date) }
+                            }) { value in
+                                AxisGridLine()
+                                AxisTick()
+                                AxisValueLabel(anchor: value.index == 0 ? .topLeading : .topTrailing) {
+                                    if let day = value.as(Date.self) {
+                                        VStack(spacing: 0) {
+                                            Text(day, format: .dateTime.year(.twoDigits))
+                                            Text(day, format: .dateTime.month(.twoDigits))
+                                        }
+                                        .font(.caption)
+                                        .fixedSize()
+                                    }
+                                }
+                            }
+                        } else {
+                            AxisMarks()
+                        }
+                    }
+                    .chartYAxis {
+                        if typeSize.isAccessibilitySize {
+                            AxisMarks(values: .automatic(desiredCount: 3)) { value in
+                                AxisGridLine()
+                                AxisTick()
+                                AxisValueLabel {
+                                    if let amount = value.as(Double.self) {
+                                        Text(amount, format: .number.notation(.compactName))
+                                            .font(.caption)
+                                            .fixedSize()
+                                    }
+                                }
+                            }
+                        } else {
+                            AxisMarks { AxisGridLine(); AxisTick(); AxisValueLabel(format: FloatingPointFormatStyle<Double>.number.notation(.compactName)) }
+                        }
+                    }
+                    .frame(height: typeSize.isAccessibilitySize ? accessibleChartHeight : 180)
                 } else {
                     Text("資料不足，無法試算。").foregroundStyle(.secondary)
                 }
@@ -317,10 +356,9 @@ struct EtfView: View {
         .listStyle(.insetGrouped)
         .lineSpacing(3)
         .refreshable { await load() }
-        .toolbar {
-            ToolbarItemGroup(placement: .keyboard) {
-                Spacer()
-                Button("完成") { monthlyFocused = false }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if monthlyFocused {
+                EtfKeyboardBar { monthlyFocused = false }
             }
         }
     }

@@ -216,11 +216,30 @@ private struct CostValueRow: View {
     }
 }
 
+// Keep the action in the editor's hierarchy instead of the keyboard toolbar's sheet host.
+struct EtfKeyboardBar: View {
+    let done: () -> Void
+
+    var body: some View {
+        HStack {
+            Spacer()
+            Button("完成", action: done)
+                .buttonStyle(.bordered)
+                .frame(minHeight: 44)
+                .accessibilityIdentifier("etfKeyboardDone")
+        }
+        .font(.body)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 4)
+        .background(.bar)
+    }
+}
+
 struct CostEditor: View {
     let submit: (CostQuery) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var query: CostQuery
-    @FocusState private var focused: Bool
+    @FocusState private var focused: String?
 
     init(query: CostQuery, submit: @escaping (CostQuery) -> Void) {
         self.submit = submit
@@ -248,7 +267,7 @@ struct CostEditor: View {
                             .keyboardType(.asciiCapable)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
-                            .focused($focused)
+                            .focused($focused, equals: "costPromo")
                             .accessibilityLabel("優惠到期日")
                             .accessibilityIdentifier("costPromo")
                     }
@@ -270,6 +289,11 @@ struct CostEditor: View {
                 }
             }
             .scrollDismissesKeyboard(.interactively)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if focused != nil {
+                    EtfKeyboardBar { focused = nil }
+                }
+            }
             .navigationTitle("設定假設")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -278,13 +302,9 @@ struct CostEditor: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("試算") {
-                        focused = false
+                        focused = nil
                         submit(query)
                     }
-                }
-                ToolbarItemGroup(placement: .keyboard) {
-                    Spacer()
-                    Button("完成") { focused = false }
                 }
             }
         }
@@ -295,7 +315,7 @@ struct CostEditor: View {
             Text(label).fixedSize(horizontal: false, vertical: true)
             TextField("0", text: text)
                 .keyboardType(integer ? .numberPad : .decimalPad)
-                .focused($focused)
+                .focused($focused, equals: key)
                 .accessibilityLabel(label)
                 .accessibilityIdentifier(key)
         }
@@ -447,7 +467,7 @@ struct OverlapEditor: View {
     let submit: (OverlapQuery) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var query: OverlapQuery
-    @FocusState private var focused: Bool
+    @FocusState private var focused: String?
 
     init(etf: String, members: [Overlap.Member], query: OverlapQuery, submit: @escaping (OverlapQuery) -> Void) {
         self.etf = etf
@@ -478,6 +498,11 @@ struct OverlapEditor: View {
                 }
             }
             .scrollDismissesKeyboard(.interactively)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if focused != nil {
+                    EtfKeyboardBar { focused = nil }
+                }
+            }
             .navigationTitle("填金額")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -486,13 +511,9 @@ struct OverlapEditor: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("計算") {
-                        focused = false
+                        focused = nil
                         submit(query)
                     }
-                }
-                ToolbarItemGroup(placement: .keyboard) {
-                    Spacer()
-                    Button("完成") { focused = false }
                 }
             }
         }
@@ -503,7 +524,7 @@ struct OverlapEditor: View {
             Text(label).fixedSize(horizontal: false, vertical: true)
             TextField("0", text: text)
                 .keyboardType(.numberPad)
-                .focused($focused)
+                .focused($focused, equals: key)
                 .accessibilityLabel(accessibilityLabel ?? label)
                 .accessibilityIdentifier(key)
         }

@@ -5,8 +5,8 @@
 ## Sub-features
 
 - `overview-digest-date`（L2-T5）：網頁與 App 的名單公司摘要只取所選快照交易日，`/api/v1/overview?date=<日期>` 的每筆 `digests[].date` 都等於 `snapshot.tradeDate`；沒有該日摘要就不顯示，不配隔日摘要。
-- `overview-digest-sources`（L2-T8，網頁）：「今天為什麼漲跌」與公司摘要可展開「參考來源（整篇，非逐句）· N 則」，來源及缺少數量分別等於 API 的 `market`、`digests[]`。大盤沒有任何引用且沒有缺來源時，展開後顯示「這段只根據行情數字，沒有引用新聞」。
-- `overview-digest-sources-ios`（L2-T9）：市場重點卡下方另起預設收合的「參考來源（整篇，非逐句）」DisclosureGroup，identifier `market-digest-sources`。展開後來源與缺少數量等於 API 的 `market.sources`、`market.sourcesMissing`，點來源開原文；來源位於 `market-digest` 的無障礙合併範圍之外。總覽歸因列的公司摘要維持原呈現，來源在新聞頁閱讀。
+- `overview-digest-sources`（L2-T8，網頁）：「今天為什麼漲跌」與公司摘要可展開「參考來源（整篇，非逐句）· N 則」，來源及缺少數量分別等於 API 的 `market`、`digests[]`。
+- `overview-digest-sources-ios`（L2-T9）：市場重點卡下方另起預設收合的「參考來源（整篇，非逐句）」DisclosureGroup，identifier `market-digest-sources`。展開後來源與缺少數量等於 API 的 `market.sources`、`market.sourcesMissing`，點來源開原文；來源位於 `market-digest` 的無障礙合併範圍之外。總覽歸因列的公司摘要維持原呈現，來源在新聞頁閱讀。網頁與 App 在 `market.sources` 為空陣列且 `market.sourcesMissing` 為 0 時，展開參考來源都顯示「這段只根據行情數字，沒有引用新聞」；舊後端缺少任一來源欄位時不顯示這句。
 - `overview-title`（B1）：標題「S&P 500 收盤 YYYY-MM-DD（週X）」（網頁）／「S&P 500 M/D（週X）」（App），日期＝API `snapshot.tradeDate`。
 - `overview-kpi`（B2）：KPI 卡片等於 API `snapshot.data`；App 的「市場指標」是可展開的按鈕（label 以「市場指標」開頭，value「已收合／已展開」），預設收起只顯示 VIX、距高、200 日線一行，展開後全部。只有 `index.check.status` 為 mismatch 才出現「來源不一致」。
 - `overview-spread`（B2）：網頁「等權重 RSP − 市值加權」與 App 展開市場指標後的「等權重 − 市值加權」以 `snapshot.data.breadth.spreadPct` 原尺度顯示「+0.35 個百分點」／「−1.20 個百分點」（兩位小數、紅漲綠跌）；null 只顯示「—」。下方 RSP 與 SPX 各自的報酬仍用 %。

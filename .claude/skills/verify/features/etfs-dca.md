@@ -8,7 +8,7 @@
 - `dca-simulate`（F3）：選 ETF、年數、每月金額按「試算」，結果＝`/api/v1/etfs?etf=…&years=…&monthly=…` 的 `dca`；沒存前按鈕是「設為我的預設」。
 - `dca-funding`：試算的「期間」後選「資金類型」；預設「每月新收入」只列投入月數、目前市值與最大帳面虧損，附不列一次投入對照的說明。「期初已有整筆資金」列期初資金、一次投入（首筆日期全部買入）、分 N 個月投入與分批的最大帳面虧損，附期初資金前提與未投入現金不計利息。切換只影響呈現，`dca` 數字不變。
 - `etf-facts`（#11，C-02、R1-5）：ETF 表格代號欄與窄螢幕卡片加 `<details><summary>產品資料</summary>`，展開顯示註冊地、配息、ISIN（查不到顯示「未查核」）、費用率（淨／總與查核日）、倍數（1x 顯示「1x，不每日重設」，其他顯示「{n}x，每日重設」或「反向 {n}x，每日重設」）、出處連結與查閱日、以及證據邊界句。定投試算面板依所選標的倍數顯示 1x 證據邊界（`EVIDENCE_1X`，一般樣式）或槓桿／反向證據邊界（`EVIDENCE_LEVERAGED`，警示樣式）。
-- `etf-facts-app`（#11，C-02、R1-5）：App 每列名稱、費用與備註之後有 DisclosureGroup「產品資料」，內容與網頁相同，出處用 Link；定投試算 Section 依「標的」Picker 的選擇顯示 `Copy.evidence1x`（一般文字）或 `Copy.evidenceLeveraged`（Notice 警示），即使歷史資料不足也會顯示。資料與證據文字可隨輔助字級換行。
+- `etf-facts-app`（#11，C-02、R1-5）：App 每列名稱與「發行商 · 費用 · 規模」展開行下方有 DisclosureGroup「產品資料」；上方展開行提供收盤、結構備註與近一年偏離，兩個展開項各自獨立。「產品資料」內容與網頁相同，出處用 Link；定投試算 Section 依「標的」Picker 的選擇顯示 `Copy.evidence1x`（一般文字）或 `Copy.evidenceLeveraged`（Notice 警示），即使歷史資料不足也會顯示。資料與證據文字可隨輔助字級換行。
 - `dca-monthly-minimum`：正數月額取整後至少 1 元，儲存端拒絕 0；舊規劃的月額 0 讀成預設 10000，其餘欄位與資料庫原值保留。
 - `dca-save-feedback`：儲存預設與規劃時停用送出按鈕；HTTP 或網路失敗顯示 `role="alert"` 紅字，儲存預設保留伺服器具體錯誤（如登入過期、欄位錯誤）；即時欄位驗證用 `role="status"`。
 - `dca-save-default`（F3b）：「設為我的預設」後 API `plan` 是那組值，離開再進來仍是；之後改回 VOO／3 年／10000。

@@ -849,6 +849,19 @@ final class VerifyInteractionTests: XCTestCase {
             note("F1-details-VOO-\(size)", texts(app))
             reveal(app, details, up: false).tap()
             XCTAssertTrue(productNote.waitForNonExistence(timeout: 5), "ETF 細節沒有收合")
+            // The integrated row has two independent disclosures; opening one must not toggle the other.
+            let facts = app.buttons["etf-facts-VOO"]
+            keepAboveTabBar(app, reveal(app, facts)); facts.tap()
+            let isin = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'ISIN：'")).firstMatch
+            XCTAssertTrue(isin.waitForExistence(timeout: 5), "產品資料沒有展開")
+            XCTAssertFalse(productNote.exists, "產品資料不應連帶展開 ETF 細節")
+            snap("F1-facts-VOO-\(size)"); note("F1-facts-VOO-\(size)", texts(app))
+            reveal(app, facts, up: false).tap()
+            XCTAssertTrue(isin.waitForNonExistence(timeout: 5), "產品資料沒有收合")
+            keepAboveTabBar(app, reveal(app, details)); details.tap()
+            XCTAssertTrue(productNote.waitForExistence(timeout: 5))
+            XCTAssertFalse(isin.exists, "ETF 細節不應連帶展開產品資料")
+            reveal(app, details, up: false).tap()
             let leveraged = app.buttons["etf-details-SSO"]
             keepAboveTabBar(app, reveal(app, leveraged)); leveraged.tap()
             let drift = app.staticTexts["近一年偏離"]

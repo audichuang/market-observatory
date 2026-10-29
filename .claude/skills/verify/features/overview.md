@@ -17,7 +17,7 @@
 - `overview-digest-tone`（B12）：市場重點標題列有「利多／利空／中性」文字，VoiceOver 會讀到，裝飾色條不朗讀。一般與最大字級標籤均可見；無障礙字級的「今天為什麼漲跌」完整換行、語氣標籤另起一行，標題不能以省略號截斷。
 - `overview-quality`：網頁與 App 的缺值只顯示「—」，不因 quality.missing 顯示提示或註記；API 仍保留 missing 供資料品質追蹤。即使 quality.notes 為空，pendingChecks 非空時網頁仍顯示「待核對」；來源不一致與最新快照落後的警告保留。下月展望的 up 紅色、down 綠色，摘要統一寫「上漲機率」。
 - `overview-weights-stale`：持股日期落後歸因的前一交易日超過 2 個 NYSE 交易日時，`snapshot.data.quality.notes` 加入共用的「權重未更新：最新 SPY 持股停在 …」；網頁在名單貢獻下方、App 在「說明」展開區顯示。僅落後 2 日、持股晚於目標或日曆覆蓋外時不加；重算只依持股日與快照目標日判斷。
-- `overview-readability`：`test21_ReadabilityPolish` 在一般與最大輔助字級確認 VIX 缺值也不出現提示，截圖 `polish-<variant>-overview-missing-vix.png`；`test23_OverviewWithoutWarning` 切歷史日，確認有值與缺值兩種版面均無缺資料提示。
+- `overview-readability`：`test21_ReadabilityPolish` 在一般與最大輔助字級確認缺資料提示不存在，截圖 `polish-<variant>-overview-missing-vix.png`；測試本身不檢查 VIX 是否為 null，缺值情境須依下方「缺值與品質」備資料，再用 API 與畫面對帳。`test23_OverviewWithoutWarning` 切歷史日，確認同樣沒有缺資料提示。
 - `overview-refresh`（B10）：App 下拉重新整理保留完整亮度與工具列；只有使用者從交易日清單切換日期時內容變暗、工具列改成轉圈。推播導向與回前景重新整理也保留完整亮度及日期／名單按鈕。
 - `overview-foreground`（B11）：看最新日期時，距上次成功載入超過 10 分鐘，回前景重抓，畫面不變暗、工具列不被轉圈取代；看歷史日期時不自動切回最新。
 - `overview-stale`：看最新（沒有 `?date=`）且 `snapshot.tradeDate` < API `expectedClose` 時，網頁與 App 頂端出現「最新快照是 …，但 … 應該已收盤」橘色警告。`expectedClose` 是抓價排程（週一到週五 UTC 21:40）加 30 分緩衝跑完後才換成當天，收盤後到 UTC 22:10 之間不警告；資料來源頁的「落後」標記用同一個日期。

@@ -280,9 +280,6 @@ struct OverviewView: View {
         if !s.quality.mismatches.isEmpty {
             Notice(kind: .bad, text: "收盤價來源不一致：\(s.quality.mismatches.joined(separator: "、"))。歸因數字可能有誤。").noticeRow()
         }
-        if !s.quality.missing.isEmpty {
-            Notice(kind: .warn, text: "缺少當日收盤：\(s.quality.missing.joined(separator: "、"))。").noticeRow()
-        }
         if let nt = s.notTracked, !nt.isEmpty {
             Notice(kind: .info, text: "\(nt.joined(separator: "、")) 在這天還沒開始追蹤，沒有歸因資料。").noticeRow()
         }

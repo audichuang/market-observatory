@@ -120,12 +120,12 @@ test("名單滿上限時，五支排程各自一次執行都不超過額度、�
   assert.deepEqual(brk && [brk.date, brk.status], [CALENDAR_BRK_DATE, "confirmed"]);
   const brkCheck = sql.prepare("SELECT COUNT(*) AS n FROM prices WHERE symbol = 'BRK-B' AND check_status = 'match'").get() as { n: number };
   assert.ok(brkCheck.n > 0, "BRK-B 沒有被 Nasdaq 核對到");
-  // 01:10 那支：收盤＋核對在同一次執行，核對要全部做完，不因額度略過 ETF。
+  // 02:00 那支：收盤＋核對在同一次執行，核對要全部做完，不因額度略過 ETF。
   const retry = sql.prepare("SELECT summary FROM runs WHERE job = 'crosscheck' ORDER BY id DESC LIMIT 1").get() as { summary: string };
   assert.ok(!retry.summary.includes("略過"), retry.summary);
 });
 
-test("Yahoo spark 整個掛掉時改逐檔補抓：額度夠就全部做完；額度緊時 01:10 的核對只用剩下的額度", async () => {
+test("Yahoo spark 整個掛掉時改逐檔補抓：額度夠就全部做完；額度緊時 02:00 的核對只用剩下的額度", async () => {
   const { db, sql } = await fullListDb();
   const { yahooSymbols, nasdaqCheckSymbols } = await import("../src/lib/universe.ts");
   const { loadWatchlist } = await import("../src/server/watchlist.ts");
@@ -139,7 +139,7 @@ test("Yahoo spark 整個掛掉時改逐檔補抓：額度夠就全部做完；�
     const p = prices.runs[0];
     assert.equal(p.status, "ok", p.summary);
     assert.equal(JSON.parse(p.detail).fallback.length, yahooCount, "每檔都要改逐檔補抓");
-    // 正常額度：01:10 那支收盤逐檔補抓完，核對也全部做完。
+    // 正常額度：02:00 那支收盤逐檔補抓完，核對也全部做完。
     const retry = await invokeCron("retry", db, sql);
     assertWithinLimit("retry（spark 掛掉）", retry);
     for (const run of retry.runs) assert.equal(run.status, "ok", `${run.job}: ${run.summary}`);

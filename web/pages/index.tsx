@@ -45,9 +45,6 @@ export default function Overview({ snapshot, dates, expectedClose, news, digests
           最新快照是 {s.tradeDate}，但 {expectedClose} 應該已收盤。最近一次抓價：{lastPriceRun ? `${lastPriceRun.summary}（${taipeiTime(lastPriceRun.finished_at)}）` : "沒有紀錄"}。
         </div>
       )}
-      {s.quality.missing.length > 0 && (
-        <div className="notice warn">缺少當日收盤：{s.quality.missing.join("、")}。部分數字尚未齊全。</div>
-      )}
       {s.quality.mismatches.length > 0 && (
         <div className="notice bad">收盤價來源不一致：{s.quality.mismatches.join("、")}。歸因數字可能有誤，詳見「資料來源」頁。</div>
       )}
@@ -188,10 +185,9 @@ export default function Overview({ snapshot, dates, expectedClose, news, digests
             </tfoot>
           </table>
         </div>
-        {(s.quality.notes.length > 0 || s.quality.missing.length > 0 || s.quality.pendingChecks.length > 0) && (
+        {(s.quality.notes.length > 0 || s.quality.pendingChecks.length > 0) && (
           <ul className="meta" style={{ marginTop: ".6rem", paddingLeft: "1.1rem" }}>
             {s.quality.notes.map((n) => <li key={n}>{n}</li>)}
-            {s.quality.missing.length > 0 && <li>缺少當日收盤：{s.quality.missing.join("、")}</li>}
             {s.quality.pendingChecks.length > 0 && <li>尚待第二來源核對：{s.quality.pendingChecks.join("、")}</li>}
           </ul>
         )}

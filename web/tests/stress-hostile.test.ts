@@ -47,7 +47,7 @@ function wrapSpark(edit: (result: any[]) => any[]) {
   return () => (globalThis.fetch = inner);
 }
 
-test("spark 只回一半代號：缺的逐檔補抓；01:10 那支的核對全部做完", async () => {
+test("spark 只回一半代號：缺的逐檔補抓；02:00 那支的核對全部做完", async () => {
   const { db, sql } = await fullListDb();
   const undo = wrapSpark((r) => r.filter((_, i) => i % 2 === 0));
   try {

@@ -193,10 +193,10 @@ struct EtfView: View {
                         .foregroundStyle(.secondary)
                         .accessibilityIdentifier("etf-details-\(r.ticker)")
                         .accessibilityHint("收盤、結構備註與近一年偏離")
-                        EtfFactsDisclosure(row: r, catalogAsOf: e.catalogAsOf)
                     }
-                    .buttonStyle(.borderless)
                     .padding(.vertical, 4)
+                    .listRowSeparator(.hidden, edges: .bottom)
+                    EtfFactsDisclosure(row: r, catalogAsOf: e.catalogAsOf)
                 }
             } header: {
                 Text("報酬（資料到 \(Fmt.fullDate(e.asOf))）")

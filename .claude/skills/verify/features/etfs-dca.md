@@ -55,7 +55,7 @@ Preconditions:
 
 ## Gotchas
 
-- 同一個 ETF List row 有細節與產品資料兩個 DisclosureGroup，row 使用 `.buttonStyle(.borderless)`，避免點其中一個時兩者一起展開。`test22_EtfDetails` 在一般與最大字級分別開關兩者，斷言另一邊仍收合並留下 `F1-facts-VOO-<size>.png`。
+- ETF 細節與產品資料各自使用獨立 List row，避免同一列的兩個 DisclosureGroup 連動；只加 `.buttonStyle(.borderless)` 仍會重現。`test22_EtfDetails` 在一般與最大字級分別開關兩者，斷言另一邊仍收合並留下 `F1-facts-VOO-<size>.png`。
 - App ETF 列預設只列代號與報酬、完整名稱，以及「發行商 · 費用 · 規模」次要灰字；點次要行（`etf-details-<ticker>`）展開收盤、結構備註與近一年偏離，再點可收合。大字時代號與報酬上下排列，名稱與次要行自然換行，報酬正負號與數值維持同一行。`test22_EtfDetails` 操作 VOO、SSO 的展開與收合，並檢查 SH 反向 ETF 報酬的幾何邊界；`test20_LargeTypeEtfAndLogin` 保留 VOO 代號／報酬高度與畫面邊界檢查；`test06_EtfsPlan` 操作試算及儲存並讀回 API。
 - 對照截圖用 `test21_ReadabilityPolish`：以 `TEST_RUNNER_MO_READING_VARIANT=light-normal` 或 `dark-largest` 選字級，外觀另用 `simctl ui` 設定；兩台指定 MO 模擬器依序拍 `polish-<variant>-etfs*.png`。一般字級首屏應比改前呈現更多完整 ETF，最大字級逐段捲動確認完整名稱與展開細節沒有截斷。
 

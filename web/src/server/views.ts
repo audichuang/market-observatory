@@ -11,6 +11,7 @@ import { PLAN_LIMITS } from "../lib/plan.ts";
 import { costScenario, parseCostQuery } from "../lib/costs.ts";
 import { TAX_CHECKLISTS } from "../lib/tax-facts.ts";
 import { overlapPreview, parseOverlapQuery } from "../lib/overlap.ts";
+import { weightsStaleNote } from "../lib/weights-age.ts";
 import { z } from "zod";
 import { type Viewer, getViewerSetting, settingKey, viewerWatchlist, watchlistKey } from "./account.ts";
 import { rebuildSnapshots, WATCHLIST_REBUILD_SESSIONS } from "./jobs.ts";
@@ -322,7 +323,11 @@ export async function etfsView(c: ViewCtx, v: Viewer) {
     today: new Date().toISOString().slice(0, 10),
   });
   const [list, { asOf, holdings }] = await Promise.all([loadWatchlist(c.env.DB, watchlistKey(v)), latestHoldings(c.env.DB)]);
-  const overlap = overlapPreview({ list, holdings, asOf, etf: ETFS.find((e) => e.ticker === computed.sim.etf)!, input: parseOverlapQuery((key) => c.req.query(key), list) });
+  // Holdings and their age stay outside the price cache, including when the scheduled close advances.
+  const overlap: ReturnType<typeof overlapPreview> & { weightsStale?: string | null } = {
+    ...overlapPreview({ list, holdings, asOf, etf: ETFS.find((e) => e.ticker === computed.sim.etf)!, input: parseOverlapQuery((key) => c.req.query(key), list) }),
+    weightsStale: weightsStaleNote(asOf, latestScheduledClose()),
+  };
   return { ...computed, plan, funding, costScenario: costs, checklists: TAX_CHECKLISTS, overlap };
 }
 

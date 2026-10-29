@@ -384,6 +384,9 @@ struct OverlapSection: View {
                 Text(note).font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            if let weightsStale = overlap.weightsStale {
+                Notice(kind: .warn, text: weightsStale).noticeRow()
+            }
             ForEach(Array((overlap.members ?? []).enumerated()), id: \.offset) { _, member in
                 VStack(alignment: .leading, spacing: 6) {
                     Text(member.company ?? member.key ?? "—").font(.headline)

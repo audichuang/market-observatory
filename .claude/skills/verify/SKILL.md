@@ -121,7 +121,7 @@ printf '%s' 'verify-<run-id>-pw' > "$RUN/user.pw"; chmod 600 "$RUN/user.pw"
 | `test03_History` | C2 區間、C3 快速連點、C4 標的選單、C6 點統計表的列 |
 | `test04_Watchlist` | D2 加入 AVGO、D4 ZZZZ、D5 已在名單、D6–D8 左滑與確認、D9 點公司 |
 | `test05_NewsCalendar` | E3 代號篩選、E4 快速連點、E5 點今天以後第一個事件日、換月、今天 |
-| `test06_EtfsPlan` | F2 期間、F3 試算、F3b 設為預設再讀回、F4 檢討門檻 150、F5 每批投入 |
+| `test06_EtfsPlan` | F2 期間、F3 試算、F3b 設為預設再讀回、F4 檢討門檻先全選再輸入 150 並斷言精確值、F5 每批投入 |
 | `test07_PushPrefs` | F8 關每日摘要、門檻 ±6.0%，離開再進來讀回，再改回 |
 | `test08_PushOpenDaily`、`test09_PushOpenEvents` | G1 前景橫幅、G2／G3 背景點開推播（要 shell 送推播，見下） |
 | `test12_Outlook` | H1 展望頁從上捲到底逐段截圖（`H1-outlook-NN.png`），斷言 dd5 與上漲兩個驗證區塊都在；文字存 `H1-outlook.txt` |
@@ -203,10 +203,10 @@ DROP TABLE verify_saved_digests;"
 
 寫或改 XCUITest 時的坑（`VerifyInteractionTests` 裡都有對應寫法，照抄）：
 
-- 只有登入欄位有 identifier（`email`、`password`、`submit`），其他用畫面上的中文 label；不知道 label 就跑 `test00_DumpTree` 或在 test 裡 `note(..., app.debugDescription)`。
+- 優先用已定義的 identifier：登入欄位是 `email`、`password`、`submit`；ETF 完成鍵是 `etfKeyboardDone`，成本與重疊欄位見 [ETF 功能地圖](features/etfs-dca.md)。其餘用畫面上的中文 label；不知道 label 就跑 `test00_DumpTree` 或在 test 裡 `note(..., app.debugDescription)`。
 - List 是 lazy 的：畫面外的列不在無障礙樹裡，`exists` 是 false。先捲到它出現（`reveal`）。
-- 數字鍵盤不會自己收，鍵盤擋住時清單也捲不動：按鍵盤上方的「完成」（取樹裡最後一個 label 為「完成」的按鈕）。
-- 清欄位：點欄位**右端**（`coordinate(withNormalizedOffset: (0.98, 0.5))`）再按 n+2 次刪除鍵；點中間時游標可能在字首，刪除鍵什麼都沒刪。
+- 數字鍵盤不會自己收，鍵盤擋住時清單也捲不動：ETF 每月投入、成本情境 sheet、重疊預覽「填金額」sheet 按畫面內底部操作列「完成」（identifier `etfKeyboardDone`，label「完成」），最大輔助字級也要能收鍵盤；「我的規劃」仍按鍵盤工具列的「完成」（取樹裡最後一個 label 為「完成」的按鈕）。
+- 清欄位：一般欄位沿用 `replaceText` 的右端點擊再按 n+2 次刪除鍵。「我的規劃」的「檢討門檻 ±%」右端點擊仍可能讓游標停在原值 20 前；`test06_EtfsPlan` 須點欄位與右端，等選取選單「全選」出現後點它，再刪除並輸入 `150`。斷言欄位值恰為 `150`，並保存 `F4-exit150.png`／`.txt` 的預期與實際值、儲存停用及範圍說明，不能只以儲存停用判定成功（`15020` 也會停用）。
 - Picker 選單的選項會跟頁面上同名按鈕撞名（ETF 頁的「標的」選單 VOO 與 ETF 列表的 VOO）：取 `allElementsBoundByIndex.last`。
 - sheet 開著時，後面的畫面仍在樹裡：名單 sheet 的 AVGO 列與總覽的 AVGO 列同名，用「label 不含 收盤」指名 sheet 那列。斷言畫面切換要看 `isHittable` 或 sheet 的導覽列消失，只看元素 `exists` 會被 sheet 後面的畫面騙。
 - `xcodebuild` 測完常卡著不退出（`ios-test.sh` 看到結果行 60 秒後會停掉它），所以 xcresult 可能不完整、沒有錄影。失敗時靠 test 自己存的截圖與 `fail-*.txt`／dump，比 xcresult 可靠。

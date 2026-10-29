@@ -2,6 +2,7 @@ import { Link, useNavigation, useRouter, useShared } from "@void/react";
 import { useEffect, useRef } from "react";
 import { auth } from "void/client";
 import PageSkeleton from "../src/ui/PageSkeleton.tsx";
+import { refreshPage } from "../src/ui/refresh.ts";
 import "../src/ui/styles.css";
 
 const NAV = [
@@ -64,7 +65,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     let hiddenAt = 0;
     const onVisibility = () => {
       if (document.visibilityState === "hidden") hiddenAt = Date.now();
-      else if (hiddenAt && Date.now() - hiddenAt > 10 * 60 * 1000) router.refresh();
+      else if (hiddenAt && Date.now() - hiddenAt > 10 * 60 * 1000) refreshPage(router);
     };
     document.addEventListener("visibilitychange", onVisibility);
     return () => document.removeEventListener("visibilitychange", onVisibility);

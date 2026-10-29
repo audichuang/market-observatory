@@ -1,0 +1,80 @@
+{
+  "appId": "6826800828",
+  "build": "202610291929",
+  "version": "1.0.0",
+  "sourceCommit": "94833c13a806bd1526a91d1aea36d3749f8c3c70",
+  "testedCommit": "af1ca4adcc242eed41a71f6eca667ac931d1d9bd",
+  "route": "ios/scripts/testflight.sh 本機封存與上傳",
+  "internalGroup": "自己",
+  "result": "READY",
+  "verification": [
+    "[1/5] build        PASS  202610291929 uploaded 2026-10-29T08:22:17-07:00",
+    "[2/5] processing   PASS  VALID",
+    "[3/5] beta state   PASS  IN_BETA_TESTING",
+    "[4/5] groups       PASS  自己",
+    "[5/5] ordering     PASS  no unexpired build above 202610291929",
+    "RESULT READY build=202610291929"
+  ],
+  "checks": {
+    "webTests": 616,
+    "iosUnitTests": 81,
+    "typecheck": "pass",
+    "devices": [
+      "MO iPhone 18 Pro Max",
+      "MO iPhone 16 Plus"
+    ],
+    "review": "第 3/3 輪 approve，無剩餘 Act on"
+  },
+  "backend": {
+    "url": "https://market-observatory.kzfvvwnwhp.workers.dev",
+    "deploy": "success",
+    "retry": [
+      {
+        "status": "ok",
+        "subrequests": 4,
+        "summary": "更新 23/23 檔；失敗 無；尚無 2026-10-28 收盤 無；新快照 2026-10-28 r3"
+      },
+      {
+        "status": "ok",
+        "subrequests": 20,
+        "summary": "核對 20 檔、220 筆；不一致 無；失敗 無"
+      },
+      {
+        "status": "ok",
+        "subrequests": 0,
+        "summary": "推播 0 則（0/0 台送達）；已發過 1 則"
+      }
+    ],
+    "crosscheck": [
+      {
+        "status": "ok",
+        "subrequests": 20,
+        "summary": "核對 20 檔、220 筆；不一致 無；失敗 無"
+      },
+      {
+        "status": "ok",
+        "subrequests": 0,
+        "summary": "已是最新"
+      }
+    ]
+  },
+  "evidenceRoot": "/Users/audichuang/.cache/mo-verify/release-20261029/evidence",
+  "archiveRoot": "/Users/audichuang/.cache/mo-releases/202610291929/testflight",
+  "actions": [
+    "合併 PR #42 與 #45",
+    "部署正式 Worker 與 5 支排程",
+    "本機封存並上傳 TestFlight",
+    "確認自己群組明確派發；未變更外部 Beta 群組、未讓舊 build 過期"
+  ],
+  "productionUI": {
+    "originalRevision": 1,
+    "vix": null,
+    "display": "—",
+    "missingNotice": false,
+    "retryTime": "台灣 10:00",
+    "temporaryAccountDeleted": true,
+    "ownerBrowserSessionRestored": true
+  },
+  "deviceCleanup": "兩台既有 MO 模擬器已關機保留，未新增或刪除裝置",
+  "recordedAt": "2026-10-29T16:00:59.118Z"
+}

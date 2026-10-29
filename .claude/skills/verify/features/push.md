@@ -42,5 +42,5 @@ Preconditions:
 
 - 未簽章的模擬器版註冊不了 APNs：設定頁頂端的「這個版本無法註冊推播（模擬器或未簽章版本）」與「這台裝置註冊失敗」是預期的，算 pass；真正的 APNs 送達只能在 TestFlight 版實機驗。
 - `simctl push` 不經過後端，驗的是 App 收到後的呈現與導向，不是收盤推播的排程邏輯（那個看 `npm test` 的 push 測試與 runs 紀錄）。
-- 收盤文字只標 `mismatch`：SPX 在 UTC 21:40 的 `prices` 工作由 Cboe 核對，摘要標題平常就可能帶標籤；名單個股到 UTC 22:50 的 `crosscheck` 才核對，平常送出時為 `pending`，只有 UTC 01:10 的 `retry` 先核對再送時，名單段或大漲大跌才可能帶標籤。正文變長時，iOS 兩行橫幅可能截掉最後項目，真機呈現未實測。
+- 收盤文字只標 `mismatch`：SPX 在 UTC 21:40 的 `prices` 工作由 Cboe 核對，摘要標題平常就可能帶標籤；名單個股到 UTC 22:50 的 `crosscheck` 才核對，平常送出時為 `pending`，只有 UTC 02:00 的 `retry` 先核對再送時，名單段或大漲大跌才可能帶標籤。正文變長時，iOS 兩行橫幅可能截掉最後項目，真機呈現未實測。
 - 點推播橫幅曾經閃退（async 版 `didReceive` 在非主執行緒呼叫 completion handler，SIGABRT），已改成 completion-handler 版並在主執行緒處理。G2、G3 每輪都要跑，並確認 `~/Library/Logs/DiagnosticReports` 沒有新的 MarketObservatory crash。

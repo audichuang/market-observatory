@@ -4,7 +4,8 @@
 
 ## Sub-features
 
-- `outlook-pick`（F6）：上漲機率＝API `outlook.pick.p`、基準率＝`outlook.pick.base.p`（顯示成 %）；dd5＝`outlook.drawdown.pick.p`、平常＝`outlook.drawdown.pick.base.p`，標題與「定義：」一行用上面的 dd5 定義。dd5「已計分」依 R2-5：G09 全域條件與今天所選 cell 的 offset 0 閘門都通過；「未通過驗證，只供參考」出現與否等於 `outlook.drawdown.scored === false`，且 API `outlook.drawdown.gate.failed` 非空、列出未通過原因（畫面不列原因）；退回基準率時 (d) 一律未過，p 照常顯示。P(up) 不顯著時的說法是「尚未偵測到增額預測力」（自然頻率句；沒有收縮、採歷史基準率時主數字下方那行也有），不出現「與平常差不多」。
+- `outlook-pick`（F6）：上漲機率＝API `outlook.pick.p`、基準率＝`outlook.pick.base.p`（顯示成 %）；dd5＝`outlook.drawdown.pick.p`、平常＝`outlook.drawdown.pick.base.p`，網頁標題與「定義：」一行用上面的 dd5 定義，App 定義在「機率與模型說明」。dd5「已計分」依 R2-5：G09 全域條件與今天所選 cell 的 offset 0 閘門都通過；「未通過驗證，只供參考」出現與否等於 `outlook.drawdown.scored === false`，且 API `outlook.drawdown.gate.failed` 非空、列出未通過原因（畫面不列原因）；退回基準率時 (d) 一律未過，p 照常顯示。P(up) 不顯著時的說法是「尚未偵測到增額預測力」（自然頻率句；沒有收縮、採歷史基準率時主數字下方那行也有），不出現「與平常差不多」。
+- `outlook-app-reading`：App 比較摘要依各自 `pick.distinct`，true 才顯示「估計比平常高／低」；上漲段為 false 或 nil 時省略摘要行，下跌段保留「尚未偵測到與平常的差別」。兩個目標的定義與自然頻率句移入「機率與模型說明」；不新增百分點門檻。
 - `outlook-validation`：兩個分開標目標的滾動驗證區塊。網頁 KPI「跌幅機率（dd5）滾動驗證 BSS」主數字＝API `phaseSummary.dd5.mean`、「上漲機率滾動驗證 BSS」＝`phaseSummary.up.mean`（三位小數），附「相位平均（21 個起始相位）」、各目標 `low`～`high`、資料截至 `phaseSummary.asOf` 與模型 `phaseSummary.modelVersion`。另一行「單一相位（offset 0）」各自對 `outlook.drawdown.evaluation`／`outlook.evaluation`，dd5 註明「『已計分』判定用這個」、上漲註明「方向判定用這個」。摘要或目標為 null 時，KPI 退回 offset 0 並寫「相位平均尚未計算」。兩個面板標題仍為「滾動驗證：跌幅機率（dd5）」「滾動驗證：上漲機率」，內文首行為「單一相位（offset 0）」。App 同名 DisclosureGroup 展開後首行顯示相位平均數字、區間、資料日與版本，原 BSS 列標「BSS（單一相位 offset 0）」；兩個目標都不列命中率，API 與 App Codable 的 `hitRate`、`baseHitRate` 保留。區間標「歷史平均預測力 95% 區間（不是今天這個數字的區間）」。
 - `outlook-intervals`：條件比例的區間（主數字下方、評估項「差異」、條件表表頭）標「這類時期的歷史比例 95% 區間」，跟 BSS 的預測力區間分名。
 - `outlook-conditions`：條件表、目前條件有標記。
@@ -18,7 +19,10 @@
 - `outlook-strategists`：投行年底目標價表。中位數＝API `strategists.median`、家數＝`medianCount`（一家一票、只算年底目標：UBS GWM 與 Wells Fargo Investment Institute 標「不計入中位數」）；每列有「資料日期」、「已核對原文」或「媒體轉述，待原文核對」標章，資料日期超過 `staleAfterDays`（45）天的列標「待重新核對」（中性灰，不是紅綠）；WFII 顯示「區間 7,800–8,000 的中點」；註腳有一家一票規則與全表核對日 `checked`。App 同一區塊用小字列出同樣的標章。
 - `outlook-overview-card`：總覽卡片先列 dd5，再列上漲機率；只在看最新日且有 forecast 時顯示，數字取已存預測，不重算。卡片「資料日」取 `/api/v1/overview` 的 `forecast.trade_date`（網頁 `dateWithWeekday`、App `Fmt.fullDate`）；早於 `snapshot.data.tradeDate` 時顯示橘色「待更新」與完整說明。展望頁用最新資料即時試算，可能與卡片不同。
 
-- `outlook-disclosure`：App 的下跌風險與上漲展望分區呈現，本次估計與歷史基準並列並標出百分點差；大字時自動直排。模型判斷（含「偵測不到預測力」）與整體模型限制 `globalCaveat` 預設可見；「機率與模型說明」與兩個滾動驗證可展開查看細節。`test12_Outlook` 操作三個區塊展開與收合；本機 `globalCaveat` 有值時用 `test17_OutlookCaveatVisibleByDefault` 確認方法區塊仍收合時已能看到限制。
+- `outlook-disclosure`：App 下跌風險與上漲展望都依「標題 → 本次估計與歷史基準 → 比較摘要（上漲段僅 distinct 為 true）→ 模型狀態／警示」排序；大字時數字自動直排。「未通過驗證，只供參考」、模型判斷、整體模型限制 `globalCaveat` 與定投提醒預設可見。「機率與模型說明」是兩段之後的共用展開區，依下跌風險、上漲展望列定義與頻率（`outlook-dd5-definition`／`outlook-up-definition`、`outlook-dd5-frequency`／`outlook-up-frequency`），再列原有模型細節。`test12_Outlook` 驗定義、頻率預設收合，操作說明與兩個滾動驗證展開／收合；`test17_OutlookCaveatVisibleByDefault` 檢查可見限制。
+- `outlook-readability`：`test21_ReadabilityPolish` 拍 `polish-<variant>-outlook-collapsed-*.png`、`outlook-model-collapsed.png`、`outlook-expanded-*.png`，小幅捲動覆蓋兩段摘要、警示及展開後兩段定義／頻率。使用同 ETF 的裝置／字級矩陣，逐張看文字、數字與 tab bar 邊界；只重驗展望時設定 `TEST_RUNNER_MO_POLISH_SCREEN=outlook`，跳過 ETF 與總覽。
+- `outlook-expanded-reading`：`test25_OutlookExpandedReading` 用相同矩陣重拍展開區直到報酬分位數及長註腳（`outlook-quantiles`／`outlook-quantile-meta`）完整進入畫面，再捲到「差異」評估列，拍 `polish-<variant>-outlook-assessment.png`。評估列兩段文字完整換行，OCR 限定在該列像素範圍，檢查 AX 提供的區間上下限均可見且沒有省略號，結果存 `outlook-assessment-ocr.txt`。證據沿用 `polish-<variant>-outlook-expanded-*.png`。跨頁閱讀回歸 `test16_Readability` 以摘要標題等待資料，並確認定義只在展開後出現。
+- `outlook-unvalidated`：`test24_UnvalidatedDrawdownWarning` 檢查 `drawdown.scored=false` 時，一般與最大字級的「未通過驗證，只供參考」在模型說明收合時仍可讀。若本機完整歷史資料算出 true，先備份並暫時移開 `prices` 中 SPX／VIX 早於 2025-10-01 的真實歷史資料，bump `data_version`，讀 API 確認 false 才跑；完成或失敗都還原資料並再次 bump 版本。這只是本機資料準備，不改模型門檻。
 
 ## How to get to it (user POV)
 

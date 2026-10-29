@@ -8,7 +8,7 @@
 - `dca-simulate`（F3）：選 ETF、年數、每月金額按「試算」，結果＝`/api/v1/etfs?etf=…&years=…&monthly=…` 的 `dca`；沒存前按鈕是「設為我的預設」。
 - `dca-funding`：試算的「期間」後選「資金類型」；預設「每月新收入」只列投入月數、目前市值與最大帳面虧損，附不列一次投入對照的說明。「期初已有整筆資金」列期初資金、一次投入（首筆日期全部買入）、分 N 個月投入與分批的最大帳面虧損，附期初資金前提與未投入現金不計利息。切換只影響呈現，`dca` 數字不變。
 - `etf-facts`（#11，C-02、R1-5）：ETF 表格代號欄與窄螢幕卡片加 `<details><summary>產品資料</summary>`，展開顯示註冊地、配息、ISIN（查不到顯示「未查核」）、費用率（淨／總與查核日）、倍數（1x 顯示「1x，不每日重設」，其他顯示「{n}x，每日重設」或「反向 {n}x，每日重設」）、出處連結與查閱日、以及證據邊界句。定投試算面板依所選標的倍數顯示 1x 證據邊界（`EVIDENCE_1X`，一般樣式）或槓桿／反向證據邊界（`EVIDENCE_LEVERAGED`，警示樣式）。
-- `etf-facts-app`（#11，C-02、R1-5）：App 每列名稱、費用與備註之後有 DisclosureGroup「產品資料」，內容與網頁相同，出處用 Link；定投試算 Section 依「標的」Picker 的選擇顯示 `Copy.evidence1x`（一般文字）或 `Copy.evidenceLeveraged`（Notice 警示），即使歷史資料不足也會顯示。資料與證據文字可隨輔助字級換行。
+- `etf-facts-app`（#11，C-02、R1-5）：App 每列名稱與「發行商 · 費用 · 規模」展開行下方有 DisclosureGroup「產品資料」；上方展開行提供收盤、結構備註與近一年偏離，兩個展開項各自獨立。「產品資料」內容與網頁相同，出處用 Link；定投試算 Section 依「標的」Picker 的選擇顯示 `Copy.evidence1x`（一般文字）或 `Copy.evidenceLeveraged`（Notice 警示），即使歷史資料不足也會顯示。資料與證據文字可隨輔助字級換行。
 - `dca-monthly-minimum`：正數月額取整後至少 1 元，儲存端拒絕 0；舊規劃的月額 0 讀成預設 10000，其餘欄位與資料庫原值保留。
 - `dca-save-feedback`：儲存預設與規劃時停用送出按鈕；HTTP 或網路失敗顯示 `role="alert"` 紅字，儲存預設保留伺服器具體錯誤（如登入過期、欄位錯誤）；即時欄位驗證用 `role="status"`。
 - `dca-save-default`（F3b）：「設為我的預設」後 API `plan` 是那組值，離開再進來仍是；之後改回 VOO／3 年／10000。
@@ -55,7 +55,9 @@ Preconditions:
 
 ## Gotchas
 
-- App ETF 列將名稱、費用率、規模及備註分行，大字時代號與報酬上下排列，報酬正負號與數值維持同一行；用 `test16_Readability` 的 `etfs`、`etfs-reading` 與規劃截圖檢查一般／最大字級，`test20_LargeTypeEtfAndLogin` 比較同樣 headline 的 VOO 代號／報酬高度，檢查報酬單行且不超出畫面；再用 `test06_EtfsPlan` 操作與 API 讀回確認試算及儲存。
+- ETF 細節與產品資料各自使用獨立 List row，避免同一列的兩個 DisclosureGroup 連動；只加 `.buttonStyle(.borderless)` 仍會重現。`test22_EtfDetails` 在一般與最大字級分別開關兩者，斷言另一邊仍收合並留下 `F1-facts-VOO-<size>.png`。
+- App ETF 列預設只列代號與報酬、完整名稱，以及「發行商 · 費用 · 規模」次要灰字；點次要行（`etf-details-<ticker>`）展開收盤、結構備註與近一年偏離，再點可收合。大字時代號與報酬上下排列，名稱與次要行自然換行，報酬正負號與數值維持同一行。`test22_EtfDetails` 操作 VOO、SSO 的展開與收合，並檢查 SH 反向 ETF 報酬的幾何邊界；`test20_LargeTypeEtfAndLogin` 保留 VOO 代號／報酬高度與畫面邊界檢查；`test06_EtfsPlan` 操作試算及儲存並讀回 API。
+- 對照截圖用 `test21_ReadabilityPolish`：以 `TEST_RUNNER_MO_READING_VARIANT=light-normal` 或 `dark-largest` 選字級，外觀另用 `simctl ui` 設定；兩台指定 MO 模擬器依序拍 `polish-<variant>-etfs*.png`。一般字級首屏應比改前呈現更多完整 ETF，最大字級逐段捲動確認完整名稱與展開細節沒有截斷。
 
 - 「試算」按鈕在金額沒變時停用。
 - 規劃存在 D1 `settings`，每個帳號各一份；改完一定要改回並讀回，下一個功能才從基準開始。

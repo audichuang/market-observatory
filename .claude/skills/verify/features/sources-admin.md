@@ -4,6 +4,7 @@
 
 ## Sub-features
 
+- `sources-retry-schedule`：收盤補抓時間顯示「隔日 UTC 02:00（台灣 10:00）」，對應週二至六 UTC 02:00 的 retry 排程。
 - `sources-page`：各區塊（手動執行、排程、SPY 持股檔、新聞 AI（本機排程）、資料性質、各標的最新資料、執行紀錄）有內容；「資料性質」列三條註記（Yahoo／Nasdaq 是非官方端點、價格不含股息、策略師目標表人工維護）；「近 60 天來源不一致」只在有不一致時才出現，沒出現不算 fail。
 - `sources-weights-stale`：最新 SPY 持股落後 `latestScheduledClose()` 超過 2 個 NYSE 交易日時，「SPY 持股檔」標題下顯示共用的「權重未更新：最新 SPY 持股停在 …」橘色警示。weights 工作則以 `latestExpectedClose()` 判斷，過期檔仍寫入，執行狀態為 partial、摘要開頭帶同一警示。
 - `sources-ai-status`：新聞 AI 三行列每日重點（最近一次狀態、時間、計數 summary、最後完整成功、最新交易日大盤重點是否寫入）、標題翻譯（最近一次、最後完整成功、待翻譯筆數與最早抓取時間）、新聞來源（最後成功抓取）。結果以 D1 為準，AI 匯入後重新載入即更新；沒有快照或執行紀錄時顯示尚無資料。
@@ -23,7 +24,7 @@ Preconditions:
 
 - 基準狀態。站長在 ego-browser 登入要用 `$RUN/owner.pw` 的密碼：在腳本裡用 `fs.readFile` 讀檔填進欄位，不要印出來。
 
-- **站長頁面。** 站長登入後 `goto("/sources")`，等 `text=資料來源與品質`；截圖 `sources.png`。執行紀錄最上面幾筆是 `web-up.sh` 跑的回補與排程。
+- **站長頁面。** 站長登入後 `goto("/sources")`，等 `text=資料來源與品質`；確認收盤補抓時間是「隔日 UTC 02:00（台灣 10:00）」，截圖 `sources.png`。執行紀錄最上面幾筆是 `web-up.sh` 跑的回補與排程。
 - **手動執行。** 按鈕是工作的中文名稱（「抓收盤價」「SPY 持股權重」「財報與總經日程」…；兩個推播工作是「發送收盤推播」「發送今日事件推播」）：點 `button:text-is("SPY 持股權重")`，按鈕變「執行中…」，結束後上方出現「SPY 持股權重：成功 …」、執行紀錄多一筆。截圖 `sources-manual-run.png`。
 - **權重未更新。** 沿用 `overview.md` 的舊持股準備與還原步驟，開 `/sources`，確認「SPY 持股檔」標題下有 `notice warn`，警示以排程應有日期為目標，與 `/watchlist` 逐字相同；存 `sources-weights-stale.png`。還原後確認消失。過期 xlsx 的 partial 與摘要由 `tests/weights-replace.test.ts` 合成驗證。
 - **相位平均。** 點 `button:text-is("展望相位平均")`，執行紀錄出現成功；讀 `/api/v1/outlook` 留下 `phaseSummary`，再執行一次，摘要「已是最新」且 API computedAt 不變。交叉核對排程的本機／部署後 API 對帳須含兩個工作，確認 `forecast-phase` status ok、detail.subrequests = 0；留 `sources-forecast-phase.png` 與 API JSON。

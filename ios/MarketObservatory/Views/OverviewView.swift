@@ -153,9 +153,8 @@ struct OverviewView: View {
         if let row = o.snapshot {
             let s = row.data
             List {
-                notices(o, s)
-
                 Section {
+                    notices(o, s)
                     IndexHero(s: s, createdAt: row.createdAt)
                     if let m = o.market {
                         MarketDigestCard(digest: m)

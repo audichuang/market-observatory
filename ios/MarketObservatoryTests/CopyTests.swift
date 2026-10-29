@@ -136,4 +136,25 @@ struct CopyTests {
         #expect(!template.contains("公司 IR"))
         #expect(template.hasPrefix("Broadcom（AVGO）研究表 2026-10-28\nSEC 申報：https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=AVGO&owner=include&count=40\n\n1. 企業驅動："))
     }
+
+    @Test @MainActor func probabilityComparisonUsesModelDistinctness() {
+        #expect(ProbabilityComparison(probability: 0.651, baseline: 0.65, distinct: true).comparisonSummary == "估計比平常高")
+        #expect(ProbabilityComparison(probability: 0.649, baseline: 0.65, distinct: true).comparisonSummary == "估計比平常低")
+    }
+
+    @Test @MainActor func undetectedDifferenceDoesNotImplyEquivalence() {
+        for distinct in [false, nil] as [Bool?] {
+            for probability in [0.5, 0.6, 0.7] {
+                #expect(ProbabilityComparison(probability: probability, baseline: 0.6, distinct: distinct).comparisonSummary == "尚未偵測到與平常的差別")
+            }
+        }
+    }
+
+    @Test @MainActor func comparisonSummaryCanBeHiddenWithoutChangingDefault() {
+        for distinct in [true, false, nil] as [Bool?] {
+            #expect(ProbabilityComparison(probability: 0.65, baseline: 0.6, distinct: distinct,
+                                          showsSummary: false).comparisonSummary == nil)
+            #expect(ProbabilityComparison(probability: 0.65, baseline: 0.6, distinct: distinct).comparisonSummary != nil)
+        }
+    }
 }

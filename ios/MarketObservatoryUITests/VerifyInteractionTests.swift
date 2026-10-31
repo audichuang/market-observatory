@@ -1137,6 +1137,34 @@ final class VerifyInteractionTests: XCTestCase {
         snap("UX-06-history-compare-dark"); self.note("UX-06-history-compare-dark", texts(app))
     }
 
+    /// UX-07: clearing a far-right filter never requires scrolling back to the left.
+    func testUX07_PinnedAllFilter() throws {
+        for (size, arguments) in [
+            ("normal", [String]()),
+            ("largest", ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]),
+        ] {
+            let app = try signedIn(arguments: arguments)
+            tab(app, "新聞")
+            let all = app.buttons["全部"]
+            XCTAssertTrue(all.waitForExistence(timeout: 15))
+            let filters = app.scrollViews["news-symbol-filters"]
+            let tsla = app.buttons["TSLA"]
+            for _ in 0 ..< 5 where !tsla.isHittable { filters.swipeLeft() }
+            XCTAssertTrue(tsla.isHittable); tsla.tap()
+            XCTAssertTrue(tsla.isSelected)
+            XCTAssertFalse(all.isSelected)
+            XCTAssertTrue(all.isHittable, "選取最右側代號後，全部仍須可直接點選")
+            XCTAssertGreaterThanOrEqual(all.frame.minX, 0)
+            XCTAssertLessThanOrEqual(all.frame.maxX, filters.frame.minX)
+            snap("UX-07-filtered-\(size)")
+            all.tap()
+            XCTAssertTrue(all.isSelected, "點全部應清除篩選")
+            XCTAssertFalse(tsla.isSelected)
+            snap("UX-07-all-\(size)"); note("UX-07-all-\(size)", texts(app))
+            app.terminate()
+        }
+    }
+
     func test11_DeleteAccount() throws {
         let app = try signedIn()
         tab(app, "更多"); open(app, "帳號")

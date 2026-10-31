@@ -315,7 +315,20 @@ final class VerifyInteractionTests: XCTestCase {
         XCTAssertTrue(day.waitForExistence(timeout: 5), "日曆找不到事件日 \(eventDate)"); note("E5-day-label", "date=\(eventDate)\n" + day.label)
         day.tap(); sleep(1)
         snap("E5-day"); note("E5-day", "date=\(eventDate)\n" + texts(app))
-        app.buttons["下個月"].tap(); sleep(1); snap("E5-next-month")
+        app.buttons["下個月"].tap()
+        let eventYear = Int(eventDate.prefix(4))!, eventMonth = Int(eventDate.dropFirst(5).prefix(2))!
+        let nextMonth = eventMonth == 12 ? 1 : eventMonth + 1
+        let nextYear = eventMonth == 12 ? eventYear + 1 : eventYear
+        let selectedDate = String(format: "%04d-%02d-01", nextYear, nextMonth)
+        let selected = app.buttons["calendar-day-\(selectedDate)"]
+        XCTAssertTrue(selected.waitForExistence(timeout: 5))
+        XCTAssertTrue(selected.isSelected, "換月後應選取新月份第一天")
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", dayPrefix(selectedDate))).firstMatch.exists, "事件標題應跟著換月")
+        snap("E5-next-month"); note("E5-next-month", "selected=\(selectedDate)\n" + texts(app))
+        app.buttons["上個月"].tap()
+        let previousDate = String(eventDate.prefix(7)) + "-01"
+        XCTAssertTrue(app.buttons["calendar-day-\(previousDate)"].isSelected, "往回換月也應同步選取")
+        snap("E5-previous-month")
         XCTAssertTrue(app.buttons["今天"].waitForExistence(timeout: 3), "換月後沒有「今天」")
         app.buttons["今天"].tap(); sleep(1); snap("E5-today")
     }

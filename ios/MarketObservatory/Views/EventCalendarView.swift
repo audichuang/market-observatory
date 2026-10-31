@@ -193,8 +193,10 @@ struct EventCalendarView: View {
     }
 
     private func go(_ n: Int) {
+        let next = shown.adding(n)
         withAnimation(.easeInOut(duration: 0.2)) {
-            month = shown.adding(n)
+            month = next
+            selected = max("\(next.key)-01", range.lowerBound)
         }
     }
 

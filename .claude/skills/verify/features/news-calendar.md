@@ -13,7 +13,7 @@
 - `news-list`（E1）：標題、來源、時間。網頁與 App 都把 `important: true` 的新聞排前面，其餘收在「其他 N 則」：第一筆＝API `/api/v1/news` 的 `news` 裡**第一個 `important` 為 true** 的 `title`（不是 `news[0]`）。
 - `news-open`（E2）：點新聞開原文，回來時列表位置合理。
 - `news-filter`（E3、E4）：代號篩選只剩該代號新聞；總則數（重要＋「其他 N 則」）＝`?symbol=` 的 API `news` 筆數，第一筆同 E1 規則；快速連點停在最後一個。
-- `calendar-month`（E5）：App 月曆週日開頭、今天有外圈；有事件的日子有點（總經紅點：FOMC／CPI／非農；財報藍點）與圖例；點某天列出當天事件；換月、回「今天」；「接下來」列表點一列選到那天。
+- `calendar-month`（E5）：App 月曆週日開頭、今天有外圈；有事件的日子有點（總經紅點：FOMC／CPI／非農；財報藍點）與圖例；點某天列出當天事件；換月同步選取新月份第一個可選日、更新當日事件（UX-03），回「今天」；「接下來」列表點一列選到那天。
 - `calendar-web`：網頁 `/news` 的「即將到來」事件列表；總經事件有 FOMC、CPI（如 11/10「CPI 消費者物價指數（2026 年 10 月）」）與非農（如 11/6「非農就業報告（2026 年 10 月）」）。
 - `calendar-earnings-status`：Nasdaq earnings-date 備援回應命中 `estimated|derived from an algorithm` 時維持 `estimated`／「Zacks 推估」；其餘是 `expected`，網頁與 App 日曆顯示橘色「預期」。財報日曆列仍是 `confirmed`／「公司已公布」。事件推播與站長 events 工作摘要對 `expected` 加「（預期）」。
 - `news-refresh`（E6）：App 下拉重新整理只有一個轉圈。
@@ -32,7 +32,7 @@ Preconditions:
 - **列表。** `goto("/news")`，等 `text=新聞與事件日曆`；`fetch("/api/v1/news")`，畫面第一筆＝`news.find(n => n.important).title`。截圖 `news-list.png`。
 - **篩選。** 點代號篩選 `a.chip:text-is("NVDA")`（頁面上另有 `.mono` 的同名連結，`text=NVDA` 會對到多個），網址出現 `symbol=NVDA`；第一筆＝`fetch("/api/v1/news?symbol=NVDA")` 裡第一個 important 的，總則數＝該 API 的 `news.length`。截圖 `news-nvda.png`。
 - **App 列表與篩選。** `ios-test.sh … VerifyInteractionTests/test05_NewsCalendar`：`E3-nvda.txt` 對 `?symbol=NVDA` 的 API、`E4-rapid.txt` 停在 TSLA。
-- **App 日曆。** walkthrough 的 `05b-calendar.png`、`05c-calendar-day.png`；test05 的 `E5-day-label.txt`、`E5-day.png`／`.txt`（點的是 `ios-test.sh` 傳入的 `MO_EVENT_DATE`，檔案第一行記日期）、`E5-next-month.png`、`E5-today.png`。核對點的顏色與當天事件數＝API `events` 該日期的筆數。label 有兩種，要指名對的那個：月曆的日期格是「10/28（三），有總經事件，有財報」（逗號分隔），「接下來」列表的列是「10/28（三）、MSFT、Microsoft 財報、2 天後」（頓號分隔）；`label CONTAINS '10/28'` 會先對到「接下來」那列，test05 用「`M/D（` 開頭且不含 `、`」指名日期格。
+- **App 日曆。** walkthrough 的 `05b-calendar.png`、`05c-calendar-day.png`；test05 的 `E5-day-label.txt`、`E5-day.png`／`.txt`（點的是 `ios-test.sh` 傳入的 `MO_EVENT_DATE`，檔案第一行記日期）、`E5-next-month.png`／`.txt`（新月第一天 selected 與事件標題一致）、`E5-previous-month.png`（回前月亦同步）、`E5-today.png`。核對點的顏色與當天事件數＝API `events` 該日期的筆數。label 有兩種，要指名對的那個：月曆的日期格是「10/28（三），有總經事件，有財報」（逗號分隔），「接下來」列表的列是「10/28（三）、MSFT、Microsoft 財報、2 天後」（頓號分隔）；`label CONTAINS '10/28'` 會先對到「接下來」那列，test05 用「`M/D（` 開頭且不含 `、`」指名日期格。
 - **預期財報日。** 先讀 `/api/v1/news`，找未來三週內 `kind="earnings"`、`status="expected"` 的事件；若沒有，只在本機 worktree D1 執行 `CREATE TABLE verify_saved_event AS SELECT * FROM events WHERE kind='earnings' AND date>=date('now') AND date<=date('now','+21 days') LIMIT 1; UPDATE events SET status='expected' WHERE id IN (SELECT id FROM verify_saved_event);`。暫存表已存在時先完成上一輪還原；沒有可用事件就回報缺資料。變更後 bump `settings.data_version`，重新載入並存 API JSON；網頁 `/news`「即將到來」、App「新聞 → 日曆」選到該日，核對同一列的橘色「預期」，截圖 `news-expected.png`、`calendar-expected.png`。沿用這筆事件驗 [總覽事件列](overview.md)；有建立暫存表時，成敗都執行 `UPDATE events SET status=(SELECT status FROM verify_saved_event WHERE verify_saved_event.id=events.id) WHERE id IN (SELECT id FROM verify_saved_event); DROP TABLE verify_saved_event;` 還原並再次 bump。iOS 全程使用全域模擬器鎖，沿用本輪已開的 MO 機；首次啟動或換機才依 [verify 的 Launch](../SKILL.md) 執行 `ios-up.sh <run-id> <機型>`。整輪驗證結束後才依 [verify 的 Cleanup](../SKILL.md) 執行 `down.sh <run-id>` 一次。
 - **Proof。** `news-list.png`、`news-nvda.png`、API JSON、App 的 E3／E4／E5 截圖與 `.txt`。
 

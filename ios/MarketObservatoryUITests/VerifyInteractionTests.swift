@@ -1165,6 +1165,30 @@ final class VerifyInteractionTests: XCTestCase {
         }
     }
 
+    /// UX-05: the first screen offers a direct route to the simulator and back.
+    func testUX05_EtfSectionShortcuts() throws {
+        let app = try signedIn()
+        tab(app, "更多"); open(app, "ETF 與定投試算")
+        let jump = app.buttons["etf-jump-dca"]
+        XCTAssertTrue(jump.waitForExistence(timeout: 15))
+        XCTAssertTrue(jump.isHittable, "首屏須可直接前往定投試算")
+        snap("UX-05-etfs-top")
+        jump.tap()
+        let monthly = app.textFields["每月投入"]
+        XCTAssertTrue(monthly.waitForExistence(timeout: 5))
+        XCTAssertTrue(monthly.isHittable, "捷徑應直接顯示試算表單")
+        snap("UX-05-dca"); note("UX-05-dca", texts(app))
+        app.buttons["etf-jump-overlap"].tap()
+        let overlap = app.staticTexts["與觀察名單的重疊"]
+        XCTAssertTrue(overlap.waitForExistence(timeout: 5), "重疊捷徑應顯示該區標題")
+        XCTAssertTrue(overlap.isHittable)
+        snap("UX-05-overlap"); note("UX-05-overlap", app.debugDescription)
+        app.buttons["etf-jump-products"].tap()
+        XCTAssertTrue(app.buttons["1Y"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["1Y"].isHittable)
+        snap("UX-05-products-return")
+    }
+
     func test11_DeleteAccount() throws {
         let app = try signedIn()
         tab(app, "更多"); open(app, "帳號")

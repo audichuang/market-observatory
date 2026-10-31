@@ -404,6 +404,10 @@ struct OverlapSection: View {
 
     var body: some View {
         Section {
+            Text("與觀察名單的重疊")
+                .font(.headline)
+                .fixedSize(horizontal: false, vertical: true)
+                .id("etf-overlap")
             ForEach(overlap.notes ?? [], id: \.self) { note in
                 Text(note).font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -439,9 +443,6 @@ struct OverlapSection: View {
             if overlap.applicable == true, let exposure = overlap.exposure {
                 result(exposure)
             }
-        } header: {
-            Text("與觀察名單的重疊")
-                .fixedSize(horizontal: false, vertical: true)
         }
     }
 

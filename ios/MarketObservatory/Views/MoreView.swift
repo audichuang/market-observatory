@@ -64,22 +64,27 @@ struct EtfView: View {
     @FocusState private var monthlyFocused: Bool
 
     var body: some View {
-        Loadable(state: state, retry: load) { e in content(e) }
-            .navigationTitle("ETF 與定投")
-            .toolbar {
-                if state.value != nil {
-                    Button("我的規劃") { editing = true }
-                }
+        ScrollViewReader { proxy in
+            VStack(spacing: 0) {
+                if let e = state.value { sectionLinks(e, proxy: proxy) }
+                Loadable(state: state, retry: load) { e in content(e) }
             }
-            .sheet(isPresented: $editing) {
-                if let e = state.value {
-                    PlanEditor(plan: e.plan) { saved in
-                        editing = false
-                        if saved { Task { await load() } }
+                .navigationTitle("ETF 與定投")
+                .toolbar {
+                    if state.value != nil {
+                        Button("我的規劃") { editing = true }
                     }
                 }
-            }
-            .task { if state.value == nil { await load() } }
+                .sheet(isPresented: $editing) {
+                    if let e = state.value {
+                        PlanEditor(plan: e.plan) { saved in
+                            editing = false
+                            if saved { Task { await load() } }
+                        }
+                    }
+                }
+                .task { if state.value == nil { await load() } }
+        }
     }
 
     private func load() async {
@@ -154,6 +159,7 @@ struct EtfView: View {
                     ForEach(["YTD"] + e.periods, id: \.self) { Text($0).tag($0) }
                 }
                 .pickerStyle(.segmented)
+                .id("etf-products")
                 ForEach(e.rows) { r in
                     VStack(alignment: .leading, spacing: 6) {
                         let headerLayout = typeSize.isAccessibilitySize
@@ -212,6 +218,9 @@ struct EtfView: View {
             }
 
             Section {
+                Text("\(e.sim.etf) 定投 \(e.sim.years) 年（台幣計價）")
+                    .font(.headline)
+                    .id("etf-dca")
                 Picker("標的", selection: Binding(get: { simEtf ?? e.sim.etf }, set: { v in
                     simEtf = v
                     Task { await load() }
@@ -339,8 +348,6 @@ struct EtfView: View {
                 }
                 .disabled(isDefault(e) || savingDefault)
                 if let defaultError { Notice(kind: .bad, text: "沒有存到：\(defaultError)").noticeRow() }
-            } header: {
-                Text("\(e.sim.etf) 定投 \(e.sim.years) 年（台幣計價）")
             } footer: {
                 Text("\(e.dca?.firstBuyDate.map { "試算起點 \(Fmt.fullDate(e.sim.startDate))，首筆 \(Fmt.fullDate($0))。" } ?? "")\(Copy.dcaBuyRule)；\(Copy.dcaFxRule)。不含配息、手續費、換匯價差與稅。改標的、期間或金額只是試算，按「設為我的預設」才會存起來。\(e.fxLast.map { "最新匯率 \(Fmt.num($0.close, 3))（\(Fmt.fullDate($0.date))）。" } ?? "")")
             }
@@ -376,6 +383,27 @@ struct EtfView: View {
                 EtfKeyboardBar { monthlyFocused = false }
             }
         }
+    }
+
+    private func sectionLinks(_ e: Etfs, proxy: ScrollViewProxy) -> some View {
+        let layout = typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
+            : AnyLayout(HStackLayout(spacing: 8))
+        return layout {
+            Button("產品比較") { proxy.scrollTo("etf-products", anchor: .top) }
+                .accessibilityIdentifier("etf-jump-products")
+            Button("定投試算") { proxy.scrollTo("etf-dca", anchor: .top) }
+                .accessibilityIdentifier("etf-jump-dca")
+            if e.overlap != nil {
+                Button("重疊") { proxy.scrollTo("etf-overlap", anchor: .top) }
+                    .accessibilityIdentifier("etf-jump-overlap")
+            }
+        }
+        .buttonStyle(.bordered)
+        .font(.subheadline)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 20).padding(.vertical, 8)
+        .background(.bar)
     }
 }
 

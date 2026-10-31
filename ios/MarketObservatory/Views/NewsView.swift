@@ -80,15 +80,20 @@ struct NewsView: View {
                 .pickerStyle(.segmented)
                 .cardRow()
                 if section == 0 {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 6) {
-                            Chip(text: "全部", selected: symbol == nil) { symbol = nil }
-                            ForEach(p.keys, id: \.self) { k in
-                                Chip(text: k, selected: symbol == k) { symbol = k }
+                    HStack(alignment: .top, spacing: 8) {
+                        Chip(text: "全部", selected: symbol == nil) { symbol = nil }
+                            .fixedSize()
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 6) {
+                                ForEach(p.keys, id: \.self) { k in
+                                    Chip(text: k, selected: symbol == k) { symbol = k }
+                                }
                             }
+                            .padding(.trailing, 16)
                         }
-                        .padding(.horizontal, 16)
+                        .accessibilityIdentifier("news-symbol-filters")
                     }
+                    .padding(.leading, 16)
                     .listRowBackground(Color.clear)
                     .listRowInsets(EdgeInsets())
                     .listRowSeparator(.hidden)

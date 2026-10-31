@@ -1105,6 +1105,25 @@ final class VerifyInteractionTests: XCTestCase {
         snap("UX-01-records"); note("UX-01-records", texts(app))
     }
 
+    /// UX-02: preserve each full signed percentage at the largest accessibility size.
+    func testUX02_LargestPeriodReturns() throws {
+        let app = try signedIn(arguments: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
+        tab(app, "總覽")
+        XCTAssertTrue(app.buttons["觀察名單"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.staticTexts["overview-period-value-近一年"].waitForExistence(timeout: 15))
+        snap("UX-02-overview-largest-top")
+        for label in ["近一週", "近一月", "今年以來", "近一年"] {
+            let title = app.staticTexts["overview-period-label-\(label)"]
+            let value = app.staticTexts["overview-period-value-\(label)"]
+            reveal(app, value)
+            XCTAssertTrue(value.label.hasSuffix("%"))
+            XCTAssertLessThan(value.frame.height, 60, "數字與百分號應保持單行")
+            XCTAssertLessThanOrEqual(title.frame.maxY, value.frame.minY, "標籤與數值應上下排列")
+        }
+        keepAboveTabBar(app, app.staticTexts["overview-period-label-今年以來"])
+        snap("UX-02-periods-largest"); note("UX-02-periods-largest", texts(app))
+    }
+
     func test11_DeleteAccount() throws {
         let app = try signedIn()
         tab(app, "更多"); open(app, "帳號")

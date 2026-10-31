@@ -23,6 +23,8 @@
 - `overview-stale`：看最新（沒有 `?date=`）且 `snapshot.tradeDate` < API `expectedClose` 時，網頁與 App 頂端出現「最新快照是 …，但 … 應該已收盤」橘色警告。`expectedClose` 是抓價排程（週一到週五 UTC 21:40）加 30 分緩衝跑完後才換成當天，收盤後到 UTC 22:10 之間不警告；資料來源頁的「落後」標記用同一個日期。
 - `overview-forecast-date`：下月展望卡片仍只在看最新日且有 forecast 時出現；「資料日」＝API `forecast.trade_date`，網頁用 `dateWithWeekday`、App 用 `Fmt.fullDate`。只有 `forecast.trade_date < snapshot.data.tradeDate` 時顯示橘色「待更新」與完整說明，分別標明最新收盤日及預測資料日，提醒展望頁即時試算的數字可能不同；卡片數字仍取已存的 forecast。
 
+- `overview-periods-largest`（UX-02）：輔助字級每個期間的標籤與報酬上下排列；正負號、數值與 % 保持單行，不縮小字級。兩台跑 `VerifyInteractionTests/testUX02_LargestPeriodReturns`，實看 `UX-02-overview-largest-top.png` 與 `UX-02-periods-largest.png`。一般字級仍驗 `test02_Overview`。
+
 ## How to get to it (user POV)
 
 - 網頁：`/`，或導覽列「市場總覽」、左上「市場觀測室」；手機寬度的底部分頁「總覽」。其他交易日用右上「查看其他交易日」的 `select`（選項值 `YYYY-MM-DD`，選了跳 `/?date=YYYY-MM-DD`）。

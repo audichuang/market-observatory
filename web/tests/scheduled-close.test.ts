@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { test } from "node:test";
 import { latestExpectedClose, latestScheduledClose, PRICES_CRON_UTC_MINUTES } from "../src/lib/calendar.ts";
 
@@ -33,7 +33,17 @@ test("過期警告：任何時刻都不會比「應有收盤」更晚", () => {
 
 test("抓價排程時刻與 crons/prices.ts 一致", () => {
   const src = readFileSync(new URL("../crons/prices.ts", import.meta.url), "utf8");
-  const m = src.match(/export const cron = "(\d+) (\d+) \* \* 1-5"/);
+  const m = src.match(/export const cron = "(\d+) (\d+) \* \* MON-FRI"/);
   assert.ok(m, "crons/prices.ts 的 cron 格式變了，latestScheduledClose 要跟著檢查");
   assert.equal(Number(m[2]) * 60 + Number(m[1]), PRICES_CRON_UTC_MINUTES);
+});
+
+test("排程的星期欄位只用英文縮寫", () => {
+  // Cloudflare counts weekdays 1 = Sunday … 7 = Saturday, so "1-5" silently ran Sun–Thu and skipped Friday's close.
+  for (const file of readdirSync(new URL("../crons/", import.meta.url)).filter((f) => f.endsWith(".ts"))) {
+    const src = readFileSync(new URL(`../crons/${file}`, import.meta.url), "utf8");
+    const dow = src.match(/export const cron = "(?:\S+ ){4}(\S+)"/)?.[1];
+    assert.ok(dow, `${file} 找不到 cron`);
+    assert.ok(!/\d/.test(dow), `${file} 的星期欄位 ${dow} 要寫成 MON-FRI 這類縮寫`);
+  }
 });

@@ -10,6 +10,8 @@
 - `history-compare`（C5）：相對報酬每條線顏色不同、圖例對得上；各標的以區間內第一個交易日收盤為 0%，主標的區間報酬、統計列與圖終值同一起點。圖下說明「每條線以區間第一個交易日收盤為 0%，與下表「區間報酬」同一起點」。統計列 `first` 與 SPX 不同時，網頁報酬旁標「自 YYYY-MM-DD」、App 副標加「自 M/D」；缺 SPX 終點日收盤時，區間報酬仍為 null。
 - `history-contribution`（C7）：近 40 日貢獻柱狀圖，名單達 26～30 家（含多股類）時網頁與 App 仍能開啟；最新一天名單貢獻＝API `contribution` 最後一筆 `mag7`，每天合計等於當天名單內逐家貢獻相加。
 
+- `history-compare-dark`（UX-06）：深色模式採明亮配色，未選線以 0.9 不透明度、1.6 線寬呈現；SPX 與選中標的保持較粗，RSP 保留虛線，圖例使用相同配色。兩台先設 `appearance dark`，跑 `VerifyInteractionTests/testUX06_ComparisonReading` 逐張看 `UX-06-history-compare-dark.png`，特別核對 Tesla、Microsoft 與 RSP 仍能追蹤；切標的回歸跑 `test03_History`。
+
 ## How to get to it (user POV)
 
 - 網頁：導覽列「走勢與均線」→ `/history`；`/history?symbol=NVDA&months=6`；總覽或名單點公司名稱。

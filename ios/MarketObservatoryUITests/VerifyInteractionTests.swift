@@ -1124,6 +1124,19 @@ final class VerifyInteractionTests: XCTestCase {
         snap("UX-02-periods-largest"); note("UX-02-periods-largest", texts(app))
     }
 
+    /// UX-06: capture the baseline comparison and legend for dark-mode visual review.
+    func testUX06_ComparisonReading() throws {
+        let app = try signedIn()
+        tab(app, "走勢")
+        XCTAssertTrue(app.buttons["標的：S&P 500"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.buttons["1 年"].isSelected)
+        app.swipeUp()
+        let note = app.staticTexts["每條線以區間第一個交易日收盤為 0%，與下表「區間報酬」同一起點"]
+        XCTAssertTrue(note.waitForExistence(timeout: 5))
+        XCTAssertTrue(note.isHittable, "比較圖與圖例須可捲到")
+        snap("UX-06-history-compare-dark"); self.note("UX-06-history-compare-dark", texts(app))
+    }
+
     func test11_DeleteAccount() throws {
         let app = try signedIn()
         tab(app, "更多"); open(app, "帳號")

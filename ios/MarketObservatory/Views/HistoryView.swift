@@ -357,6 +357,7 @@ private struct PriceChart: View {
 }
 
 private struct RebasedChart: View {
+    @Environment(\.colorScheme) private var colorScheme
     /// 圖上最多畫名單前幾家（跟網頁一樣）：再多顏色會重複、線糊成一團；下方統計照樣列出全部。
     static let members = 10
     /// 網頁 pages/history.tsx 的 COLORS；#333 換成會跟著深色模式變的 primary。
@@ -365,6 +366,14 @@ private struct RebasedChart: View {
         Color(rgb: 0x7B3FD1), Color(rgb: 0x0F8A9D), Color(rgb: 0xC2417F), Color(rgb: 0x5C6B7A),
         Color(rgb: 0x8A6D00), Color.primary, Color(rgb: 0xE0662B), Color(rgb: 0x2A9D8F),
         Color(rgb: 0x9B5DE5), Color(rgb: 0x6A994E),
+    ]
+
+    /// Keep every comparison series legible against the dark grouped background.
+    private static let darkColors: [Color] = [
+        Color(rgb: 0x7A9AFF), Color(rgb: 0xFF7178), Color(rgb: 0x53D69C), Color(rgb: 0xFFB65C),
+        Color(rgb: 0xBC9BFF), Color(rgb: 0x59D2E3), Color(rgb: 0xF58FB8), Color(rgb: 0xBDC9D5),
+        Color(rgb: 0xE6D36D), Color.primary, Color(rgb: 0xFF9D70), Color(rgb: 0x6CDECD),
+        Color(rgb: 0xCCA6FF), Color(rgb: 0xAED58C),
     ]
 
     let series: [History.Rebased]
@@ -379,15 +388,16 @@ private struct RebasedChart: View {
             return i < Self.members
         }
         let names = plotted.map { name($0.symbol) }
-        let palette = plotted.indices.map { Self.colors[$0 % Self.colors.count] }
+        let colors = colorScheme == .dark ? Self.darkColors : Self.colors
+        let palette = plotted.indices.map { colors[$0 % colors.count] }
         Chart {
             ForEach(plotted) { s in
                 ForEach(Array(s.points.enumerated()), id: \.offset) { _, p in
                     if let v = p.value, let d = Fmt.day(p.date) {
                         LineMark(x: .value("日期", d), y: .value("報酬", v), series: .value("標的", name(s.symbol)))
                             .foregroundStyle(by: .value("標的", name(s.symbol)))
-                            .lineStyle(StrokeStyle(lineWidth: emphasized(s.symbol) ? 2.5 : 1, dash: s.symbol == "RSP" ? [5, 3] : []))
-                            .opacity(emphasized(s.symbol) ? 1 : 0.35)
+                            .lineStyle(StrokeStyle(lineWidth: emphasized(s.symbol) ? 2.5 : (colorScheme == .dark ? 1.6 : 1), dash: s.symbol == "RSP" ? [5, 3] : []))
+                            .opacity(emphasized(s.symbol) ? 1 : (colorScheme == .dark ? 0.9 : 0.35))
                     }
                 }
             }

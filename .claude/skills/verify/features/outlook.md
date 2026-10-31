@@ -24,6 +24,8 @@
 - `outlook-expanded-reading`：`test25_OutlookExpandedReading` 用相同矩陣重拍展開區直到報酬分位數及長註腳（`outlook-quantiles`／`outlook-quantile-meta`）完整進入畫面，再捲到「差異」評估列，拍 `polish-<variant>-outlook-assessment.png`。評估列兩段文字完整換行，OCR 限定在該列像素範圍，檢查 AX 提供的區間上下限均可見且沒有省略號，結果存 `outlook-assessment-ocr.txt`。證據沿用 `polish-<variant>-outlook-expanded-*.png`。跨頁閱讀回歸 `test16_Readability` 以摘要標題等待資料，並確認定義只在展開後出現。
 - `outlook-unvalidated`：`test24_UnvalidatedDrawdownWarning` 檢查 `drawdown.scored=false` 時，一般與最大字級的「未通過驗證，只供參考」在模型說明收合時仍可讀。若本機完整歷史資料算出 true，先備份並暫時移開 `prices` 中 SPX／VIX 早於 2025-10-01 的真實歷史資料，bump `data_version`，讀 API 確認 false 才跑；完成或失敗都還原資料並再次 bump 版本。這只是本機資料準備，不改模型門檻。
 
+- `outlook-records-layout`（UX-01）：App 一般字級每筆紀錄首行顯示完整單行日期與機率，判讀、模型與結果分列。跑 `VerifyInteractionTests/testUX01_OutlookRecords`，兩台 MO 機逐張看 `UX-01-records.png`；日期不能拆尾碼，其他資訊須完整。
+
 ## How to get to it (user POV)
 
 - 網頁：導覽列「下月展望」→ `/outlook`；總覽的展望卡片（右側箭頭）。

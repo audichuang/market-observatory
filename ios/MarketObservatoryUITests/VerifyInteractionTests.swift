@@ -1065,6 +1065,23 @@ final class VerifyInteractionTests: XCTestCase {
         }
     }
 
+    /// UX-01: dates remain complete on one line beside their probability.
+    func testUX01_OutlookRecords() throws {
+        let app = try signedIn()
+        tab(app, "更多"); open(app, "下月展望")
+        XCTAssertTrue(waitLabel(app, contains: "期間內收盤跌 5% 以上的機率"))
+        let header = app.staticTexts["上線後實際紀錄：上漲機率"]
+        reveal(app, header)
+        keepAboveTabBar(app, header)
+        app.swipeUp(velocity: .slow)
+        let dates = app.staticTexts.matching(NSPredicate(format: "label MATCHES %@", "[0-9]{4}-[0-9]{2}-[0-9]{2}"))
+        let date = dates.firstMatch
+        XCTAssertTrue(date.waitForExistence(timeout: 5), "缺少實際預測紀錄")
+        reveal(app, date)
+        XCTAssertLessThan(date.frame.height, 28, "一般字級的日期不應拆行")
+        snap("UX-01-records"); note("UX-01-records", texts(app))
+    }
+
     func test11_DeleteAccount() throws {
         let app = try signedIn()
         tab(app, "更多"); open(app, "帳號")

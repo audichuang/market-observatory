@@ -9,7 +9,7 @@
 - `watchlist-add`（D2、D3）：用輸入框或權重最大的候選按鈕加入；有進度提示「加入 X 中…」，完成「已加入 X」；總覽同步出現。
 - `watchlist-add-invalid`（D4）：輸入不存在的代號（`ZZZZ`）：網頁顯示中文錯誤，App 搜尋顯示系統字串「沒有「ZZZZ」的結果」。
 - `watchlist-new-daily-cap`：非站長帳號每天（美東日期）最多加入 5 家全站沒人追蹤的公司，第 6 家顯示「今天新增的新公司已達上限…」、名單不變；別人已在追蹤的公司不受限，站長名單不受限。只有單元測試（`tests/leak-guards.test.ts`）覆蓋，實際操作要 6 家新公司、會打真實上游。
-- `watchlist-no-duplicate`（D5）：已在名單的公司不出現在候選。
+- `watchlist-no-duplicate`（D5）：已在名單的公司不出現在可加入候選；App 搜尋既有代號、股類代號或公司名時顯示「已在觀察名單中」，可按「返回觀察名單」，不再要求檢查拼字（UX-04）。
 - `watchlist-remove`（D6–D8）：移除；App 的整列左滑只露出「移除」、不會直接刪，按了跳確認「從名單移除 Broadcom？」（「取消」「移除」），取消時保留。
 - `watchlist-symbol-link`（D9）：點公司 → 走勢頁該標的。
 - `watchlist-cross-surface`：網頁改的名單，App 名單頁與總覽也看得到（反之亦然）。
@@ -32,7 +32,7 @@ Preconditions:
 - **跨介面。** 跑 iOS walkthrough：`04-watchlist.png` 有 8 家、最後一家 AVGO、「8/30 家」。
 - **錯誤代號。** 輸入 `ZZZZ` 按加入：`[role=status]` 是「ZZZZ 不在最新的 S&P 500 成分股（SPY 持股）裡」，名單不變（D4）。
 - **移除（還原基準）。** 先用 `evaluate` 找到含 AVGO 的 `li`、把它的「移除」按鈕標上 `data-verify-target="remove"`，再 `click('[data-verify-target="remove"]')`。會跳 confirm「從名單移除 Broadcom？股價資料會保留，之後可以再加回來。」：先 `page.dismissDialog()`，AVGO 要還在（網頁版的 D7）；再點一次、`page.acceptDialog()`，等 AVGO 從列表消失；`members` 讀回 7 家、總覽不再有 Broadcom（D8）。
-- **App 加入、移除、點公司。** 名單是七巨頭時跑 `ios-test.sh … VerifyInteractionTests/test04_Watchlist`（只斷言「7/30 家」開頭；`D1-before.txt`、`D8-removed.txt` 的合計權重對 API `totalWeight`）：`D5-search-nvda.txt`（已在名單的不出現）、`D4-search-zzzz.txt`、`D2-added.txt`（第一次加入全站沒人追蹤的公司時是「已加入 Broadcom（AVGO），補了 2514 筆日線」；「8/30 家 · 合計權重 …」對 API `totalWeight`）、`D6-full-swipe.png`（整列快速左滑後仍 8 家）、`D7-confirm.png`、`D8-removed.png`、`D9-tsla.png`。
+- **App 加入、移除、點公司。** 名單是七巨頭時跑 `ios-test.sh … VerifyInteractionTests/test04_Watchlist`（只斷言「7/30 家」開頭；`D1-before.txt`、`D8-removed.txt` 的合計權重對 API `totalWeight`）：`D5-search-nvda.png`／`.txt`（顯示已在名單，返回後仍 7 家）、`D4-search-zzzz.txt`、`D2-added.txt`（第一次加入全站沒人追蹤的公司時是「已加入 Broadcom（AVGO），補了 2514 筆日線」；「8/30 家 · 合計權重 …」對 API `totalWeight`）、`D6-full-swipe.png`（整列快速左滑後仍 8 家）、`D7-confirm.png`、`D8-removed.png`、`D9-tsla.png`。
 - **Proof。** `watchlist-before.png`、`watchlist-add.png`、`watchlist-add-overview.png`、`watchlist-add.api.json`、`ios/<機型>/04-watchlist.png`、test04 的截圖與 `.txt`、移除後的 API JSON。
 
 - App 一般及最大字級檢查公司名稱、權重與加入候選列有足夠留白且文字完整。

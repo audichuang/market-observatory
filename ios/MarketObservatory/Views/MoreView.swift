@@ -805,14 +805,17 @@ struct OutlookView: View {
                     .font(.subheadline)
                     .fixedSize(horizontal: false, vertical: true)
                 } else {
-                    HStack(spacing: 8) {
-                        Text(f.date).monospacedDigit()
-                        Text(Fmt.plainPct(f.p * 100)).monospacedDigit()
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text(f.date).monospacedDigit().fixedSize()
+                            Spacer()
+                            Text(Fmt.plainPct(f.p * 100)).monospacedDigit().fixedSize()
+                        }
                         Text(callText(f.call)).foregroundStyle(.secondary)
                         if p.liveTrack != nil {
-                            Text(f.modelVersion ?? "舊版紀錄").font(.caption).foregroundStyle(.secondary)
+                            Text("模型 \(f.modelVersion ?? "舊版紀錄")")
+                                .font(.caption).foregroundStyle(.secondary)
                         }
-                        Spacer()
                         result
                     }
                     .font(.subheadline)

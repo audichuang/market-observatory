@@ -545,29 +545,41 @@ private struct IndexHero: View {
     private func cell(_ label: String, _ v: Double?) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(label).font(.caption2).foregroundStyle(.secondary).lineLimit(1).fixedSize(horizontal: true, vertical: false)
+                .accessibilityIdentifier("overview-period-label-\(label)")
             Delta(value: v, percent: true).font(.subheadline.weight(.semibold)).lineLimit(1).fixedSize(horizontal: true, vertical: false)
+                .accessibilityIdentifier("overview-period-value-\(label)")
         }
     }
 
+    @ViewBuilder
     private var periods: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(alignment: .top, spacing: 0) {
-                ForEach(Array(items.enumerated()), id: \.offset) { i, it in
-                    if i > 0 { Divider().padding(.trailing, 8) }
-                    cell(it.0, it.1).frame(maxWidth: .infinity, alignment: .leading)
+        if dts.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: 16) {
+                ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                    cell(item.0, item.1)
                 }
             }
-            Grid(alignment: .leading, horizontalSpacing: 24, verticalSpacing: 16) {
-                GridRow { cell(items[0].0, items[0].1); cell(items[1].0, items[1].1) }
-                GridRow { cell(items[2].0, items[2].1); cell(items[3].0, items[3].1) }
-            }
             .frame(maxWidth: .infinity, alignment: .leading)
-            VStack(spacing: 6) {
-                ForEach(Array(items.enumerated()), id: \.offset) { _, it in
-                    HStack {
-                        Text(it.0).font(.caption).foregroundStyle(.secondary)
-                        Spacer()
-                        Delta(value: it.1, percent: true).font(.subheadline.weight(.semibold))
+        } else {
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .top, spacing: 0) {
+                    ForEach(Array(items.enumerated()), id: \.offset) { i, it in
+                        if i > 0 { Divider().padding(.trailing, 8) }
+                        cell(it.0, it.1).frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+                Grid(alignment: .leading, horizontalSpacing: 24, verticalSpacing: 16) {
+                    GridRow { cell(items[0].0, items[0].1); cell(items[1].0, items[1].1) }
+                    GridRow { cell(items[2].0, items[2].1); cell(items[3].0, items[3].1) }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                VStack(spacing: 6) {
+                    ForEach(Array(items.enumerated()), id: \.offset) { _, it in
+                        HStack {
+                            Text(it.0).font(.caption).foregroundStyle(.secondary)
+                            Spacer()
+                            Delta(value: it.1, percent: true).font(.subheadline.weight(.semibold))
+                        }
                     }
                 }
             }

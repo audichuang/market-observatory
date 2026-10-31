@@ -26,7 +26,7 @@ struct WatchlistView: View {
                 }
                 .sheet(isPresented: $adding) {
                     if let w = state.value {
-                        AddSheet(candidates: w.candidates) { c in
+                        AddSheet(candidates: w.candidates, members: w.members) { c in
                             adding = false
                             Task { await add(c) }
                         }
@@ -169,6 +169,7 @@ struct WatchlistView: View {
 
 private struct AddSheet: View {
     let candidates: [Watchlist.Candidate]
+    let members: [Watchlist.Member]
     let pick: (Watchlist.Candidate) -> Void
     @State private var query = ""
     @Environment(\.dynamicTypeSize) private var dts
@@ -180,13 +181,38 @@ private struct AddSheet: View {
         return candidates.filter { $0.ticker.hasPrefix(q.replacingOccurrences(of: ".", with: "-")) || $0.name.uppercased().contains(q) }.prefix(80).map { $0 }
     }
 
+    private var existingMatches: [Watchlist.Member] {
+        let q = query.trimmingCharacters(in: .whitespaces).uppercased()
+        guard !q.isEmpty else { return [] }
+        let ticker = q.replacingOccurrences(of: ".", with: "-")
+        return members.filter { member in
+            member.tickers.contains { $0.hasPrefix(ticker) } || member.company.uppercased().contains(q)
+        }
+    }
+
     var body: some View {
         NavigationStack {
-            List(filtered) { c in
-                Button {
-                    pick(c)
-                } label: {
-                    row(c)
+            List {
+                if !existingMatches.isEmpty {
+                    Section {
+                        ForEach(existingMatches) { member in
+                            VStack(alignment: .leading, spacing: 5) {
+                                Text(member.tickers.joined(separator: " + ")).font(.headline)
+                                Text(member.company).font(.subheadline)
+                                Label("已在觀察名單中", systemImage: "checkmark.circle")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                            .fixedSize(horizontal: false, vertical: true)
+                        }
+                        Button("返回觀察名單") { dismiss() }
+                    }
+                }
+                ForEach(filtered) { c in
+                    Button {
+                        pick(c)
+                    } label: {
+                        row(c)
+                    }
                 }
             }
             .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "代號或公司名稱")
@@ -194,7 +220,7 @@ private struct AddSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } } }
             .overlay {
-                if filtered.isEmpty { ContentUnavailableView.search(text: query) }
+                if filtered.isEmpty && existingMatches.isEmpty { ContentUnavailableView.search(text: query) }
             }
         }
     }

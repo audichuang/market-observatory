@@ -10,12 +10,15 @@ const scripts = join(repo, ".claude/skills/verify/scripts");
 const plus = "11111111-1111-1111-1111-111111111111";
 const proMax = "22222222-2222-2222-2222-222222222222";
 const oki = "33333333-3333-3333-3333-333333333333";
+const tmpUdid = "55555555-5555-5555-5555-555555555555";
+const proMaxType = "com.apple.CoreSimulator.SimDeviceType.iPhone-18-Pro-Max";
+const runtime = "com.apple.CoreSimulator.SimRuntime.iOS-27-2";
 const unusedPid = 2147483647;
 
 function devices(plusState = "Shutdown", proMaxState = "Shutdown") {
   return [
     { name: "MO iPhone 16 Plus", udid: plus, state: plusState, isAvailable: true },
-    { name: "MO iPhone 18 Pro Max", udid: proMax, state: proMaxState, isAvailable: true },
+    { name: "MO iPhone 18 Pro Max", udid: proMax, state: proMaxState, isAvailable: true, deviceTypeIdentifier: proMaxType },
     { name: "OKI iPhone 17", udid: oki, state: "Booted", isAvailable: true },
   ];
 }
@@ -38,8 +41,12 @@ function fixture(t: TestContext, runId: string, list = devices()) {
     'printf "%s" "${0##*/}" >> "$MO_TEST_LOG"',
     'printf " %s" "$@" >> "$MO_TEST_LOG"',
     'printf "\\n" >> "$MO_TEST_LOG"',
-    'if [ "${1:-}" = simctl ] && [ "${2:-}" = list ]; then',
+    'if [ "${1:-}" = simctl ] && [ "${2:-}" = list ] && [ "${3:-}" = runtimes ]; then',
+    `  printf '%s\\n' '{"runtimes":[{"identifier":"${runtime}","platform":"iOS","isAvailable":true}]}'`,
+    'elif [ "${1:-}" = simctl ] && [ "${2:-}" = list ]; then',
     '  cat "$MO_TEST_DEVICES"',
+    'elif [ "${1:-}" = simctl ] && [ "${2:-}" = create ]; then',
+    `  echo ${tmpUdid}`,
     'elif [ "${1:-}" = simctl ] && [ "${2:-}" = shutdown ]; then',
     '  state=$(/usr/bin/jq -r --arg udid "$3" \'.devices[][] | select(.udid == $udid) | .state\' "$MO_TEST_DEVICES")',
     '  if [ "$state" != Booted ]; then',
@@ -116,15 +123,43 @@ test("同 run 的 Pro Max 已關機時直接開 Plus 並更新狀態", (t) => {
 });
 
 for (const state of ["Booted", "Booting", "Shutting Down"]) {
-  test(`其他 run 的 MO 機為 ${state} 時停止，不關機也不開另一台`, (t) => {
-    const f = fixture(t, "r2", devices(state));
+  test(`指定的常駐機被其他 run 開著（${state}）時停止並提示 tmp，不關機也不開另一台`, (t) => {
+    const f = fixture(t, "r2", devices("Shutdown", state));
     const r = f.invoke("ios-up.sh", "18-pro-max");
     assert.notEqual(r.status, 0, r.output);
-    assert.match(r.output, /可能有別的驗證在用/);
+    assert.match(r.output, /可能有別的驗證在用.*18-pro-max tmp/);
     assert.doesNotMatch(r.log, /simctl (boot|bootstatus|shutdown|create|install) /);
     assert.equal(existsSync(join(f.run, "sim.udid")), false);
   });
 }
+
+test("另一台 MO 常駐機開著時，仍可開沒被占用的那台（允許平行驗證）", (t) => {
+  const f = fixture(t, "r2", devices("Booted", "Shutdown"));
+  const r = f.invoke("ios-up.sh", "18-pro-max");
+  assert.equal(r.status, 0, r.output);
+  assert.doesNotMatch(r.log, /simctl (shutdown|create) /);
+  assert.equal(readFileSync(join(f.run, "sim.udid"), "utf8").trim(), proMax);
+});
+
+test("tmp 建同機型臨時機、用最新 iOS runtime，並記進 sim.tmp", (t) => {
+  const f = fixture(t, "r5", devices("Shutdown", "Booted"));
+  const r = f.invoke("ios-up.sh", "18-pro-max", "tmp");
+  assert.equal(r.status, 0, r.output);
+  assert.ok(r.log.includes(`xcrun simctl create MO tmp r5 18-pro-max ${proMaxType} ${runtime}\n`), r.log);
+  assert.doesNotMatch(r.log, new RegExp(`simctl shutdown ${proMax}`));
+  assert.ok(r.log.includes(`xcrun simctl bootstatus ${tmpUdid} -b`), r.log);
+  assert.equal(readFileSync(join(f.run, "sim.udid"), "utf8").trim(), tmpUdid);
+  assert.equal(readFileSync(join(f.run, "sim.tmp"), "utf8").trim(), tmpUdid);
+  assert.equal(readFileSync(join(f.run, "sim.device"), "utf8").trim(), "18-pro-max");
+});
+
+test("tmp 以外的第三個參數停止，不碰任何模擬器", (t) => {
+  const f = fixture(t, "r6");
+  const r = f.invoke("ios-up.sh", "18-pro-max", "temp");
+  assert.notEqual(r.status, 0, r.output);
+  assert.match(r.output, /只能是 tmp/);
+  assert.doesNotMatch(r.log, /simctl (create|boot|bootstatus|shutdown|install) /);
+});
 
 for (const args of [[], ["pro"]]) {
   test(`機型${args.length ? "不在清單" : "未提供"}時停止並列出兩個選項`, (t) => {
@@ -147,7 +182,7 @@ for (const condition of ["缺少", "不可用", "同名多台", "只有近似名
     const f = fixture(t, "r4", list);
     const r = f.invoke("ios-up.sh", "18-pro-max");
     assert.notEqual(r.status, 0, r.output);
-    assert.match(r.output, /AGENTS\.md.*不新增模擬器.*請使用者處理/);
+    assert.match(r.output, /常駐機不自己新建或刪除.*請使用者處理/);
     assert.doesNotMatch(r.log, /simctl (create|boot|bootstatus|shutdown|install) /);
   });
 }
@@ -172,6 +207,19 @@ test("down 只關機保留裝置，清除兩個狀態檔並保留證據及既有
   }
   assert.equal(existsSync(join(f.run, "state.env.down")), true);
   assert.equal(readFileSync(evidence, "utf8"), "evidence");
+});
+
+test("down 刪除本 run 用 tmp 建的臨時機，sim.tmp 一併清掉", (t) => {
+  const list = [...devices(), { name: "MO tmp r1 18-pro-max", udid: tmpUdid, state: "Booted", isAvailable: true }];
+  const f = fixture(t, "r1", list);
+  writeFileSync(join(f.run, "sim.udid"), tmpUdid);
+  writeFileSync(join(f.run, "sim.device"), "18-pro-max");
+  writeFileSync(join(f.run, "sim.tmp"), `${tmpUdid}\n`);
+  const r = f.invoke("down.sh");
+  assert.equal(r.status, 0, r.output);
+  assert.ok(r.log.includes(`xcrun simctl delete ${tmpUdid}\n`), r.log);
+  assert.doesNotMatch(r.log, new RegExp(`simctl delete (${plus}|${proMax})`));
+  assert.equal(existsSync(join(f.run, "sim.tmp")), false);
 });
 
 test("verify 文件一致使用兩台既有機型與保留裝置的生命週期", () => {

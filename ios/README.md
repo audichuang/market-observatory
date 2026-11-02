@@ -39,7 +39,7 @@ xcodebuild -project MarketObservatory.xcodeproj -scheme MarketObservatory \
 
 `test2_DeleteAccount` 會刪掉登入的帳號，只用一次性的測試帳號跑。
 
-模擬器報 `Mach error -308` 或 `SimError 405` 時，先 `xcrun simctl shutdown all`、`killall -9 com.apple.CoreSimulator.CoreSimulatorService`，再重開模擬器。
+模擬器報 `Mach error -308` 或 `SimError 405` 時，先 `xcrun simctl shutdown <本輪 UDID>` 再重開那台。不要用 `shutdown all` 或 `killall` CoreSimulatorService：會連其他專案正在用的模擬器一起關掉；仍無法恢復時先問使用者。
 
 Xcode 27 沒有 Simulator.app，要看或點模擬器畫面（例如交給 Codex 做 GUI 驗收）用 `Xcode.app/Contents/Applications/DeviceHub.app`。
 

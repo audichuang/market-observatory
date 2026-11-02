@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Stop this run's dev server tree and simulator; remove DerivedData, passwords and cookies.
+# Stop this run's dev server tree and simulator (delete its tmp simulators); remove DerivedData, passwords and cookies.
 # 證據（$RUN/evidence/）保留，最後印出它的位置與檔案數。
 #   down.sh <run-id>
 source "$(dirname "$0")/lib.sh"
@@ -11,6 +11,15 @@ if [ -f "$RUN/sim.udid" ]; then
   UDID=$(cat "$RUN/sim.udid")
   xcrun simctl shutdown "$UDID" 2>/dev/null || true
   ok "模擬器 $UDID 已關機（保留）"
+fi
+# 這個 run 用 tmp 建的臨時機用完就刪；常駐機只關機保留。
+if [ -f "$RUN/sim.tmp" ]; then
+  while read -r TMP_UDID; do
+    [ -n "$TMP_UDID" ] || continue
+    xcrun simctl shutdown "$TMP_UDID" 2>/dev/null || true
+    xcrun simctl delete "$TMP_UDID" && ok "臨時機 $TMP_UDID 已刪除"
+  done <"$RUN/sim.tmp"
+  rm -f "$RUN/sim.tmp"
 fi
 rm -f "$RUN/sim.udid" "$RUN/sim.device"
 # ego-browser 的 task space（SKILL.md 規定名字是 mo-verify-<run-id>）：drive 時忘了 finish 的話這裡收掉；已經 finish 過就什麼都不做。

@@ -13,6 +13,8 @@ description: 像使用者一樣實際操作市場觀測室（網站 web/ 與 iOS
 
 改動碰到哪個介面，就照 [功能地圖](features/README.md) 把**被改到的功能**實際操作一遍，並在 PR 或回報裡附上證據位置。少一項就不能說「完成」，只能說「已寫好、未驗證：缺 X」。
 
+要求全量驗證時，`features/` 每一檔都要在網頁與 App 走過。拆給多個 agent 平行跑，每個用自己的 worktree、port 與 run；同一台常駐機被占用時用 `ios-up.sh <run-id> <機型> tmp` 開臨時機。只走了一部分，回報不能寫「全部」「走完」。2026-10-26 一次只驗了自選股就說完成，補跑全量才抓到推播點開閃退等六個 bug。
+
 | 改了什麼 | 交付前要有的證據 |
 | --- | --- |
 | `src/lib/`、排程、`src/server/` 的計算 | `npm test`＋`npm run typecheck` 通過；本機實例上受影響的畫面數字跟 API 對得上（截圖＋API JSON） |
@@ -48,7 +50,7 @@ description: 像使用者一樣實際操作市場觀測室（網站 web/ 與 iOS
    "$S/ios-up.sh" <run-id> 18-pro-max
    ```
 
-   機型必填：`16-plus` 重用既有 `MO iPhone 16 Plus`，`18-pro-max` 重用既有 `MO iPhone 18 Pro Max`。腳本以完整名稱找唯一可用裝置，找不到或同名多台就停下請使用者處理，依 `ios/AGENTS.md` 不新增模擬器。一次只開一台；其他 run 的 MO 機開著就停，同 run 換機重跑 `ios-up.sh <run-id> <機型>`，會先關掉前一台。開機後執行 `xcodegen generate`、`build-for-testing`、安裝 App，並記下 `sim.udid` 與 `sim.device`；證據路徑的 `<機型>` 就是 `sim.device` 的代稱。App 是 Debug 版，啟動參數 `-debugBaseURL http://localhost:<port>` 讓它連這次的本機站（UserDefaults 的參數網域，不會寫進 App 設定）。
+   機型必填：`16-plus` 重用既有 `MO iPhone 16 Plus`，`18-pro-max` 重用既有 `MO iPhone 18 Pro Max`。腳本以完整名稱找唯一可用的常駐機，找不到或同名多台就停下請使用者處理。那台常駐機被別的 run 開著就停；要平行驗證就加第三個參數 `tmp`，建同機型的臨時機 `MO tmp <run-id> <機型>`（`down.sh` 會刪）。同 run 換機重跑 `ios-up.sh <run-id> <機型>`，會先關掉前一台。開機後執行 `xcodegen generate`、`build-for-testing`、安裝 App，並記下 `sim.udid` 與 `sim.device`；證據路徑的 `<機型>` 就是 `sim.device` 的代稱。App 是 Debug 版，啟動參數 `-debugBaseURL http://localhost:<port>` 讓它連這次的本機站（UserDefaults 的參數網域，不會寫進 App 設定）。
 
 沒有本機站可用時（例如只想看正式站上已部署的 App），才連正式站，而且只用一次性帳號，見下方「正式站」。
 
@@ -230,7 +232,7 @@ DROP TABLE verify_saved_digests;"
 "$S/down.sh" <run-id>
 ```
 
-只收這次啟動的東西：dev server 的整棵程序樹（vite＋workerd，用記下的 PID，不用 process 名稱）、本輪 `ios-up.sh` 開的 MO 機（關機保留）、DerivedData、密碼與 cookie 檔；清除 `sim.udid` 與 `sim.device`。兩台既有 MO 機都保留，證據也保留，腳本最後確認 `$RUN/evidence` 不是空的並印出位置。ego-browser 那邊在最後一輪呼叫 `task.finish({ keep: [] })`；忘了的話 `down.sh` 會收掉名為 `mo-verify-<run-id>` 的 task space。失敗中斷的嘗試也要跑 `down.sh`，別留下佔著 port 的 dev server。不要動別人開著的模擬器（例如 `OKI`／`CB` 開頭的機型）；不要用 `killall` 收 CoreSimulatorService。
+只收這次啟動的東西：dev server 的整棵程序樹（vite＋workerd，用記下的 PID，不用 process 名稱）、本輪 `ios-up.sh` 開的 MO 機（常駐機關機保留，`tmp` 建的臨時機刪除）、DerivedData、密碼與 cookie 檔；清除 `sim.udid`、`sim.device`、`sim.tmp`。兩台常駐 MO 機都保留，證據也保留，腳本最後確認 `$RUN/evidence` 不是空的並印出位置。ego-browser 那邊在最後一輪呼叫 `task.finish({ keep: [] })`；忘了的話 `down.sh` 會收掉名為 `mo-verify-<run-id>` 的 task space。失敗中斷的嘗試也要跑 `down.sh`，別留下佔著 port 的 dev server。不要動其他代號（例如 `CB`、`DSA`）的模擬器；不要用 `killall` 收 CoreSimulatorService。
 
 ## 正式站（只在必要時）
 

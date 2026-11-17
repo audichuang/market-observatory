@@ -17,7 +17,7 @@ PREV_UDID=$(cat "$RUN/sim.udid" 2>/dev/null || true)
 # Switching away from a resident device: drop this run's lease on it (shuts it down if ensure booted it).
 if [ -f "$RUN/sim.lease" ] && { [ -n "$MODE" ] || [ "$(cat "$RUN/sim.lease")" != "$DEVICE_NAME" ]; }; then
   sim-vault release "$(cat "$RUN/sim.lease")" --lease "$LEASE" --shutdown
-  rm -f "$RUN/sim.lease"
+  rm -f "$RUN/sim.lease" "$RUN/sim.udid" "$RUN/sim.device"
 fi
 if [ "$MODE" = tmp ]; then
   # 臨時機與常駐機同機型、用最新的 iOS runtime；同一 run 重跑時沿用已建的那台。

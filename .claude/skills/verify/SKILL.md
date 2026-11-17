@@ -50,7 +50,7 @@ description: 像使用者一樣實際操作市場觀測室（網站 web/ 與 iOS
    "$S/ios-up.sh" <run-id> 18-pro-max
    ```
 
-   機型必填：`16-plus` 重用既有 `MO iPhone 16 Plus`，`18-pro-max` 重用既有 `MO iPhone 18 Pro Max`。腳本以完整名稱找唯一可用的常駐機；本機找不到是正常的（`park.sh` 收進 NAS 了），會先用 `sim-vault restore` 自動還原（UDID 換新，App 與登入照封存），還原失敗就停、不建空機；同名多台就停下請使用者處理。那台常駐機被別的 run 開著就停；要平行驗證就加第三個參數 `tmp`，建同機型的臨時機 `MO tmp <run-id> <機型>`（`down.sh` 會刪）。同 run 換機重跑 `ios-up.sh <run-id> <機型>`，會先關掉前一台。開機後執行 `xcodegen generate`、`build-for-testing`、安裝 App，並記下 `sim.udid` 與 `sim.device`；證據路徑的 `<機型>` 就是 `sim.device` 的代稱。App 是 Debug 版，啟動參數 `-debugBaseURL http://localhost:<port>` 讓它連這次的本機站（UserDefaults 的參數網域，不會寫進 App 設定）。
+   機型必填：`16-plus` 重用既有 `MO iPhone 16 Plus`，`18-pro-max` 重用既有 `MO iPhone 18 Pro Max`。腳本用 `sim-vault ensure --boot --lease mo:<run-id> --exclusive` 取常駐機（收起的會自動還原；MO 不建常駐機，結束碼 3／4 就停下問使用者），同 run 重跑可重入；其他結束碼照 `sim-vault --help` 處理。要平行驗證就加第三個參數 `tmp`，建同機型的臨時機 `MO tmp <run-id> <機型>`（`down.sh` 會刪）。同 run 換機重跑 `ios-up.sh <run-id> <機型>`，會先交還前一台。開機後執行 `xcodegen generate`、`build-for-testing`、安裝 App，並記下 `sim.udid` 與 `sim.device`；證據路徑的 `<機型>` 就是 `sim.device` 的代稱。App 是 Debug 版，啟動參數 `-debugBaseURL http://localhost:<port>` 讓它連這次的本機站（UserDefaults 的參數網域，不會寫進 App 設定）。
 
 沒有本機站可用時（例如只想看正式站上已部署的 App），才連正式站，而且只用一次性帳號，見下方「正式站」。
 
@@ -232,7 +232,7 @@ DROP TABLE verify_saved_digests;"
 "$S/down.sh" <run-id>
 ```
 
-只收這次啟動的東西：dev server 的整棵程序樹（vite＋workerd，用記下的 PID，不用 process 名稱）、本輪 `ios-up.sh` 開的 MO 機（常駐機關機保留，`tmp` 建的臨時機刪除）、DerivedData、密碼與 cookie 檔；清除 `sim.udid`、`sim.device`、`sim.tmp`。兩台常駐 MO 機都保留，證據也保留，腳本最後確認 `$RUN/evidence` 不是空的並印出位置。ego-browser 那邊在最後一輪呼叫 `task.finish({ keep: [] })`；忘了的話 `down.sh` 會收掉名為 `mo-verify-<run-id>` 的 task space。失敗中斷的嘗試也要跑 `down.sh`，別留下佔著 port 的 dev server。整批 iOS 工作（含後續修正重驗）都做完才跑 `"$S/park.sh" <16-plus|18-pro-max|all>`，把常駐機整台收進 NAS 並刪掉本機那台；它只收已關機、沒有 run 記著（還沒 `down.sh`）的常駐機，PosterBoard 資料超過約 1G 會拒收，`MO tmp …` 不收（`down.sh` 刪）。失敗時原樣傳回 `sim-vault` 的結束碼，處理方式見 modern-ios-guidance VER7。不要動其他代號（例如 `CB`、`DSA`）的模擬器；不要用 `killall` 收 CoreSimulatorService。
+只收這次啟動的東西：dev server 的整棵程序樹（vite＋workerd，用記下的 PID，不用 process 名稱）、本輪 `ios-up.sh` 用的 MO 機（常駐機交還 lease 並關機保留，`tmp` 建的臨時機刪除，刪不掉就留在 `sim.tmp` 並回非 0）、DerivedData、密碼與 cookie 檔；清除 `sim.udid`、`sim.device`、`sim.lease`、`sim.tmp`；重跑不出錯。兩台常駐 MO 機都保留，證據也保留，腳本最後確認 `$RUN/evidence` 不是空的並印出位置。ego-browser 那邊在最後一輪呼叫 `task.finish({ keep: [] })`；忘了的話 `down.sh` 會收掉名為 `mo-verify-<run-id>` 的 task space。失敗中斷的嘗試也要跑 `down.sh`，別留下佔著 port 的 dev server。整批 iOS 工作（含後續修正重驗）都做完才跑 `"$S/park.sh" <16-plus|18-pro-max|all>`，用 `sim-vault park --shutdown --missing-ok` 把常駐機整台收進 NAS 並刪掉本機那台；還有 run 沒跑 `down.sh`（lease 還在）時 sim-vault 會拒收，`MO tmp …` 不收。結束碼原樣傳回，處理見 `sim-vault --help`。不要動其他代號（例如 `CB`、`DSA`）的模擬器；不要用 `killall` 收 CoreSimulatorService。
 
 ## 正式站（只在必要時）
 

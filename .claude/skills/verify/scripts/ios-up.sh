@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Boot an MO device and build-for-testing; leave other runs' devices alone.
-#   ios-up.sh <run-id> <16-plus|18-pro-max>        reuse the resident device (restored from the NAS if park.sh parked it)
+#   ios-up.sh <run-id> <16-plus|18-pro-max>        take the resident device with `sim-vault ensure` (restores it if parked)
 #   ios-up.sh <run-id> <16-plus|18-pro-max> tmp    parallel run: create "MO tmp <run-id> <機型>" (down.sh deletes it)
-# Outputs: $RUN/sim.udid, $RUN/sim.device, $RUN/sim.tmp (temporary UDIDs), $RUN/dd (DerivedData, removed by down.sh).
+# Outputs: $RUN/sim.udid, $RUN/sim.device, $RUN/sim.lease (leased resident name), $RUN/sim.tmp (temporary UDIDs), $RUN/dd (DerivedData, removed by down.sh).
 source "$(dirname "$0")/lib.sh"
 DEVICE="${2:-}"
 MODE="${3:-}"
@@ -11,18 +11,20 @@ RUN="$(run_dir "${1:-}")"
 source "$RUN/state.env"
 [ -z "$MODE" ] || [ "$MODE" = tmp ] || die "第三個參數只能是 tmp"
 
-# Hold the resident-device lock until boot so park.sh cannot delete the device mid-boot.
-sim_lock
-if [ -z "$MODE" ]; then restore_resident "$DEVICE_NAME"; fi
-DEVICES=$(xcrun simctl list devices -j)
-CURRENT_UDID=""
-if [ -f "$RUN/sim.udid" ]; then CURRENT_UDID=$(cat "$RUN/sim.udid"); fi
+need_sim_vault
+LEASE="mo:${RUN_ID}"
+PREV_UDID=$(cat "$RUN/sim.udid" 2>/dev/null || true)
+# Switching away from a resident device: drop this run's lease on it (shuts it down if ensure booted it).
+if [ -f "$RUN/sim.lease" ] && { [ -n "$MODE" ] || [ "$(cat "$RUN/sim.lease")" != "$DEVICE_NAME" ]; }; then
+  sim-vault release "$(cat "$RUN/sim.lease")" --lease "$LEASE" --shutdown
+  rm -f "$RUN/sim.lease"
+fi
 if [ "$MODE" = tmp ]; then
   # 臨時機與常駐機同機型、用最新的 iOS runtime；同一 run 重跑時沿用已建的那台。
-  TMP_NAME="MO tmp $(basename "$RUN") ${DEVICE}"
+  TMP_NAME="MO tmp ${RUN_ID} ${DEVICE}"
   TYPE=$(simulator_type "$DEVICE")
-  UDID=$(/usr/bin/jq -r --arg name "$TMP_NAME" \
-    '[.devices[][] | select(.name == $name and .isAvailable == true)][0].udid // empty' <<<"$DEVICES")
+  UDID=$(xcrun simctl list devices -j | /usr/bin/jq -r --arg name "$TMP_NAME" \
+    '[.devices[][] | select(.name == $name and .isAvailable == true)][0].udid // empty')
   if [ -z "$UDID" ]; then
     RUNTIME=$(xcrun simctl list runtimes -j | /usr/bin/jq -r \
       '[.runtimes[] | select(.platform == "iOS" and .isAvailable == true)] | last | .identifier // empty')
@@ -31,25 +33,24 @@ if [ "$MODE" = tmp ]; then
     echo "$UDID" >>"$RUN/sim.tmp"
     ok "建立臨時機 ${TMP_NAME}（${UDID}），down.sh 會刪除"
   fi
+  xcrun simctl bootstatus "$UDID" -b
 else
-  MATCHES=$(/usr/bin/jq -c --arg name "$DEVICE_NAME" \
-    '[.devices[][] | select(.name == $name and .isAvailable == true)]' <<<"$DEVICES")
-  COUNT=$(/usr/bin/jq 'length' <<<"$MATCHES")
-  [ "$COUNT" -eq 1 ] || die "${DEVICE_NAME} 可用裝置有 ${COUNT} 台，必須恰好一台；常駐機不自己新建或刪除，請使用者處理"
-  UDID=$(/usr/bin/jq -r '.[0].udid' <<<"$MATCHES")
-  BUSY=$(/usr/bin/jq -r --arg udid "$UDID" --arg current "$CURRENT_UDID" \
-    '.devices[][] | select(.udid == $udid and .udid != $current and .state != "Shutdown") | .name' <<<"$DEVICES")
-  [ -z "$BUSY" ] || die "${DEVICE_NAME} 尚未關機，可能有別的驗證在用；要平行驗證改跑 ios-up.sh <run-id> ${DEVICE} tmp"
+  # sim.lease is written before ensure, which records the lease before booting: down.sh can always release it.
+  # MO policy: never create a resident device, so no --create; 3/4 stops here.
+  echo "$DEVICE_NAME" >"$RUN/sim.lease"
+  rc=0
+  OUT=$(sim-vault ensure "$DEVICE_NAME" --boot --lease "$LEASE" --exclusive --json) || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    case "$rc" in 3|4) echo "✗ MO 不自己建常駐機：停下請使用者決定" >&2 ;; esac
+    exit "$rc"
+  fi
+  UDID=$(/usr/bin/jq -r .udid <<<"$OUT")
 fi
-if [ -n "$CURRENT_UDID" ] && [ "$CURRENT_UDID" != "$UDID" ] && \
-  /usr/bin/jq -e --arg current "$CURRENT_UDID" \
-    'any(.devices[][]; .udid == $current and .state == "Booted")' <<<"$DEVICES" >/dev/null; then
-  xcrun simctl shutdown "$CURRENT_UDID"
+if [ -n "$PREV_UDID" ] && [ "$PREV_UDID" != "$UDID" ] && grep -qx "$PREV_UDID" "$RUN/sim.tmp" 2>/dev/null; then
+  xcrun simctl shutdown "$PREV_UDID" 2>/dev/null || true
 fi
-xcrun simctl bootstatus "$UDID" -b
 echo "$UDID" >"$RUN/sim.udid"
 echo "$DEVICE" >"$RUN/sim.device"
-sim_unlock
 ok "模擬器 ${UDID}（${DEVICE_NAME}${MODE:+，臨時機}）"
 
 cd "$REPO/ios"

@@ -14,6 +14,8 @@ const tmpUdid = "55555555-5555-5555-5555-555555555555";
 const proMaxType = "com.apple.CoreSimulator.SimDeviceType.iPhone-18-Pro-Max";
 const runtime = "com.apple.CoreSimulator.SimRuntime.iOS-27-2";
 const unusedPid = 2147483647;
+// node spawns with a socket on stdin, which makes bash read ~/.bashrc (and its PATH) like an rsh shell.
+const bashArgs = ["--noprofile", "--norc"];
 
 function devices(plusState = "Shutdown", proMaxState = "Shutdown") {
   return [
@@ -47,7 +49,13 @@ function fixture(t: TestContext, runId: string, list = devices()) {
     '  cat "$MO_TEST_DEVICES"',
     'elif [ "${1:-}" = simctl ] && [ "${2:-}" = create ]; then',
     `  echo ${tmpUdid}`,
+    'elif [ "${1:-}" = simctl ] && [ "${2:-}" = delete ]; then',
+    '  if ! /usr/bin/jq -e --arg udid "$3" \'any(.devices[][]; .udid == $udid)\' "$MO_TEST_DEVICES" >/dev/null; then',
+    '    echo "Invalid device: $3" >&2; exit 148',
+    '  fi',
+    '  if grep -qx "$3" "$MO_TEST_ROOT/delete.fail" 2>/dev/null; then echo "stub delete failure" >&2; exit 1; fi',
     'elif [ "${1:-}" = simctl ] && [ "${2:-}" = shutdown ]; then',
+    '  if grep -qx "$3" "$MO_TEST_ROOT/shutdown.fail" 2>/dev/null; then echo "stub shutdown failure" >&2; exit 7; fi',
     '  state=$(/usr/bin/jq -r --arg udid "$3" \'.devices[][] | select(.udid == $udid) | .state\' "$MO_TEST_DEVICES")',
     '  if [ "$state" != Booted ]; then',
     '    printf "%s\\n" "An error was encountered processing the command (domain=com.apple.CoreSimulator.SimError, code=405):" "Unable to shutdown device in current state: $state" >&2',
@@ -60,20 +68,41 @@ function fixture(t: TestContext, runId: string, list = devices()) {
   for (const command of ["xcrun", "xcodegen", "xcodebuild"]) {
     writeFileSync(join(bin, command), stub, { mode: 0o755 });
   }
+  // sim-vault stand-in: ensure prints the UDID of the named device, or fails with $MO_TEST_ROOT/ensure.rc.
+  const vault = [
+    "#!/bin/bash",
+    'printf "%s" "${0##*/}" >> "$MO_TEST_LOG"',
+    'printf " %s" "$@" >> "$MO_TEST_LOG"',
+    'printf "\\n" >> "$MO_TEST_LOG"',
+    'if [ "${1:-}" = ensure ]; then',
+    '  rc=$(cat "$MO_TEST_ROOT/ensure.rc" 2>/dev/null || echo 0)',
+    '  if [ "$rc" != 0 ]; then echo "sim-vault: error: stub $rc" >&2; printf \'{"ok":false,"code":%s}\\n\' "$rc"; exit "$rc"; fi',
+    '  udid=$(/usr/bin/jq -r --arg n "$2" \'[.devices[][] | select(.name == $n)][0].udid\' "$MO_TEST_DEVICES")',
+    '  printf \'{"ok":true,"udid":"%s"}\\n\' "$udid"',
+    "fi",
+    "exit 0",
+    "",
+  ].join("\n");
+  writeFileSync(join(bin, "sim-vault"), vault, { mode: 0o755 });
   const env = {
     PATH: `${bin}:/usr/bin:/bin`,
     MO_VERIFY_ROOT: root,
     MO_TEST_LOG: log,
     MO_TEST_DEVICES: deviceJson,
+    MO_TEST_ROOT: root,
   };
   // Check the executable lookup before any real lifecycle script can run.
-  const lookup = spawnSync("/bin/bash", ["-c", "command -v xcrun"], { env, encoding: "utf8" });
+  const lookup = spawnSync("/bin/bash", [...bashArgs, "-c", "command -v xcrun"], { env, encoding: "utf8" });
   assert.equal(lookup.status, 0, lookup.stderr);
   assert.equal(lookup.stdout.trim(), join(bin, "xcrun"));
+  const vaultLookup = spawnSync("/bin/bash", [...bashArgs, "-c", "command -v sim-vault"], { env, encoding: "utf8" });
+  assert.equal(vaultLookup.stdout.trim(), join(bin, "sim-vault"));
   return {
     run,
+    root,
+    lease: `--lease mo:${run}`,
     invoke(script: string, ...args: string[]) {
-      const result = spawnSync("/bin/bash", [join(scripts, script), runId, ...args], { env, encoding: "utf8" });
+      const result = spawnSync("/bin/bash", [...bashArgs, join(scripts, script), runId, ...args], { env, encoding: "utf8" });
       assert.ifError(result.error);
       assert.notEqual(result.status, null, result.stderr);
       return { status: result.status, output: result.stdout + result.stderr, log: readFileSync(log, "utf8") };
@@ -81,55 +110,67 @@ function fixture(t: TestContext, runId: string, list = devices()) {
   };
 }
 
-test("ios-up 重用指定的 Pro Max，不建立裝置或碰已開機的 OKI", (t) => {
+test("ios-up 用 sim-vault ensure 取指定的 Pro Max，不建立裝置或碰已開機的 OKI", (t) => {
   const f = fixture(t, "r1");
   const r = f.invoke("ios-up.sh", "18-pro-max");
   assert.equal(r.status, 0, r.output);
-  assert.doesNotMatch(r.log, /simctl create/);
+  assert.ok(r.log.includes(`sim-vault ensure MO iPhone 18 Pro Max --boot ${f.lease} --exclusive --json\n`), r.log);
+  assert.doesNotMatch(r.log, /--create|simctl (create|bootstatus|shutdown) /);
   assert.equal(readFileSync(join(f.run, "sim.udid"), "utf8").trim(), proMax);
   assert.equal(readFileSync(join(f.run, "sim.device"), "utf8").trim(), "18-pro-max");
-  assert.ok(r.log.includes(`xcrun simctl bootstatus ${proMax} -b`), r.log);
+  assert.equal(readFileSync(join(f.run, "sim.lease"), "utf8").trim(), "MO iPhone 18 Pro Max");
   assert.ok(r.log.includes(`-destination id=${proMax}`), r.log);
   assert.ok(r.log.includes(`xcrun simctl install ${proMax} `), r.log);
   assert.doesNotMatch(r.log, new RegExp(oki));
 });
 
-test("同 run 換成 Plus 時先關 Pro Max，再開 Plus 並更新狀態", (t) => {
+test("兩個狀態目錄用同一個 run-id 時 lease owner 不同", (t) => {
+  const a = fixture(t, "same");
+  const b = fixture(t, "same");
+  const ra = a.invoke("ios-up.sh", "18-pro-max");
+  const rb = b.invoke("ios-up.sh", "18-pro-max");
+  assert.equal(ra.status, 0, ra.output);
+  assert.equal(rb.status, 0, rb.output);
+  assert.notEqual(a.lease, b.lease);
+  assert.ok(ra.log.includes(a.lease) && rb.log.includes(b.lease), ra.log + rb.log);
+});
+
+test("同 run 換成 Plus 時先交還 Pro Max 的 lease，再取 Plus 並更新狀態", (t) => {
   const f = fixture(t, "r1", devices("Shutdown", "Booted"));
   writeFileSync(join(f.run, "sim.udid"), proMax);
   writeFileSync(join(f.run, "sim.device"), "18-pro-max");
+  writeFileSync(join(f.run, "sim.lease"), "MO iPhone 18 Pro Max\n");
   const r = f.invoke("ios-up.sh", "16-plus");
   assert.equal(r.status, 0, r.output);
-  const shutdown = r.log.indexOf(`xcrun simctl shutdown ${proMax}\n`);
-  const boot = r.log.indexOf(`xcrun simctl bootstatus ${plus} -b\n`);
-  assert.ok(shutdown >= 0 && boot > shutdown, r.log);
+  const release = r.log.indexOf(`sim-vault release MO iPhone 18 Pro Max ${f.lease} --shutdown\n`);
+  const ensure = r.log.indexOf(`sim-vault ensure MO iPhone 16 Plus --boot ${f.lease} --exclusive --json\n`);
+  assert.ok(release >= 0 && ensure > release, r.log);
   assert.equal(readFileSync(join(f.run, "sim.udid"), "utf8").trim(), plus);
   assert.equal(readFileSync(join(f.run, "sim.device"), "utf8").trim(), "16-plus");
   assert.doesNotMatch(r.log, new RegExp(oki));
 });
 
-test("同 run 的 Pro Max 已關機時直接開 Plus 並更新狀態", (t) => {
-  const f = fixture(t, "r1");
+test("同 run 重跑同一台時不交還 lease，直接重入 ensure", (t) => {
+  const f = fixture(t, "r1", devices("Shutdown", "Booted"));
   writeFileSync(join(f.run, "sim.udid"), proMax);
   writeFileSync(join(f.run, "sim.device"), "18-pro-max");
-  const r = f.invoke("ios-up.sh", "16-plus");
+  writeFileSync(join(f.run, "sim.lease"), "MO iPhone 18 Pro Max\n");
+  const r = f.invoke("ios-up.sh", "18-pro-max");
   assert.equal(r.status, 0, r.output);
-  assert.doesNotMatch(r.log, /simctl shutdown /);
-  assert.ok(r.log.includes(`xcrun simctl bootstatus ${plus} -b\n`), r.log);
-  assert.ok(r.log.includes(`xcrun simctl install ${plus} `), r.log);
-  assert.equal(readFileSync(join(f.run, "sim.udid"), "utf8").trim(), plus);
-  assert.equal(readFileSync(join(f.run, "sim.device"), "utf8").trim(), "16-plus");
-  assert.doesNotMatch(r.log, new RegExp(oki));
+  assert.doesNotMatch(r.log, /sim-vault release|simctl shutdown /);
+  assert.ok(r.log.includes(`sim-vault ensure MO iPhone 18 Pro Max --boot ${f.lease} --exclusive --json\n`), r.log);
 });
 
-for (const state of ["Booted", "Booting", "Shutting Down"]) {
-  test(`指定的常駐機被其他 run 開著（${state}）時停止並提示 tmp，不關機也不開另一台`, (t) => {
-    const f = fixture(t, "r2", devices("Shutdown", state));
+for (const code of [3, 5, 8]) {
+  test(`sim-vault ensure 回 ${code} 時原碼停止，不建機、不寫 sim.udid，但留 sim.lease 給 down`, (t) => {
+    const f = fixture(t, "r2");
+    writeFileSync(join(f.root, "ensure.rc"), String(code));
     const r = f.invoke("ios-up.sh", "18-pro-max");
-    assert.notEqual(r.status, 0, r.output);
-    assert.match(r.output, /可能有別的驗證在用.*18-pro-max tmp/);
-    assert.doesNotMatch(r.log, /simctl (boot|bootstatus|shutdown|create|install) /);
+    assert.equal(r.status, code, r.output);
+    if (code === 3) assert.match(r.output, /MO 不自己建常駐機/);
+    assert.doesNotMatch(r.log, /simctl (create|boot|bootstatus|shutdown|install) /);
     assert.equal(existsSync(join(f.run, "sim.udid")), false);
+    assert.equal(readFileSync(join(f.run, "sim.lease"), "utf8").trim(), "MO iPhone 18 Pro Max");
   });
 }
 
@@ -146,6 +187,7 @@ test("tmp 建同機型臨時機、用最新 iOS runtime，並記進 sim.tmp", (t
   const r = f.invoke("ios-up.sh", "18-pro-max", "tmp");
   assert.equal(r.status, 0, r.output);
   assert.ok(r.log.includes(`xcrun simctl create MO tmp r5 18-pro-max ${proMaxType} ${runtime}\n`), r.log);
+  assert.doesNotMatch(r.log, /sim-vault ensure/);
   assert.doesNotMatch(r.log, new RegExp(`simctl shutdown ${proMax}`));
   assert.ok(r.log.includes(`xcrun simctl bootstatus ${tmpUdid} -b`), r.log);
   assert.equal(readFileSync(join(f.run, "sim.udid"), "utf8").trim(), tmpUdid);
@@ -172,25 +214,35 @@ for (const args of [[], ["pro"]]) {
   });
 }
 
-for (const condition of ["缺少", "不可用", "同名多台", "只有近似名稱"] as const) {
-  test(`指定機型${condition}時停止，由使用者依 AGENTS.md 處理`, (t) => {
-    const list = devices();
-    if (condition === "缺少") list.splice(1, 1);
-    if (condition === "不可用") list[1].isAvailable = false;
-    if (condition === "同名多台") list.push({ ...list[1], udid: "44444444-4444-4444-4444-444444444444" });
-    if (condition === "只有近似名稱") list[1].name += " Copy";
-    const f = fixture(t, "r4", list);
-    const r = f.invoke("ios-up.sh", "18-pro-max");
-    assert.notEqual(r.status, 0, r.output);
-    assert.match(r.output, /常駐機不自己新建或刪除.*請使用者處理/);
-    assert.doesNotMatch(r.log, /simctl (create|boot|bootstatus|shutdown|install) /);
+for (const [label, list] of [
+  ["已關機", [...devices(), { name: "MO tmp r1 16-plus", udid: tmpUdid, state: "Shutdown", isAvailable: true }]],
+  ["已不存在", devices()],
+] as const) {
+  test(`從 tmp 換回常駐機時，上一台臨時機${label}就忽略關機錯誤`, (t) => {
+    const f = fixture(t, "r1", [...list]);
+    writeFileSync(join(f.run, "sim.udid"), tmpUdid);
+    writeFileSync(join(f.run, "sim.tmp"), `${tmpUdid}\n`);
+    const r = f.invoke("ios-up.sh", "16-plus");
+    assert.equal(r.status, 0, r.output);
+    assert.equal(readFileSync(join(f.run, "sim.udid"), "utf8").trim(), plus);
   });
 }
 
-test("down 只關機保留裝置，清除兩個狀態檔並保留證據及既有收尾", (t) => {
+test("從 tmp 換回常駐機時，上一台臨時機關不掉就停止並傳回原結束碼", (t) => {
+  const f = fixture(t, "r1", [...devices(), { name: "MO tmp r1 16-plus", udid: tmpUdid, state: "Booted", isAvailable: true }]);
+  writeFileSync(join(f.run, "sim.udid"), tmpUdid);
+  writeFileSync(join(f.run, "sim.tmp"), `${tmpUdid}\n`);
+  writeFileSync(join(f.root, "shutdown.fail"), `${tmpUdid}\n`);
+  const r = f.invoke("ios-up.sh", "16-plus");
+  assert.equal(r.status, 7, r.output);
+  assert.match(r.output, /stub shutdown failure/);
+});
+
+test("down 交還常駐機的 lease（由 sim-vault 關機），清除狀態檔並保留證據及既有收尾", (t) => {
   const f = fixture(t, "r1");
   writeFileSync(join(f.run, "sim.udid"), plus);
   writeFileSync(join(f.run, "sim.device"), "16-plus");
+  writeFileSync(join(f.run, "sim.lease"), "MO iPhone 16 Plus\n");
   const evidence = join(f.run, "evidence/ios/16-plus/02-overview.png");
   mkdirSync(join(f.run, "evidence/ios/16-plus"));
   writeFileSync(evidence, "evidence");
@@ -199,14 +251,35 @@ test("down 只關機保留裝置，清除兩個狀態檔並保留證據及既有
   writeFileSync(join(f.run, "user.cj"), "test cookie");
   const r = f.invoke("down.sh");
   assert.equal(r.status, 0, r.output);
-  assert.ok(r.log.includes(`xcrun simctl shutdown ${plus}\n`), r.log);
-  assert.doesNotMatch(r.log, /simctl delete/);
-  assert.match(r.output, /已關機（保留）/);
-  for (const file of ["sim.udid", "sim.device", "dd", "user.pw", "user.cj", "state.env"]) {
+  assert.ok(r.log.includes(`sim-vault release MO iPhone 16 Plus ${f.lease} --shutdown\n`), r.log);
+  assert.doesNotMatch(r.log, /simctl (shutdown|delete) /);
+  for (const file of ["sim.udid", "sim.device", "sim.lease", "dd", "user.pw", "user.cj", "state.env"]) {
     assert.equal(existsSync(join(f.run, file)), false, file);
   }
   assert.equal(existsSync(join(f.run, "state.env.down")), true);
   assert.equal(readFileSync(evidence, "utf8"), "evidence");
+  const again = f.invoke("down.sh");
+  assert.equal(again.status, 0, again.output);
+});
+
+test("down 刪不掉還在的臨時機時回非 0 並保留 sim.tmp", (t) => {
+  const list = [...devices(), { name: "MO tmp r1 18-pro-max", udid: tmpUdid, state: "Shutdown", isAvailable: true }];
+  const f = fixture(t, "r1", list);
+  writeFileSync(join(f.run, "sim.tmp"), `${tmpUdid}\n`);
+  writeFileSync(join(f.root, "delete.fail"), `${tmpUdid}\n`);
+  const r = f.invoke("down.sh");
+  assert.notEqual(r.status, 0, r.output);
+  assert.equal(readFileSync(join(f.run, "sim.tmp"), "utf8").trim(), tmpUdid);
+  assert.equal(existsSync(join(f.run, "state.env")), true);
+});
+
+test("down 遇到已被手動刪掉的臨時機視為完成", (t) => {
+  const f = fixture(t, "r1");
+  writeFileSync(join(f.run, "sim.tmp"), `${tmpUdid}\n`);
+  const r = f.invoke("down.sh");
+  assert.equal(r.status, 0, r.output);
+  assert.ok(r.log.includes(`xcrun simctl delete ${tmpUdid}\n`), r.log);
+  assert.equal(existsSync(join(f.run, "sim.tmp")), false);
 });
 
 test("down 刪除本 run 用 tmp 建的臨時機，sim.tmp 一併清掉", (t) => {

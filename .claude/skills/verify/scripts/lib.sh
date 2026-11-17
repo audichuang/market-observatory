@@ -36,7 +36,7 @@ run_dir() {
   [ -n "${1:-}" ] || die "要給 run-id（web-up.sh 建立時印出的那個）"
   local d="$VERIFY_ROOT/$1"
   [ -d "$d" ] || die "找不到 $d"
-  echo "$d"
+  (cd "$d" && pwd)
 }
 
 # 把整棵程序樹（自己＋所有子孫）殺掉；只用在這次驗證自己記下的 PID。

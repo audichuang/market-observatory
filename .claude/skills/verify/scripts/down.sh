@@ -12,7 +12,7 @@ if kill -0 "$DEV_PID" 2>/dev/null; then kill_tree "$DEV_PID"; ok "dev server PID
 # 常駐機：交還這個 run 的 lease，ensure 開的機由 sim-vault 關掉；機器保留。
 if [ -f "$RUN/sim.lease" ]; then
   need_sim_vault
-  sim-vault release "$(cat "$RUN/sim.lease")" --lease "mo:${RUN_ID}" --shutdown
+  sim-vault release "$(cat "$RUN/sim.lease")" --lease "mo:${RUN}" --shutdown
   rm -f "$RUN/sim.lease"
 fi
 # 這個 run 用 tmp 建的臨時機用完就刪；刪不掉的留在 sim.tmp，down.sh 回非 0，重跑會再刪。
@@ -21,7 +21,13 @@ if [ -f "$RUN/sim.tmp" ]; then
   while read -r TMP_UDID; do
     [ -n "$TMP_UDID" ] || continue
     xcrun simctl shutdown "$TMP_UDID" 2>/dev/null || true
-    if xcrun simctl delete "$TMP_UDID"; then ok "臨時機 $TMP_UDID 已刪除"; else echo "$TMP_UDID" >>"$RUN/sim.tmp.left"; fi
+    if xcrun simctl delete "$TMP_UDID"; then
+      ok "臨時機 $TMP_UDID 已刪除"
+    elif ! xcrun simctl list devices -j | /usr/bin/jq -e --arg u "$TMP_UDID" 'any(.devices[][]; .udid == $u)' >/dev/null; then
+      ok "臨時機 $TMP_UDID 已不在"
+    else
+      echo "$TMP_UDID" >>"$RUN/sim.tmp.left"
+    fi
   done <"$RUN/sim.tmp"
   if [ -s "$RUN/sim.tmp.left" ]; then
     mv "$RUN/sim.tmp.left" "$RUN/sim.tmp"; RC=1

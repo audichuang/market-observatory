@@ -50,7 +50,7 @@ description: 像使用者一樣實際操作市場觀測室（網站 web/ 與 iOS
    "$S/ios-up.sh" <run-id> 18-pro-max
    ```
 
-   機型必填：`16-plus` 重用既有 `MO iPhone 16 Plus`，`18-pro-max` 重用既有 `MO iPhone 18 Pro Max`。腳本用 `sim-vault ensure --boot --lease mo:<run-id> --exclusive` 取常駐機（收起的會自動還原；MO 不建常駐機，結束碼 3／4 就停下問使用者），同 run 重跑可重入；其他結束碼照 `sim-vault --help` 處理。要平行驗證就加第三個參數 `tmp`，建同機型的臨時機 `MO tmp <run-id> <機型>`（`down.sh` 會刪）。同 run 換機重跑 `ios-up.sh <run-id> <機型>`，會先交還前一台。開機後執行 `xcodegen generate`、`build-for-testing`、安裝 App，並記下 `sim.udid` 與 `sim.device`；證據路徑的 `<機型>` 就是 `sim.device` 的代稱。App 是 Debug 版，啟動參數 `-debugBaseURL http://localhost:<port>` 讓它連這次的本機站（UserDefaults 的參數網域，不會寫進 App 設定）。
+   機型必填：`16-plus` 重用既有 `MO iPhone 16 Plus`，`18-pro-max` 重用既有 `MO iPhone 18 Pro Max`。腳本用 `sim-vault ensure --boot --lease mo:<run 目錄> --exclusive` 取常駐機（收起的會自動還原；MO 不建常駐機，沒有封存或 runtime 已移除就停下問使用者），同 run 重跑可重入；結束碼見 `sim-vault --help`。要平行驗證就加第三個參數 `tmp`，建同機型的臨時機 `MO tmp <run-id> <機型>`（`down.sh` 會刪）。同 run 換機重跑 `ios-up.sh <run-id> <機型>`，會先交還前一台。開機後執行 `xcodegen generate`、`build-for-testing`、安裝 App，並記下 `sim.udid` 與 `sim.device`；證據路徑的 `<機型>` 就是 `sim.device` 的代稱。App 是 Debug 版，啟動參數 `-debugBaseURL http://localhost:<port>` 讓它連這次的本機站（UserDefaults 的參數網域，不會寫進 App 設定）。
 
 沒有本機站可用時（例如只想看正式站上已部署的 App），才連正式站，而且只用一次性帳號，見下方「正式站」。
 

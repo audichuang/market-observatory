@@ -12,7 +12,8 @@ source "$RUN/state.env"
 [ -z "$MODE" ] || [ "$MODE" = tmp ] || die "第三個參數只能是 tmp"
 
 need_sim_vault
-LEASE="mo:${RUN_ID}"
+# The lease owner is the absolute run directory: the same run-id under another MO_VERIFY_ROOT is another owner.
+LEASE="mo:${RUN}"
 PREV_UDID=$(cat "$RUN/sim.udid" 2>/dev/null || true)
 # Switching away from a resident device: drop this run's lease on it (shuts it down if ensure booted it).
 if [ -f "$RUN/sim.lease" ] && { [ -n "$MODE" ] || [ "$(cat "$RUN/sim.lease")" != "$DEVICE_NAME" ]; }; then
@@ -47,7 +48,14 @@ else
   UDID=$(/usr/bin/jq -r .udid <<<"$OUT")
 fi
 if [ -n "$PREV_UDID" ] && [ "$PREV_UDID" != "$UDID" ] && grep -qx "$PREV_UDID" "$RUN/sim.tmp" 2>/dev/null; then
-  xcrun simctl shutdown "$PREV_UDID" 2>/dev/null || true
+  # Ignore the error only when that tmp device is already shut down or gone.
+  rc=0
+  ERR=$(xcrun simctl shutdown "$PREV_UDID" 2>&1) || rc=$?
+  if [ "$rc" -ne 0 ] && xcrun simctl list devices -j | /usr/bin/jq -e --arg u "$PREV_UDID" \
+    'any(.devices[][]; .udid == $u and .state != "Shutdown")' >/dev/null; then
+    echo "$ERR" >&2
+    exit "$rc"
+  fi
 fi
 echo "$UDID" >"$RUN/sim.udid"
 echo "$DEVICE" >"$RUN/sim.device"

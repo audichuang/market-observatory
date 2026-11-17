@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Boot an MO device and build-for-testing; leave other runs' devices alone.
-#   ios-up.sh <run-id> <16-plus|18-pro-max>        reuse the resident device
+#   ios-up.sh <run-id> <16-plus|18-pro-max>        reuse the resident device (restored from the NAS if park.sh parked it)
 #   ios-up.sh <run-id> <16-plus|18-pro-max> tmp    parallel run: create "MO tmp <run-id> <機型>" (down.sh deletes it)
 # Outputs: $RUN/sim.udid, $RUN/sim.device, $RUN/sim.tmp (temporary UDIDs), $RUN/dd (DerivedData, removed by down.sh).
 source "$(dirname "$0")/lib.sh"
@@ -11,15 +11,16 @@ RUN="$(run_dir "${1:-}")"
 source "$RUN/state.env"
 [ -z "$MODE" ] || [ "$MODE" = tmp ] || die "第三個參數只能是 tmp"
 
+# Hold the resident-device lock until boot so park.sh cannot delete the device mid-boot.
+sim_lock
+if [ -z "$MODE" ]; then restore_resident "$DEVICE_NAME"; fi
 DEVICES=$(xcrun simctl list devices -j)
 CURRENT_UDID=""
 if [ -f "$RUN/sim.udid" ]; then CURRENT_UDID=$(cat "$RUN/sim.udid"); fi
 if [ "$MODE" = tmp ]; then
   # 臨時機與常駐機同機型、用最新的 iOS runtime；同一 run 重跑時沿用已建的那台。
   TMP_NAME="MO tmp $(basename "$RUN") ${DEVICE}"
-  TYPE=$(/usr/bin/jq -r --arg name "$DEVICE_NAME" \
-    '[.devices[][] | select(.name == $name)][0].deviceTypeIdentifier // empty' <<<"$DEVICES")
-  [ -n "$TYPE" ] || die "找不到常駐機 ${DEVICE_NAME}，無法得知要建的機型"
+  TYPE=$(simulator_type "$DEVICE")
   UDID=$(/usr/bin/jq -r --arg name "$TMP_NAME" \
     '[.devices[][] | select(.name == $name and .isAvailable == true)][0].udid // empty' <<<"$DEVICES")
   if [ -z "$UDID" ]; then
@@ -48,6 +49,7 @@ fi
 xcrun simctl bootstatus "$UDID" -b
 echo "$UDID" >"$RUN/sim.udid"
 echo "$DEVICE" >"$RUN/sim.device"
+sim_unlock
 ok "模擬器 ${UDID}（${DEVICE_NAME}${MODE:+，臨時機}）"
 
 cd "$REPO/ios"

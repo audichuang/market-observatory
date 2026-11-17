@@ -230,10 +230,9 @@ DROP TABLE verify_saved_digests;"
 
 ```sh
 "$S/down.sh" <run-id>
-"$S/park.sh" <16-plus|18-pro-max|all>   # 整批 iOS 工作做完、不再驗 App 時才收
 ```
 
-只收這次啟動的東西：dev server 的整棵程序樹（vite＋workerd，用記下的 PID，不用 process 名稱）、本輪 `ios-up.sh` 開的 MO 機（常駐機關機保留，`tmp` 建的臨時機刪除）、DerivedData、密碼與 cookie 檔；清除 `sim.udid`、`sim.device`、`sim.tmp`。兩台常駐 MO 機都保留，證據也保留，腳本最後確認 `$RUN/evidence` 不是空的並印出位置。ego-browser 那邊在最後一輪呼叫 `task.finish({ keep: [] })`；忘了的話 `down.sh` 會收掉名為 `mo-verify-<run-id>` 的 task space。失敗中斷的嘗試也要跑 `down.sh`，別留下佔著 port 的 dev server。整批 iOS 工作（含後續修正重驗）都做完才跑 `park.sh`，把常駐機整台收進 NAS 並刪掉本機那台；它只收已關機、沒有 run 記著（還沒 `down.sh`）的常駐機，PosterBoard 資料超過約 1G 會拒收，`MO tmp …` 不收（`down.sh` 刪）。失敗時原樣傳回 `sim-vault` 的結束碼，處理方式見 modern-ios-guidance VER7。不要動其他代號（例如 `CB`、`DSA`）的模擬器；不要用 `killall` 收 CoreSimulatorService。
+只收這次啟動的東西：dev server 的整棵程序樹（vite＋workerd，用記下的 PID，不用 process 名稱）、本輪 `ios-up.sh` 開的 MO 機（常駐機關機保留，`tmp` 建的臨時機刪除）、DerivedData、密碼與 cookie 檔；清除 `sim.udid`、`sim.device`、`sim.tmp`。兩台常駐 MO 機都保留，證據也保留，腳本最後確認 `$RUN/evidence` 不是空的並印出位置。ego-browser 那邊在最後一輪呼叫 `task.finish({ keep: [] })`；忘了的話 `down.sh` 會收掉名為 `mo-verify-<run-id>` 的 task space。失敗中斷的嘗試也要跑 `down.sh`，別留下佔著 port 的 dev server。整批 iOS 工作（含後續修正重驗）都做完才跑 `"$S/park.sh" <16-plus|18-pro-max|all>`，把常駐機整台收進 NAS 並刪掉本機那台；它只收已關機、沒有 run 記著（還沒 `down.sh`）的常駐機，PosterBoard 資料超過約 1G 會拒收，`MO tmp …` 不收（`down.sh` 刪）。失敗時原樣傳回 `sim-vault` 的結束碼，處理方式見 modern-ios-guidance VER7。不要動其他代號（例如 `CB`、`DSA`）的模擬器；不要用 `killall` 收 CoreSimulatorService。
 
 ## 正式站（只在必要時）
 

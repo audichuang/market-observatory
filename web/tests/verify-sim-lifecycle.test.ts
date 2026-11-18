@@ -79,6 +79,10 @@ function fixture(t: TestContext, runId: string, list = devices()) {
     '  if [ "$rc" != 0 ]; then echo "sim-vault: error: stub $rc" >&2; printf \'{"ok":false,"code":%s}\\n\' "$rc"; exit "$rc"; fi',
     '  udid=$(/usr/bin/jq -r --arg n "$2" \'[.devices[][] | select(.name == $n)][0].udid\' "$MO_TEST_DEVICES")',
     '  printf \'{"ok":true,"udid":"%s"}\\n\' "$udid"',
+    // park: exit code per device from "$MO_TEST_ROOT/park.rc" lines "<name>=<rc>" (default 0).
+    'elif [ "${1:-}" = park ]; then',
+    '  rc=$(grep -F -- "$2=" "$MO_TEST_ROOT/park.rc" 2>/dev/null | head -n1 | cut -d= -f2)',
+    '  if [ -n "$rc" ] && [ "$rc" != 0 ]; then echo "error (exit $rc, stub): $2" >&2; exit "$rc"; fi',
     "fi",
     "exit 0",
     "",
@@ -106,6 +110,13 @@ function fixture(t: TestContext, runId: string, list = devices()) {
       assert.ifError(result.error);
       assert.notEqual(result.status, null, result.stderr);
       return { status: result.status, output: result.stdout + result.stderr, log: readFileSync(log, "utf8") };
+    },
+    // Scripts that take no run-id (park.sh).
+    invokeNoRun(script: string, ...args: string[]) {
+      const result = spawnSync("/bin/bash", [...bashArgs, join(scripts, script), ...args], { env, encoding: "utf8" });
+      assert.ifError(result.error);
+      assert.notEqual(result.status, null, result.stderr);
+      return { status: result.status, stdout: result.stdout, output: result.stdout + result.stderr, log: readFileSync(log, "utf8") };
     },
   };
 }
@@ -293,6 +304,42 @@ test("down 刪除本 run 用 tmp 建的臨時機，sim.tmp 一併清掉", (t) =>
   assert.ok(r.log.includes(`xcrun simctl delete ${tmpUdid}\n`), r.log);
   assert.doesNotMatch(r.log, new RegExp(`simctl delete (${plus}|${proMax})`));
   assert.equal(existsSync(join(f.run, "sim.tmp")), false);
+});
+
+test("park all 第一台失敗時仍收第二台，逐台印 rc 並回第一個失敗碼", (t) => {
+  const f = fixture(t, "p1");
+  writeFileSync(join(f.root, "park.rc"), "MO iPhone 18 Pro Max=9\nMO iPhone 16 Plus=8\n");
+  const r = f.invokeNoRun("park.sh", "all");
+  assert.equal(r.status, 9, r.output);
+  assert.equal(
+    r.log,
+    "sim-vault park MO iPhone 18 Pro Max --shutdown --missing-ok\nsim-vault park MO iPhone 16 Plus --shutdown --missing-ok\n",
+  );
+  assert.match(r.stdout, /^MO iPhone 18 Pro Max rc=9$/m);
+  assert.match(r.stdout, /^MO iPhone 16 Plus rc=8$/m);
+});
+
+test("park all 只有第二台失敗時回第二台的碼，兩台都成功回 0", (t) => {
+  const f = fixture(t, "p2");
+  writeFileSync(join(f.root, "park.rc"), "MO iPhone 16 Plus=7\n");
+  const r = f.invokeNoRun("park.sh", "all");
+  assert.equal(r.status, 7, r.output);
+  assert.match(r.stdout, /^MO iPhone 18 Pro Max rc=0$/m);
+  assert.match(r.stdout, /^MO iPhone 16 Plus rc=7$/m);
+  writeFileSync(join(f.root, "park.rc"), "");
+  const ok = f.invokeNoRun("park.sh", "all");
+  assert.equal(ok.status, 0, ok.output);
+});
+
+test("park 單台模式原樣傳回 sim-vault 的結束碼", (t) => {
+  const f = fixture(t, "p3");
+  writeFileSync(join(f.root, "park.rc"), "MO iPhone 16 Plus=9\n");
+  const r = f.invokeNoRun("park.sh", "16-plus");
+  assert.equal(r.status, 9, r.output);
+  assert.equal(r.log, "sim-vault park MO iPhone 16 Plus --shutdown --missing-ok\n");
+  const bad = f.invokeNoRun("park.sh", "oki");
+  assert.equal(bad.status, 1, bad.output);
+  assert.equal(bad.log, r.log);
 });
 
 test("verify 文件一致使用兩台既有機型與保留裝置的生命週期", () => {

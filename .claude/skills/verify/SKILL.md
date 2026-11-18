@@ -232,7 +232,7 @@ DROP TABLE verify_saved_digests;"
 "$S/down.sh" <run-id>
 ```
 
-只收這次啟動的東西：dev server 的整棵程序樹（vite＋workerd，用記下的 PID，不用 process 名稱）、本輪 `ios-up.sh` 用的 MO 機（常駐機交還 lease 並關機保留，`tmp` 建的臨時機刪除，刪不掉就留在 `sim.tmp` 並回非 0）、DerivedData、密碼與 cookie 檔；清除 `sim.udid`、`sim.device`、`sim.lease`、`sim.tmp`；重跑不出錯。兩台常駐 MO 機都保留，證據也保留，腳本最後確認 `$RUN/evidence` 不是空的並印出位置。ego-browser 那邊在最後一輪呼叫 `task.finish({ keep: [] })`；忘了的話 `down.sh` 會收掉名為 `mo-verify-<run-id>` 的 task space。失敗中斷的嘗試也要跑 `down.sh`，別留下佔著 port 的 dev server。整批 iOS 工作（含後續修正重驗）都做完才跑 `"$S/park.sh" <16-plus|18-pro-max|all>`，用 `sim-vault park --shutdown --missing-ok` 把常駐機整台收進 NAS 並刪掉本機那台；還有 run 沒跑 `down.sh`（lease 還在）時 sim-vault 會拒收，`MO tmp …` 不收。結束碼原樣傳回，處理見 `sim-vault --help`。不要動其他代號（例如 `CB`、`DSA`）的模擬器；不要用 `killall` 收 CoreSimulatorService。
+只收這次啟動的東西：dev server 的整棵程序樹（vite＋workerd，用記下的 PID，不用 process 名稱）、本輪 `ios-up.sh` 用的 MO 機（常駐機交還 lease 並關機保留，`tmp` 建的臨時機刪除，刪不掉就留在 `sim.tmp` 並回非 0）、DerivedData、密碼與 cookie 檔；清除 `sim.udid`、`sim.device`、`sim.lease`、`sim.tmp`；重跑不出錯。兩台常駐 MO 機都保留，證據也保留，腳本最後確認 `$RUN/evidence` 不是空的並印出位置。ego-browser 那邊在最後一輪呼叫 `task.finish({ keep: [] })`；忘了的話 `down.sh` 會收掉名為 `mo-verify-<run-id>` 的 task space。失敗中斷的嘗試也要跑 `down.sh`，別留下佔著 port 的 dev server。整批 iOS 工作（含後續修正重驗）都做完才跑 `"$S/park.sh" <16-plus|18-pro-max|all>`，用 `sim-vault park --shutdown --missing-ok` 把常駐機整台收進 NAS 並刪掉本機那台；還有 run 沒跑 `down.sh`（lease 還在）時 sim-vault 會拒收，`MO tmp …` 不收。單台的結束碼原樣傳回；`all` 第一台失敗也會試第二台，逐台印 `<名稱> rc=N`，回第一個失敗碼。處理見 `sim-vault --help`。不要動其他代號（例如 `CB`、`DSA`）的模擬器；不要用 `killall` 收 CoreSimulatorService。
 
 ## 正式站（只在必要時）
 

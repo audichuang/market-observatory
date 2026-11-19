@@ -28,7 +28,7 @@ simulator_type() {
 
 # Resident devices are taken, released and parked with sim-vault (exit codes: `sim-vault --help`).
 need_sim_vault() {
-  command -v sim-vault >/dev/null || die "沒有 sim-vault：ln -s ~/.aghub/modern-ios-guidance/scripts/sim-vault ~/.local/bin/sim-vault（modern-ios-guidance 技能要先用 aghub 裝好）"
+  command -v sim-vault >/dev/null || die "沒有 sim-vault：uv tool install \"git+https://github.com/audichuang/sim-vault@v4.0.0\""
 }
 
 # run_dir <run-id>：回傳這次驗證的目錄（不存在就 die）。

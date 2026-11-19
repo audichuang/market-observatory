@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -79,8 +79,19 @@ function fixture(t: TestContext, runId: string, list = devices()) {
     '  if [ "$rc" != 0 ]; then echo "sim-vault: error: stub $rc" >&2; printf \'{"ok":false,"code":%s}\\n\' "$rc"; exit "$rc"; fi',
     '  udid=$(/usr/bin/jq -r --arg n "$2" \'[.devices[][] | select(.name == $n)][0].udid\' "$MO_TEST_DEVICES")',
     '  printf \'{"ok":true,"udid":"%s"}\\n\' "$udid"',
-    // park: exit code per device from "$MO_TEST_ROOT/park.rc" lines "<name>=<rc>" (default 0).
+    // park: a device named in park.hang waits for a signal (130 on INT, 143 on TERM) after writing
+    // park.started; a booted device without --shutdown is refused with 6 like sim-vault does;
+    // otherwise the exit code per device comes from park.rc lines "<name>=<rc>" (default 0).
     'elif [ "${1:-}" = park ]; then',
+    '  if grep -qxF -- "$2" "$MO_TEST_ROOT/park.hang" 2>/dev/null; then',
+    '    trap \'kill $sleeper 2>/dev/null; exit 130\' INT',
+    '    trap \'kill $sleeper 2>/dev/null; exit 143\' TERM',
+    '    sleep "$(cat "$MO_TEST_ROOT/park.hang.seconds" 2>/dev/null || echo 30)" & sleeper=$!',
+    '    echo "$2" > "$MO_TEST_ROOT/park.started"',
+    '    wait $sleeper; exit 0',
+    '  fi',
+    '  state=$(/usr/bin/jq -r --arg n "$2" \'[.devices[][] | select(.name == $n)][0].state\' "$MO_TEST_DEVICES")',
+    '  case " $* " in *" --shutdown "*) ;; *) if [ "$state" = Booted ]; then echo "error (exit 6, booted): $2" >&2; exit 6; fi ;; esac',
     '  rc=$(grep -F -- "$2=" "$MO_TEST_ROOT/park.rc" 2>/dev/null | head -n1 | cut -d= -f2)',
     '  if [ -n "$rc" ] && [ "$rc" != 0 ]; then echo "error (exit $rc, stub): $2" >&2; exit "$rc"; fi',
     "fi",
@@ -111,6 +122,7 @@ function fixture(t: TestContext, runId: string, list = devices()) {
       assert.notEqual(result.status, null, result.stderr);
       return { status: result.status, output: result.stdout + result.stderr, log: readFileSync(log, "utf8") };
     },
+    env,
     // Scripts that take no run-id (park.sh).
     invokeNoRun(script: string, ...args: string[]) {
       const result = spawnSync("/bin/bash", [...bashArgs, join(scripts, script), ...args], { env, encoding: "utf8" });
@@ -313,7 +325,7 @@ test("park all 第一台失敗時仍收第二台，逐台印 rc 並回第一個�
   assert.equal(r.status, 9, r.output);
   assert.equal(
     r.log,
-    "sim-vault park MO iPhone 18 Pro Max --shutdown --missing-ok\nsim-vault park MO iPhone 16 Plus --shutdown --missing-ok\n",
+    "sim-vault park MO iPhone 18 Pro Max --missing-ok\nsim-vault park MO iPhone 16 Plus --missing-ok\n",
   );
   assert.match(r.stdout, /^MO iPhone 18 Pro Max rc=9$/m);
   assert.match(r.stdout, /^MO iPhone 16 Plus rc=8$/m);
@@ -329,6 +341,60 @@ test("park all 只有第二台失敗時回第二台的碼，兩台都成功回 0
   writeFileSync(join(f.root, "park.rc"), "");
   const ok = f.invokeNoRun("park.sh", "all");
   assert.equal(ok.status, 0, ok.output);
+});
+
+test("park all 第一台忙碌（8）時，第二台開著但沒有 lease 也不會被關：回 6 照報", (t) => {
+  const f = fixture(t, "p4", devices("Booted", "Shutdown"));
+  writeFileSync(join(f.root, "park.rc"), "MO iPhone 18 Pro Max=8\n");
+  const r = f.invokeNoRun("park.sh", "all");
+  assert.equal(r.status, 8, r.output);
+  assert.doesNotMatch(r.log, /--shutdown|simctl (shutdown|delete)/);
+  assert.match(r.stdout, /^MO iPhone 18 Pro Max rc=8$/m);
+  assert.match(r.stdout, /^MO iPhone 16 Plus rc=6$/m);
+});
+
+// Runs park.sh all in its own process group, waits until the first park is in progress, then signals.
+async function parkAllWithSignal(f: ReturnType<typeof fixture>, signal: NodeJS.Signals, group: boolean) {
+  writeFileSync(join(f.root, "park.hang"), "MO iPhone 18 Pro Max\n");
+  const child = spawn("/bin/bash", [...bashArgs, join(scripts, "park.sh"), "all"], { env: f.env, detached: true });
+  let output = "";
+  child.stdout.on("data", (d) => (output += d));
+  child.stderr.on("data", (d) => (output += d));
+  const exited = new Promise<number | null>((done) => child.on("close", (code) => done(code)));
+  const started = join(f.root, "park.started");
+  for (let i = 0; i < 100 && !existsSync(started); i++) await new Promise((r) => setTimeout(r, 50));
+  assert.ok(existsSync(started), "first park never started: " + output);
+  process.kill(group ? -child.pid! : child.pid!, signal);
+  const status = await exited;
+  return { status, output, log: readFileSync(join(f.root, "commands.log"), "utf8") };
+}
+
+test("park all 按 Ctrl-C（整個程序群收到 SIGINT）立即停止，不收第二台並回 130", async (t) => {
+  const f = fixture(t, "p5");
+  const r = await parkAllWithSignal(f, "SIGINT", true);
+  assert.equal(r.status, 130, r.output);
+  assert.equal(r.log, "sim-vault park MO iPhone 18 Pro Max --missing-ok\n");
+});
+
+test("park all 只有外層 shell 收到 SIGTERM 時，等目前這台結束後停止，不收第二台並回 143", async (t) => {
+  const f = fixture(t, "p6");
+  writeFileSync(join(f.root, "park.hang.seconds"), "1");
+  const r = await parkAllWithSignal(f, "SIGTERM", false);
+  assert.equal(r.status, 143, r.output);
+  assert.equal(r.log, "sim-vault park MO iPhone 18 Pro Max --missing-ok\n");
+});
+
+test("park all 第一台已回 9 後才被中斷，回中斷碼而不是 9", async (t) => {
+  const f = fixture(t, "p7");
+  writeFileSync(join(f.root, "park.rc"), "MO iPhone 18 Pro Max=9\n");
+  writeFileSync(join(f.root, "park.hang"), "MO iPhone 16 Plus\n");
+  const child = spawn("/bin/bash", [...bashArgs, join(scripts, "park.sh"), "all"], { env: f.env, detached: true });
+  const exited = new Promise<number | null>((done) => child.on("close", (code) => done(code)));
+  const started = join(f.root, "park.started");
+  for (let i = 0; i < 100 && !existsSync(started); i++) await new Promise((r) => setTimeout(r, 50));
+  assert.ok(existsSync(started));
+  process.kill(-child.pid!, "SIGINT");
+  assert.equal(await exited, 130);
 });
 
 test("park 單台模式原樣傳回 sim-vault 的結束碼", (t) => {
